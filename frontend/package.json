@@ -1,0 +1,26 @@
+{
+  "name": "web-frontend-intern-assistant-frontend",
+  "version": "1.0.0",
+  "description": "Web 前端实习生助手系统 - 前端界面",
+  "private": true,
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "test": "jest"
+  },
+  "dependencies": {
+    "@ant-design/icons": "^6.1.0",
+    "antd": "^5.12.2",
+    "react": "^18.2.0",
+    "react-diff-viewer": "^3.1.1",
+    "react-dom": "^18.2.0"
+  },
+  "devDependencies": {
+    "@types/react": "^18.2.45",
+    "@types/react-dom": "^18.2.18",
+    "@vitejs/plugin-react": "^4.2.1",
+    "typescript": "^5.3.3",
+    "vite": "^5.0.8"
+  }
+}
