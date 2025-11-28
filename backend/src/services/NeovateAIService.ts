@@ -1,6 +1,7 @@
 import { SSHExecutor } from './SSHExecutor';
 import { CodeChange, ChangeType } from '../types';
 import { createCodeChange, detectChangeType, parseFilePathFromDiff } from '../models/CodeChange';
+import { NeovateSessionManager } from './NeovateSessionManager';
 
 /**
  * qodercli 执行结果接口
@@ -11,6 +12,7 @@ export interface NeovateAIResult {
   changes: CodeChange[];
   rawOutput?: string;
   error?: string;
+  neovateSessionId?: string;  // 新增：Neovate 会话 ID
 }
 
 /**
@@ -19,6 +21,7 @@ export interface NeovateAIResult {
  */
 export class NeovateAIService {
   private absoluteWorkDir: string;
+  private sessionManager: NeovateSessionManager;
 
   constructor(
     private sshExecutor: SSHExecutor,
@@ -27,17 +30,31 @@ export class NeovateAIService {
     // 将工作目录转换为绝对路径
     const path = require('path');
     this.absoluteWorkDir = path.resolve(workDir);
+    this.sessionManager = new NeovateSessionManager();
   }
 
   /**
    * 使用 AI 修改代码
    * @param prompt 用户提示词
+   * @param conversationId 对话 ID（用于会话管理）
+   * @param existingSessionId 现有的 Neovate 会话 ID（可选）
    * @returns AI 执行结果
    */
-  async modifyCode(prompt: string): Promise<NeovateAIResult> {
+  async modifyCode(
+    prompt: string,
+    conversationId?: string,
+    existingSessionId?: string
+  ): Promise<NeovateAIResult> {
     try {
-      // 构造 qodercli 命令
-      const command = this.buildCommand(prompt);
+      console.log('[NeovateAIService] ========== 开始执行 ==========');
+      console.log('[NeovateAIService] conversationId:', conversationId);
+      console.log('[NeovateAIService] existingSessionId:', existingSessionId);
+      console.log('[NeovateAIService] workDir:', this.workDir);
+      
+      // 构造 neovate 命令（支持会话恢复）
+      const command = this.buildCommand(prompt, existingSessionId);
+      
+      console.log('[NeovateAIService] 执行命令:', command);
       
       // 执行命令
       const result = await this.sshExecutor.executeCommand(command, this.workDir);
@@ -46,7 +63,7 @@ export class NeovateAIService {
       if (result.exitCode !== 0) {
         return {
           success: false,
-          message: 'qodercli 执行失败',
+          message: 'neovate 执行失败',
           changes: [],
           error: result.stderr || result.stdout,
           rawOutput: result.stdout,
@@ -54,9 +71,58 @@ export class NeovateAIService {
       }
 
       // 记录原始输出用于调试
-      console.log('=== qodercli 原始输出 ===');
-      console.log(result.stdout);
-      console.log('=== qodercli 输出结束 ===');
+      console.log('[NeovateAIService] === neovate 原始输出 ===');
+      console.log(result.stdout.substring(0, 500) + '...');
+      console.log('[NeovateAIService] === neovate 输出结束 ===');
+
+      // 提取 Neovate 会话 ID
+      let neovateSessionId: string | undefined;
+      try {
+        // 尝试解析整个输出为 JSON 数组
+        try {
+          const parsed = JSON.parse(result.stdout);
+          if (Array.isArray(parsed)) {
+            // 遍历数组查找 sessionId
+            for (const item of parsed) {
+              if (item.sessionId && typeof item.sessionId === 'string') {
+                neovateSessionId = item.sessionId;
+                console.log(`[NeovateAIService] ✅ 提取到会话 ID: ${neovateSessionId}`);
+                break;
+              }
+            }
+          }
+        } catch (e) {
+          // 如果不是有效的 JSON 数组，尝试按行解析
+          const lines = result.stdout.split('\n').filter(line => line.trim());
+          for (const line of lines) {
+            try {
+              const parsed = JSON.parse(line);
+              if (parsed.sessionId && typeof parsed.sessionId === 'string') {
+                neovateSessionId = parsed.sessionId;
+                console.log(`[NeovateAIService] ✅ 提取到会话 ID (按行): ${neovateSessionId}`);
+                break;
+              }
+            } catch (e2) {
+              // 跳过无法解析的行
+            }
+          }
+        }
+
+        // 保存会话 ID
+        if (conversationId && neovateSessionId) {
+          console.log(`[NeovateAIService] 💾 保存会话映射: ${conversationId} -> ${neovateSessionId}`);
+          await this.sessionManager.saveSessionId(
+            conversationId,
+            neovateSessionId,
+            this.workDir
+          );
+          console.log(`[NeovateAIService] ✅ 会话 ID 映射已保存`);
+        } else {
+          console.log(`[NeovateAIService] ⚠️ 未保存会话映射 - conversationId: ${conversationId}, neovateSessionId: ${neovateSessionId}`);
+        }
+      } catch (error) {
+        console.error('[NeovateAIService] ❌ 提取会话 ID 失败:', error);
+      }
 
       // 解析输出，提取代码变更
       const changes = await this.parseOutput(result.stdout);
@@ -66,11 +132,12 @@ export class NeovateAIService {
         message: `成功修改代码，共 ${changes.length} 个文件变更`,
         changes,
         rawOutput: result.stdout,
+        neovateSessionId,
       };
     } catch (error) {
       return {
         success: false,
-        message: '执行 qodercli 时发生错误',
+        message: '执行 neovate 时发生错误',
         changes: [],
         error: error instanceof Error ? error.message : String(error),
       };
@@ -78,11 +145,12 @@ export class NeovateAIService {
   }
 
   /**
-   * 构造 qodercli 命令
+   * 构造 neovate 命令
    * @param prompt 用户提示词
+   * @param sessionId 会话 ID（可选，用于恢复会话）
    * @returns 完整的命令字符串
    */
-  private buildCommand(prompt: string): string {
+  private buildCommand(prompt: string, sessionId?: string): string {
     // 转义提示词中的特殊字符
     const escapedPrompt = prompt
       .replace(/\\/g, '\\\\')  // 转义反斜杠
@@ -90,12 +158,22 @@ export class NeovateAIService {
       .replace(/`/g, '\\`')     // 转义反引号
       .replace(/\$/g, '\\$');   // 转义美元符号
 
-    // 构造 qodercli 命令
-    // -p: 非交互模式执行单个提示
-    // -w: 指定工作目录（使用绝对路径）
-    // -f json: 使用 JSON 输出格式便于解析
-    // --yolo: 跳过所有权限检查（自动执行）
-    return `qodercli -p "${escapedPrompt}" -w "${this.absoluteWorkDir}" -f json --yolo`;
+    // 构造 neovate 命令
+    // -q: 非交互模式
+    // --cwd: 指定工作目录（使用绝对路径）
+    // --output-format json: 使用 JSON 输出格式
+    // --approval-mode yolo: 自动批准所有操作
+    // --resume: 恢复会话（如果提供了 sessionId）
+    let command = `neovate -q --cwd "${this.absoluteWorkDir}" --output-format json --approval-mode yolo`;
+    
+    // 如果提供了 sessionId，添加 --resume 参数
+    if (sessionId) {
+      command += ` --resume ${sessionId}`;
+      console.log(`[NeovateAIService] 使用会话恢复: ${sessionId}`);
+    }
+    
+    command += ` "${escapedPrompt}"`;
+    return command;
   }
 
   /**

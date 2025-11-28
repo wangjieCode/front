@@ -93,22 +93,27 @@ export class NeovateProvider implements ICodeToolProvider {
    * @param workDir 工作目录
    * @param onData 数据回调
    * @param onError 错误回调
+   * @param onSessionId 会话 ID 回调（可选）
+   * @param existingSessionId 现有的会话 ID（可选，用于恢复会话）
    * @returns 执行结果
    */
   async modifyCodeStream(
     prompt: string,
     workDir: string,
     onData: (data: string) => void,
-    onError?: (data: string) => void
+    onError?: (data: string) => void,
+    onSessionId?: (sessionId: string) => void,
+    existingSessionId?: string
   ): Promise<CodeToolResult> {
     const startTime = Date.now();
     console.log('[NeovateProvider] 开始执行 modifyCodeStream (流式)');
     console.log('[NeovateProvider] 提示词:', prompt);
     console.log('[NeovateProvider] 工作目录:', workDir);
+    console.log('[NeovateProvider] 现有会话 ID:', existingSessionId || '无');
     
     try {
-      // 构造 neovate 命令（使用 stream-json 格式）
-      const command = this.buildCommand(prompt, workDir, true);
+      // 构造 neovate 命令（使用 stream-json 格式，如果有 sessionId 则使用 --resume）
+      const command = this.buildCommand(prompt, workDir, true, existingSessionId);
       console.log('[NeovateProvider] 构造的命令 (流式):', command);
       
       // 检查环境变量
@@ -117,6 +122,7 @@ export class NeovateProvider implements ICodeToolProvider {
       
       let fullOutput = '';
       let dataChunks = 0;
+      let sessionIdExtracted = false;
       const parser = new NeovateMessageParser();
       
       // 执行命令并流式处理输出
@@ -131,6 +137,20 @@ export class NeovateProvider implements ICodeToolProvider {
           // 尝试解析为对话消息
           const lines = data.split('\n').filter(line => line.trim());
           for (const line of lines) {
+            // 尝试提取 session ID（只提取一次）
+            if (!sessionIdExtracted && onSessionId) {
+              try {
+                const parsed = JSON.parse(line);
+                if (parsed.sessionId && typeof parsed.sessionId === 'string') {
+                  console.log(`[NeovateProvider] 提取到会话 ID: ${parsed.sessionId}`);
+                  onSessionId(parsed.sessionId);
+                  sessionIdExtracted = true;
+                }
+              } catch (e) {
+                // 不是有效的 JSON，忽略
+              }
+            }
+            
             const message = parser.parseStreamLine(line);
             if (message) {
               // 发送结构化的对话消息
@@ -198,9 +218,15 @@ export class NeovateProvider implements ICodeToolProvider {
    * @param prompt 用户提示词
    * @param workDir 工作目录
    * @param stream 是否使用流式输出
+   * @param sessionId 会话 ID（可选，用于恢复会话）
    * @returns 完整的命令字符串
    */
-  private buildCommand(prompt: string, workDir: string, stream: boolean = false): string {
+  private buildCommand(
+    prompt: string,
+    workDir: string,
+    stream: boolean = false,
+    sessionId?: string
+  ): string {
     // 转义提示词中的特殊字符
     const escapedPrompt = prompt
       .replace(/\\/g, '\\\\')  // 转义反斜杠
@@ -217,9 +243,19 @@ export class NeovateProvider implements ICodeToolProvider {
     // --cwd: 指定工作目录（使用绝对路径）
     // --output-format: 输出格式（stream-json 用于流式，json 用于同步）
     // --approval-mode yolo: 自动批准所有操作
+    // --resume: 恢复会话（如果提供了 sessionId）
     // prompt: 作为位置参数放在最后
     const outputFormat = stream ? 'stream-json' : 'json';
-    return `neovate -q --cwd "${absoluteWorkDir}" --output-format ${outputFormat} --approval-mode yolo "${escapedPrompt}"`;
+    let command = `neovate -q --cwd "${absoluteWorkDir}" --output-format ${outputFormat} --approval-mode yolo`;
+    
+    // 如果提供了 sessionId，添加 --resume 参数
+    if (sessionId) {
+      command += ` --resume ${sessionId}`;
+      console.log(`[NeovateProvider] 使用会话恢复: ${sessionId}`);
+    }
+    
+    command += ` "${escapedPrompt}"`;
+    return command;
   }
 
   /**

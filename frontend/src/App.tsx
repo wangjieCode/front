@@ -6,7 +6,7 @@ import {
   RocketOutlined,
   PlusOutlined,
   EditOutlined,
-  EyeOutlined
+  EyeOutlined,
 } from '@ant-design/icons';
 import TaskExecutionView from './components/TaskExecutionView';
 import TaskList from './components/TaskList';
@@ -221,30 +221,37 @@ const App: React.FC = () => {
           left: 0,
           top: 0,
           bottom: 0,
-          zIndex: 10
+          zIndex: 10,
         }}
       >
         <div style={{ padding: '24px 16px', borderBottom: '1px solid #f0f0f0' }}>
-          <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            marginBottom: 24,
-            cursor: 'pointer'
-          }} onClick={handleNewTask}>
-            <div style={{
-              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-              width: 32,
-              height: 32,
-              borderRadius: 8,
+          <div
+            style={{
               display: 'flex',
               alignItems: 'center',
-              justifyContent: 'center',
-              marginRight: 12,
-              color: '#fff'
-            }}>
+              marginBottom: 24,
+              cursor: 'pointer',
+            }}
+            onClick={handleNewTask}
+          >
+            <div
+              style={{
+                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                width: 32,
+                height: 32,
+                borderRadius: 8,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                marginRight: 12,
+                color: '#fff',
+              }}
+            >
               <RocketOutlined />
             </div>
-            <Title level={4} style={{ margin: 0, fontSize: 18 }}>前端小秘</Title>
+            <Title level={4} style={{ margin: 0, fontSize: 18 }}>
+              前端小秘
+            </Title>
           </div>
           <Button
             type="primary"

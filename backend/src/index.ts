@@ -3,6 +3,7 @@ import dotenv from 'dotenv';
 import { createServer } from 'http';
 import { TaskManager, SSHExecutor, GitService, CodeToolService, GitLabMCPService, TaskOrchestrator } from './services';
 import { createTaskRoutes } from './api/taskRoutes';
+import { createConversationRoutes } from './api/conversationRoutes';
 import {
   errorHandler,
   requestLogger,
@@ -26,6 +27,9 @@ const taskManager = new TaskManager();
 
 // 初始化执行器和其他服务
 let orchestrator: TaskOrchestrator | undefined;
+let conversationManager: any;
+let messageRouter: any;
+let conversationAIService: any;
 
 const runMode = process.env.RUN_MODE || 'local';
 console.log(`🔧 运行模式: ${runMode === 'local' ? '本机模式' : '远程模式'}`);
@@ -86,8 +90,23 @@ try {
   );
 
   console.log('✅ 任务编排器已初始化');
+
+  // 创建对话服务实例
+  const { ConversationManager } = require('./services/ConversationManager');
+  const { MessageRouter } = require('./services/MessageRouter');
+  const { ConversationAIService } = require('./services/ConversationAIService');
+  const { NeovateAIService } = require('./services/NeovateAIService');
+  const { FileSystemConversationStorage } = require('./storage/ConversationStorage');
+
+  const conversationStorage = new FileSystemConversationStorage();
+  conversationManager = new ConversationManager(conversationStorage);
+  const neovateAIService = new NeovateAIService(executor, workDir);
+  conversationAIService = new ConversationAIService(neovateAIService);
+  messageRouter = new MessageRouter(conversationManager, conversationAIService);
+
+  console.log('✅ 对话服务已初始化');
 } catch (error) {
-  console.warn('⚠️  任务编排器初始化失败（可能缺少配置）:', error instanceof Error ? error.message : error);
+  console.warn('⚠️  服务初始化失败（可能缺少配置）:', error instanceof Error ? error.message : error);
   console.warn('⚠️  系统将以只读模式运行（仅支持查询任务）');
 }
 
@@ -108,6 +127,12 @@ app.get('/health', (req, res) => {
 
 // API 路由
 app.use('/api/tasks', createTaskRoutes(taskManager, orchestrator));
+
+// 对话路由（仅在对话服务初始化成功时注册）
+if (conversationManager && messageRouter && conversationAIService) {
+  app.use('/api/conversations', createConversationRoutes(conversationManager, messageRouter, conversationAIService));
+  console.log('📊 对话 API 端点: http://localhost:' + PORT + '/api/conversations');
+}
 
 // 404 处理
 app.use(notFoundHandler);

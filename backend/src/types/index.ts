@@ -175,3 +175,132 @@ export interface CodeToolConfigData {
   toolType: string;
   toolOptions: Record<string, any>;
 }
+
+// ==================== 对话相关类型定义 ====================
+
+/**
+ * 对话会话状态枚举
+ */
+export enum ConversationStatus {
+  PLANNING = 'planning',       // 规划中
+  EXECUTING = 'executing',     // 执行中
+  PAUSED = 'paused',          // 已暂停
+  COMPLETED = 'completed',     // 已完成
+  FAILED = 'failed'           // 失败
+}
+
+/**
+ * 消息角色枚举
+ */
+export enum MessageRole {
+  USER = 'user',              // 用户消息
+  ASSISTANT = 'assistant',    // AI 助手消息
+  SYSTEM = 'system'           // 系统消息
+}
+
+/**
+ * 工具调用记录接口
+ */
+export interface ToolCall {
+  toolName: string;           // 工具名称
+  parameters: Record<string, any>;  // 工具参数
+  result?: any;               // 工具执行结果
+  timestamp: Date;            // 调用时间
+}
+
+/**
+ * 消息元数据接口
+ */
+export interface MessageMetadata {
+  toolCalls?: ToolCall[];     // 工具调用记录
+  codeChanges?: CodeChange[]; // 代码变更
+  thinking?: string;          // AI 思考过程
+  isQuestion?: boolean;       // 是否为询问
+  questionOptions?: string[]; // 问题选项
+  requiresResponse?: boolean; // 是否需要用户响应
+  references?: string[];      // 引用的消息或文件 ID
+  isInvalid?: boolean;        // 是否已失效(如代码变更被回滚)
+}
+
+/**
+ * 对话消息接口
+ */
+export interface ConversationMessage {
+  id: string;                 // 消息 ID
+  sessionId: string;          // 所属会话 ID
+  branchId: string;           // 所属分支 ID
+  role: MessageRole;          // 消息角色
+  content: string;            // 消息内容
+  metadata?: MessageMetadata; // 元数据
+  timestamp: Date;            // 时间戳
+  parentMessageId?: string;   // 父消息 ID (用于分支)
+}
+
+/**
+ * 项目信息接口
+ */
+export interface ProjectInfo {
+  workDir: string;            // 工作目录
+  gitBranch?: string;         // Git 分支
+  relevantFiles?: string[];   // 相关文件
+}
+
+/**
+ * 对话分支接口
+ */
+export interface ConversationBranch {
+  id: string;                 // 分支 ID
+  name: string;               // 分支名称
+  parentMessageId: string;    // 分支起点消息 ID
+  messageIds: string[];       // 该分支的消息 ID 列表
+  createdAt: Date;            // 创建时间
+  isActive: boolean;          // 是否为活跃分支
+}
+
+/**
+ * 对话上下文接口
+ */
+export interface ConversationContext {
+  projectInfo: ProjectInfo;   // 项目信息
+  taskDescription: string;    // 任务描述
+  messageHistory: string[];   // 消息历史 ID 列表
+  currentBranchId: string;    // 当前分支 ID
+  branches: ConversationBranch[]; // 所有分支
+  variables: Record<string, any>; // 上下文变量
+}
+
+/**
+ * 对话会话接口
+ */
+export interface ConversationSession {
+  id: string;                 // 会话 ID
+  taskId: string;             // 关联的任务 ID
+  status: ConversationStatus; // 会话状态
+  context: ConversationContext; // 会话上下文
+  createdAt: Date;            // 创建时间
+  updatedAt: Date;            // 更新时间
+  completedAt?: Date;         // 完成时间
+  error?: string;             // 错误信息
+}
+
+/**
+ * AI 响应接口
+ */
+export interface AIResponse {
+  content: string;            // 响应内容
+  metadata?: MessageMetadata; // 元数据
+  shouldPause?: boolean;      // 是否应该暂停等待用户输入
+}
+
+// ==================== Neovate 会话管理类型定义 ====================
+
+/**
+ * Neovate 会话信息接口
+ */
+export interface NeovateSessionInfo {
+  taskId: string;              // 任务 ID
+  neovateSessionId: string;    // Neovate 会话 ID
+  workDir: string;             // 工作目录
+  createdAt: Date;             // 创建时间
+  lastUsedAt: Date;            // 最后使用时间
+}

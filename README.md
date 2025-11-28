@@ -7,6 +7,7 @@
 - **零门槛操作**: 用户通过自然语言描述需求，无需了解命令行或配置开发环境
 - **完整开发环境**: 远程虚拟机预装 Node.js、npm、构建工具等完整前端工具链
 - **AI 代码修改**: 集成 neovate AI 代码工具，自动理解需求并修改代码
+- **智能代码查询**: 支持只读模式查询代码库，AI 分析代码并回答问题
 - **自动化工作流**: 通过 GitLab MCP 自动创建 Merge Request，简化代码审查流程
 
 ## 项目结构
@@ -215,14 +216,116 @@ npm run test:api
 # 健康检查
 curl http://localhost:3001/health
 
-# 创建任务
+# 创建代码修改任务（编辑模式）
 curl -X POST http://localhost:3001/api/tasks \
   -H "Content-Type: application/json" \
-  -d '{"prompt":"测试任务"}'
+  -d '{"prompt":"添加一个新功能","type":"code_change"}'
+
+# 创建代码查询任务（只读模式）
+curl -X POST http://localhost:3001/api/tasks \
+  -H "Content-Type: application/json" \
+  -d '{"prompt":"这个文件的作用是什么？","type":"query"}'
 
 # 查看任务列表
 curl http://localhost:3001/api/tasks
+
+# 查看任务详情
+curl http://localhost:3001/api/tasks/{task-id}
 ```
+
+## 使用指南
+
+### 任务类型
+
+系统支持两种任务类型：
+
+#### 1. 编辑模式（code_change）
+
+用于修改代码并创建 Merge Request：
+
+```bash
+curl -X POST http://localhost:3001/api/tasks \
+  -H "Content-Type: application/json" \
+  -d '{
+    "prompt": "在登录页面添加记住密码功能",
+    "type": "code_change"
+  }'
+```
+
+**执行流程**：
+1. AI 分析需求并修改代码
+2. 检测代码变更
+3. 创建新分支
+4. 提交代码
+5. 推送到远程仓库
+6. 创建 Merge Request
+
+**适用场景**：
+- 添加新功能
+- 修复 Bug
+- 重构代码
+- 优化性能
+
+#### 2. 只读模式（query）
+
+用于查询和分析代码库，不修改任何代码：
+
+```bash
+curl -X POST http://localhost:3001/api/tasks \
+  -H "Content-Type: application/json" \
+  -d '{
+    "prompt": "/dataCenter 页面的作用是什么？",
+    "type": "query"
+  }'
+```
+
+**执行流程**：
+1. AI 读取相关代码文件
+2. 分析代码结构和功能
+3. 返回详细的分析结果
+
+**适用场景**：
+- 了解代码功能
+- 查询 API 用法
+- 分析代码结构
+- 理解业务逻辑
+- 查找特定实现
+
+**示例查询**：
+```bash
+# 查询页面功能
+"这个页面的作用是什么？"
+
+# 查询组件用法
+"如何使用这个组件？"
+
+# 查询 API 接口
+"这个 API 的参数和返回值是什么？"
+
+# 分析代码结构
+"分析 services 目录下的所有服务类"
+```
+
+### 查看任务结果
+
+任务执行完成后，可以通过以下方式查看结果：
+
+```bash
+# 获取任务详情
+curl http://localhost:3001/api/tasks/{task-id}
+
+# 获取任务日志
+curl http://localhost:3001/api/tasks/{task-id}/logs
+```
+
+**编辑模式结果**：
+- `mrUrl`: Merge Request 链接
+- `branchName`: 创建的分支名称
+- `result`: AI 的执行输出
+
+**只读模式结果**：
+- `result`: AI 的分析结果（包含详细的代码分析）
+- 结果格式为 stream-json，前端会自动解析并展示最终答案
 
 ## 技术栈
 

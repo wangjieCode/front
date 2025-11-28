@@ -113,13 +113,17 @@ export class CodeToolService {
    * @param workDir 工作目录
    * @param onData 数据回调
    * @param onError 错误回调
+   * @param onSessionId 会话 ID 回调（可选）
+   * @param existingSessionId 现有的会话 ID（可选）
    * @returns 执行结果
    */
   async modifyCodeStream(
     prompt: string,
     workDir: string,
     onData: (data: string) => void,
-    onError?: (data: string) => void
+    onError?: (data: string) => void,
+    onSessionId?: (sessionId: string) => void,
+    existingSessionId?: string
   ): Promise<CodeToolResult> {
     console.log('[CodeToolService] 开始 modifyCodeStream (流式)');
     console.log('[CodeToolService] 工具:', this.provider.name);
@@ -162,7 +166,14 @@ export class CodeToolService {
 
       // 执行代码修改（流式）
       console.log('[CodeToolService] 调用 provider.modifyCodeStream...');
-      const result = await (this.provider as any).modifyCodeStream(prompt, workDir, onData, onError);
+      const result = await (this.provider as any).modifyCodeStream(
+        prompt,
+        workDir,
+        onData,
+        onError,
+        onSessionId,
+        existingSessionId
+      );
       console.log('[CodeToolService] ✅ modifyCodeStream 完成，成功:', result.success);
       return result;
     } catch (error) {

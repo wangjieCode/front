@@ -3,6 +3,7 @@ import { SSHExecutor } from './SSHExecutor';
 import { GitService } from './GitService';
 import { CodeToolService } from './CodeToolService';
 import { GitLabMCPService } from './GitLabMCPService';
+import { NeovateSessionManager } from './NeovateSessionManager';
 import { TaskStatus, TaskType } from '../types';
 import { createInfoLog, createErrorLog } from '../models/LogEntry';
 
@@ -11,6 +12,8 @@ import { createInfoLog, createErrorLog } from '../models/LogEntry';
  * 协调所有服务完成完整的任务执行流程
  */
 export class TaskOrchestrator {
+  private sessionManager: NeovateSessionManager;
+
   constructor(
     private taskManager: TaskManager,
     private sshExecutor: SSHExecutor,
@@ -19,7 +22,9 @@ export class TaskOrchestrator {
     private gitlabService: GitLabMCPService,
     private workDir: string,
     private defaultBranch: string = 'main'
-  ) { }
+  ) {
+    this.sessionManager = new NeovateSessionManager();
+  }
 
   /**
    * 执行任务的完整流程
@@ -44,14 +49,28 @@ export class TaskOrchestrator {
 
       // 根据任务类型执行不同的流程
       if (task.type === TaskType.QUERY) {
-        // 只读模式：不调用代码工具，直接返回提示词作为结果
-        this.addLog(taskId, 'info', 'system', '📋 只读模式：不修改代码');
+        // 只读模式：调用 AI 工具但不修改代码
+        this.addLog(taskId, 'info', 'system', '📋 只读模式：查询代码库');
         
-        // 保存提示词作为查询结果
-        this.taskManager.setTaskResult(taskId, task.prompt);
+        // 检查工具可用性
+        const toolAvailable = await this.codeToolService.isAvailable(this.workDir);
+        if (!toolAvailable) {
+          const toolName = this.codeToolService.getToolName();
+          throw new Error(
+            `代码工具 ${toolName} 不可用。请确保 ${toolName} 已安装并在 PATH 中。`
+          );
+        }
+        
+        // 步骤 3: 调用 AI 工具处理查询
+        const aiResult = await this.step3_QueryCode(taskId, task.prompt);
+        
+        // 保存 AI 的回答作为结果
+        if (aiResult.rawOutput) {
+          this.taskManager.setTaskResult(taskId, aiResult.rawOutput);
+        }
         
         this.taskManager.updateTaskStatus(taskId, TaskStatus.SUCCESS);
-        this.addLog(taskId, 'info', 'system', '✅ 只读任务执行成功！');
+        this.addLog(taskId, 'info', 'system', '✅ 查询任务执行成功！');
       } else {
         // 编辑模式：检查工具可用性
         const toolAvailable = await this.codeToolService.isAvailable(this.workDir);
@@ -178,6 +197,67 @@ export class TaskOrchestrator {
   }
 
   /**
+   * 步骤 3: 调用 AI 工具处理查询（只读模式）
+   */
+  private async step3_QueryCode(taskId: string, prompt: string): Promise<any> {
+    const toolName = this.codeToolService.getToolName();
+
+    this.addLog(taskId, 'info', 'codetool', `🤖 正在使用 ${toolName} 查询代码库...`);
+    this.addLog(taskId, 'info', 'codetool', `查询内容: ${prompt}`);
+
+    // 查询是否存在现有的 Neovate 会话 ID
+    let existingSessionId: string | undefined;
+    try {
+      const sessionId = await this.sessionManager.getSessionId(taskId);
+      if (sessionId) {
+        existingSessionId = sessionId;
+        this.addLog(taskId, 'info', 'session', `🔄 恢复 Neovate 会话: ${sessionId}`);
+      }
+    } catch (error) {
+      console.error('[TaskOrchestrator] 查询会话 ID 失败:', error);
+      // 不影响任务执行，继续使用新会话
+    }
+
+    // 使用流式输出执行查询
+    const result = await this.codeToolService.modifyCodeStream(
+      prompt,
+      this.workDir,
+      (data: string) => {
+        // 添加日志到任务管理器，前端会通过 WebSocket 实时获取
+        this.taskManager.addLog(taskId, createInfoLog('codetool', data));
+      },
+      (error: string) => {
+        // 添加错误日志到任务管理器
+        this.taskManager.addLog(taskId, createErrorLog('codetool', error));
+      },
+      async (sessionId: string) => {
+        // 保存 Neovate 会话 ID
+        try {
+          await this.sessionManager.saveSessionId(taskId, sessionId, this.workDir);
+          this.addLog(taskId, 'info', 'session', `💾 已保存 Neovate 会话 ID: ${sessionId}`);
+        } catch (error) {
+          console.error('[TaskOrchestrator] 保存会话 ID 失败:', error);
+          // 不影响任务执行，只记录错误
+        }
+      },
+      existingSessionId
+    );
+
+    if (!result.success) {
+      throw new Error(`AI 查询失败: ${result.error}`);
+    }
+
+    this.addLog(
+      taskId,
+      'info',
+      'codetool',
+      `✅ 查询完成`
+    );
+
+    return result;
+  }
+
+  /**
    * 步骤 3: 调用代码工具修改代码
    */
   private async step3_ModifyCode(taskId: string, prompt: string): Promise<any> {
@@ -186,6 +266,19 @@ export class TaskOrchestrator {
 
     this.addLog(taskId, 'info', 'codetool', `🤖 正在使用 ${toolName} 修改代码...`);
     this.addLog(taskId, 'info', 'codetool', `提示词: ${prompt}`);
+
+    // 查询是否存在现有的 Neovate 会话 ID
+    let existingSessionId: string | undefined;
+    try {
+      const sessionId = await this.sessionManager.getSessionId(taskId);
+      if (sessionId) {
+        existingSessionId = sessionId;
+        this.addLog(taskId, 'info', 'session', `🔄 恢复 Neovate 会话: ${sessionId}`);
+      }
+    } catch (error) {
+      console.error('[TaskOrchestrator] 查询会话 ID 失败:', error);
+      // 不影响任务执行，继续使用新会话
+    }
 
     // 使用流式输出执行代码修改
     const result = await this.codeToolService.modifyCodeStream(
@@ -198,7 +291,18 @@ export class TaskOrchestrator {
       (error: string) => {
         // 添加错误日志到任务管理器
         this.taskManager.addLog(taskId, createErrorLog('codetool', error));
-      }
+      },
+      async (sessionId: string) => {
+        // 保存 Neovate 会话 ID
+        try {
+          await this.sessionManager.saveSessionId(taskId, sessionId, this.workDir);
+          this.addLog(taskId, 'info', 'session', `💾 已保存 Neovate 会话 ID: ${sessionId}`);
+        } catch (error) {
+          console.error('[TaskOrchestrator] 保存会话 ID 失败:', error);
+          // 不影响任务执行，只记录错误
+        }
+      },
+      existingSessionId
     );
 
     if (!result.success) {

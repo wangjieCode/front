@@ -1,5 +1,18 @@
-import React, { useMemo, useState } from 'react';
-import { Card, Tag, Space, Empty, Spin, Alert, Typography, Button, Drawer, Badge, Steps } from 'antd';
+import React, { useMemo, useState, useEffect } from 'react';
+import {
+  Card,
+  Tag,
+  Space,
+  Empty,
+  Spin,
+  Alert,
+  Typography,
+  Button,
+  Drawer,
+  Badge,
+  Steps,
+  message as antMessage,
+} from 'antd';
 import {
   ToolOutlined,
   CodeOutlined,
@@ -8,12 +21,14 @@ import {
   EyeOutlined,
   BranchesOutlined,
   CloudUploadOutlined,
-  MergeCellsOutlined
+  MergeCellsOutlined,
+  MessageOutlined,
 } from '@ant-design/icons';
 import { Task, TaskStatus, LogEntry, CodeChange } from '../types';
 import LogViewer from './LogViewer';
 import StreamingLogViewer from './StreamingLogViewer';
 import CodeDiffViewer from './CodeDiffViewer';
+import MessageInput from './MessageInput';
 
 const { Text } = Typography;
 
@@ -32,9 +47,12 @@ const TaskExecutionView: React.FC<TaskExecutionViewProps> = ({
   task,
   logs,
   codeChanges,
-  isLoading = false
+  isLoading = false,
 }) => {
   const [showLogs, setShowLogs] = useState(false);
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [conversationMessages, setConversationMessages] = useState<any[]>([]);
+  const [loadingConversation, setLoadingConversation] = useState(false);
 
   // 状态标签映射
   const getStatusTag = (status: TaskStatus) => {
@@ -79,6 +97,105 @@ const TaskExecutionView: React.FC<TaskExecutionViewProps> = ({
 
   // 判断是否正在流式传输
   const isStreaming = task?.status === TaskStatus.RUNNING || task?.status === TaskStatus.PENDING;
+
+  // 当任务完成时，自动创建对话会话
+  useEffect(() => {
+    if (
+      task &&
+      (task.status === TaskStatus.SUCCESS || task.status === TaskStatus.FAILED) &&
+      !sessionId
+    ) {
+      console.log('任务完成，创建对话会话:', task);
+      createConversationSession();
+    }
+  }, [task?.status, task?.id]);
+
+  // 创建对话会话
+  const createConversationSession = async () => {
+    if (!task) return;
+
+    console.log('开始创建对话会话...');
+    try {
+      const response = await fetch('/api/conversations', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          taskId: task.id,
+          taskDescription: task.prompt,
+          projectInfo: {
+            workDir: '/workspace',
+            gitBranch: 'main',
+          },
+        }),
+      });
+
+      const data = await response.json();
+      console.log('对话会话创建响应:', data);
+      if (data.success) {
+        setSessionId(data.data.id);
+        console.log('对话会话ID:', data.data.id);
+        // 加载初始消息
+        loadConversationMessages(data.data.id);
+      } else {
+        console.error('创建对话会话失败:', data.error);
+      }
+    } catch (error) {
+      console.error('创建对话会话异常:', error);
+    }
+  };
+
+  // 加载对话消息
+  const loadConversationMessages = async (sid: string) => {
+    try {
+      const response = await fetch(`/api/conversations/${sid}/messages`);
+      const data = await response.json();
+      if (data.success) {
+        setConversationMessages(data.data);
+      }
+    } catch (error) {
+      console.error('加载对话消息失败:', error);
+    }
+  };
+
+  // 发送对话消息
+  const handleSendMessage = async (content: string) => {
+    if (!sessionId) {
+      antMessage.error('对话会话未初始化');
+      return;
+    }
+
+    setLoadingConversation(true);
+    try {
+      const response = await fetch(`/api/conversations/${sessionId}/messages`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ content }),
+      });
+
+      const data = await response.json();
+      if (data.success) {
+        // 直接使用返回的消息列表（包含AI回复）
+        if (data.data && Array.isArray(data.data)) {
+          setConversationMessages(data.data);
+        } else {
+          // 如果返回格式不对，重新加载
+          await loadConversationMessages(sessionId);
+        }
+        antMessage.success('消息已发送');
+      } else {
+        antMessage.error(data.error || '发送消息失败');
+      }
+    } catch (error) {
+      console.error('发送消息失败:', error);
+      antMessage.error('发送消息失败');
+    } finally {
+      setLoadingConversation(false);
+    }
+  };
 
   // 获取任务类型标签
   const getTypeTag = (type: string) => {
@@ -276,6 +393,17 @@ const TaskExecutionView: React.FC<TaskExecutionViewProps> = ({
           {/* 进度步骤（仅编辑模式） */}
           {getProgressSteps(task)}
 
+          {/* 调试信息 - 临时 */}
+          {import.meta.env.DEV && (
+            <div style={{ marginBottom: 16, padding: 12, background: '#f0f0f0', borderRadius: 8, fontSize: 12 }}>
+              <div>任务状态: {task.status}</div>
+              <div>任务类型: {task.type}</div>
+              <div>有结果: {task.result ? '是' : '否'}</div>
+              <div>有MR: {task.mrUrl ? '是' : '否'}</div>
+              <div>会话ID: {sessionId || '未创建'}</div>
+            </div>
+          )}
+
           {/* 结果展示 */}
           {task.result && !task.mrUrl && (() => {
             try {
@@ -429,8 +557,63 @@ const TaskExecutionView: React.FC<TaskExecutionViewProps> = ({
               <CodeDiffViewer changes={codeChanges} />
             </div>
           )}
+
+          {/* 对话消息列表 */}
+          {conversationMessages.length > 0 && (
+            <div style={{ marginTop: 24, borderTop: '1px solid #f0f0f0', paddingTop: 24 }}>
+              <div style={{ marginBottom: 16, display: 'flex', alignItems: 'center' }}>
+                <MessageOutlined style={{ marginRight: 8, color: '#1890ff' }} />
+                <Text strong style={{ fontSize: 15 }}>
+                  继续对话
+                </Text>
+              </div>
+              {conversationMessages.map((msg) => (
+                <div
+                  key={msg.id}
+                  style={{
+                    marginBottom: 16,
+                    padding: 12,
+                    background: msg.role === 'user' ? '#e6f7ff' : '#f5f5f5',
+                    borderRadius: 8,
+                    borderLeft: `3px solid ${msg.role === 'user' ? '#1890ff' : '#52c41a'}`,
+                  }}
+                >
+                  <div style={{ fontSize: 12, color: '#999', marginBottom: 4 }}>
+                    {msg.role === 'user' ? '你' : 'AI 助手'} ·{' '}
+                    {new Date(msg.timestamp).toLocaleTimeString('zh-CN')}
+                  </div>
+                  <div style={{ whiteSpace: 'pre-wrap' }}>{msg.content}</div>
+                </div>
+              ))}
+            </div>
+          )}
         </Space>
       </Card>
+
+      {/* 对话输入框 - 仅在任务完成后显示 */}
+      {task &&
+        (task.status === TaskStatus.SUCCESS || task.status === TaskStatus.FAILED) &&
+        sessionId && (
+          <Card
+            style={{
+              borderRadius: 16,
+              boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+            }}
+          >
+            <div style={{ marginBottom: 12 }}>
+              <Space>
+                <MessageOutlined style={{ color: '#1890ff' }} />
+                <Text strong>有其他问题吗？继续与 AI 对话</Text>
+              </Space>
+            </div>
+            <MessageInput
+              sessionId={sessionId}
+              disabled={loadingConversation}
+              onSend={handleSendMessage}
+              placeholder="输入你的问题... (Ctrl+Enter 发送)"
+            />
+          </Card>
+        )}
 
       {/* 日志抽屉 */}
       <Drawer

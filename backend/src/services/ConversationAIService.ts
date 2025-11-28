@@ -1,0 +1,276 @@
+import {
+  ConversationContext,
+  AIResponse,
+  MessageMetadata,
+  ToolCall,
+  CodeChange,
+} from '../types';
+import { NeovateAIService, NeovateAIResult } from './NeovateAIService';
+import { NeovateSessionManager } from './NeovateSessionManager';
+
+/**
+ * 对话 AI 服务类
+ * 负责生成 AI 响应、判断是否需要询问用户等
+ */
+export class ConversationAIService {
+  private neovateService: NeovateAIService;
+  private sessionManager: NeovateSessionManager;
+
+  constructor(neovateService: NeovateAIService) {
+    this.neovateService = neovateService;
+    this.sessionManager = new NeovateSessionManager();
+  }
+
+  /**
+   * 生成 AI 响应
+   */
+  async generateResponse(
+    context: ConversationContext,
+    userMessage: string,
+    sessionId: string
+  ): Promise<AIResponse> {
+    try {
+      console.log(`[ConversationAIService] 生成响应 - sessionId: ${sessionId}`);
+      console.log(`[ConversationAIService] 用户消息: ${userMessage.substring(0, 100)}`);
+      
+      // 检查是否需要询问用户（现阶段总是返回 false）
+      if (this.shouldAskUser(context, userMessage)) {
+        const question = this.generateClarificationQuestion(context, userMessage);
+        return {
+          content: question,
+          shouldPause: true,
+          metadata: {
+            isQuestion: true,
+            requiresResponse: true,
+          },
+        };
+      }
+
+      // 查询是否存在 Neovate 会话 ID
+      let neovateSessionId: string | undefined;
+      try {
+        const existingSessionId = await this.sessionManager.getSessionId(sessionId);
+        if (existingSessionId) {
+          neovateSessionId = existingSessionId;
+          console.log(`[ConversationAIService] ✅ 找到现有 Neovate 会话: ${existingSessionId}`);
+        } else {
+          console.log(`[ConversationAIService] ℹ️ 未找到现有会话，将创建新会话`);
+        }
+      } catch (error) {
+        console.error('[ConversationAIService] ❌ 查询会话 ID 失败:', error);
+      }
+
+      // 调用 AI 服务处理消息（传递 Neovate 会话 ID）
+      console.log(`[ConversationAIService] 调用 NeovateAIService - conversationId: ${sessionId}, neovateSessionId: ${neovateSessionId || '无'}`);
+      const result = await this.neovateService.modifyCode(
+        userMessage,
+        sessionId,
+        neovateSessionId
+      );
+
+      // 构建响应元数据
+      const metadata: MessageMetadata = {
+        codeChanges: result.changes,
+        toolCalls: this.extractToolCalls(result),
+      };
+
+      // 直接返回 AI 的原始输出，而不是解析后的消息
+      let content = '';
+      if (result.success) {
+        // 如果有原始输出，优先使用原始输出
+        if (result.rawOutput) {
+          // 尝试从 stream-json 格式中提取最终结果
+          const lines = result.rawOutput.trim().split('\n').filter(line => line.trim());
+          let finalResult = null;
+          
+          for (const line of lines) {
+            try {
+              const parsed = JSON.parse(line);
+              if (parsed.type === 'result') {
+                finalResult = parsed;
+                break;
+              }
+            } catch (e) {
+              // 跳过无法解析的行
+            }
+          }
+          
+          // 如果找到了 result 消息，使用它的内容
+          if (finalResult && finalResult.content) {
+            content = finalResult.content;
+          } else {
+            // 否则使用原始输出
+            content = result.rawOutput;
+          }
+        } else {
+          // 没有原始输出，使用默认消息
+          content = result.message;
+          if (result.changes.length > 0) {
+            content += `\n\n已完成 ${result.changes.length} 个文件的修改。`;
+          }
+        }
+      } else {
+        content = `执行失败: ${result.error || result.message}`;
+      }
+
+      return {
+        content,
+        metadata,
+        shouldPause: false,
+      };
+    } catch (error) {
+      return {
+        content: `发生错误: ${error instanceof Error ? error.message : String(error)}`,
+        shouldPause: false,
+        metadata: {},
+      };
+    }
+  }
+
+  /**
+   * 判断是否需要询问用户
+   * 现阶段：直接让所有消息都发送给 AI 处理，不做拦截
+   */
+  shouldAskUser(context: ConversationContext, userMessage: string): boolean {
+    // 现阶段不需要处理，直接返回 false，让 AI 处理所有消息
+    return false;
+  }
+
+  /**
+   * 生成澄清问题
+   */
+  generateClarificationQuestion(
+    context: ConversationContext,
+    userMessage: string
+  ): string {
+    // 根据不同情况生成不同的问题
+    if (userMessage.trim().length < 10) {
+      return '请提供更详细的描述,你希望我做什么?';
+    }
+
+    if (!context.projectInfo.workDir) {
+      return '请指定工作目录路径。';
+    }
+
+    // 默认问题
+    return '我需要更多信息才能继续。请详细说明你的需求,包括:\n1. 要修改哪些文件?\n2. 具体要做什么修改?\n3. 有什么特殊要求?';
+  }
+
+  /**
+   * 从 AI 结果中提取工具调用信息
+   */
+  private extractToolCalls(result: NeovateAIResult): ToolCall[] {
+    const toolCalls: ToolCall[] = [];
+
+    // 记录代码修改工具调用
+    if (result.changes.length > 0) {
+      toolCalls.push({
+        toolName: 'code_modification',
+        parameters: {
+          filesModified: result.changes.map(c => c.filePath),
+        },
+        result: {
+          success: result.success,
+          changesCount: result.changes.length,
+        },
+        timestamp: new Date(),
+      });
+    }
+
+    return toolCalls;
+  }
+
+  /**
+   * 流式生成响应(占位符,未来实现)
+   */
+  async streamResponse(
+    context: ConversationContext,
+    userMessage: string,
+    sessionId: string,
+    onChunk: (chunk: string) => void
+  ): Promise<void> {
+    // 目前使用非流式实现
+    const response = await this.generateResponse(context, userMessage, sessionId);
+    onChunk(response.content);
+  }
+
+  /**
+   * 检测用户消息中的风险
+   */
+  detectRisks(userMessage: string): string[] {
+    const risks: string[] = [];
+
+    // 检测危险操作
+    const dangerousKeywords = [
+      '删除所有',
+      'rm -rf',
+      'drop database',
+      '格式化',
+      '清空',
+    ];
+
+    for (const keyword of dangerousKeywords) {
+      if (userMessage.toLowerCase().includes(keyword.toLowerCase())) {
+        risks.push(`检测到潜在危险操作: "${keyword}"`);
+      }
+    }
+
+    return risks;
+  }
+
+  /**
+   * 生成风险警告消息
+   */
+  generateRiskWarning(risks: string[]): string {
+    let warning = '⚠️ 警告:检测到以下潜在风险:\n\n';
+    risks.forEach((risk, index) => {
+      warning += `${index + 1}. ${risk}\n`;
+    });
+    warning += '\n是否继续执行?请回复"是"或"否"。';
+    return warning;
+  }
+
+  /**
+   * 生成选项问题
+   */
+  generateOptionsQuestion(
+    question: string,
+    options: string[]
+  ): AIResponse {
+    let content = question + '\n\n请选择:\n';
+    options.forEach((option, index) => {
+      content += `${index + 1}. ${option}\n`;
+    });
+
+    return {
+      content,
+      shouldPause: true,
+      metadata: {
+        isQuestion: true,
+        questionOptions: options,
+        requiresResponse: true,
+      },
+    };
+  }
+
+  /**
+   * 解析用户对选项问题的回答
+   */
+  parseOptionResponse(response: string, options: string[]): number {
+    // 尝试解析数字
+    const num = parseInt(response.trim());
+    if (!isNaN(num) && num >= 1 && num <= options.length) {
+      return num - 1;
+    }
+
+    // 尝试匹配选项文本
+    const lowerResponse = response.toLowerCase();
+    for (let i = 0; i < options.length; i++) {
+      if (options[i].toLowerCase().includes(lowerResponse)) {
+        return i;
+      }
+    }
+
+    return -1; // 无效回答
+  }
+}

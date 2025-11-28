@@ -37,3 +37,7 @@ coverage/
 # 工作目录（本地模式）
 backend/workspace/*
 !backend/workspace/.gitkeep
+
+# 数据文件
+backend/data/
+backend/backend/data/
