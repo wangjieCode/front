@@ -1,26 +1,30 @@
 import { v4 as uuidv4 } from 'uuid';
-import { Task, TaskStatus } from '../types';
+import { Task, TaskStatus, TaskType } from '../types';
 import { validatePrompt } from '../utils/validation';
 
 /**
  * 创建新任务
  * @param prompt 用户输入的提示词
+ * @param type 任务类型（默认为 CODE_CHANGE）
  * @returns 新创建的任务对象
  * @throws {ValidationError} 如果提示词无效
  */
-export function createTask(prompt: string): Task {
+export function createTask(prompt: string, type: TaskType = TaskType.CODE_CHANGE): Task {
   // 验证提示词
   validatePrompt(prompt);
 
   const taskId = uuidv4();
   const timestamp = Date.now();
   
-  // 生成唯一的分支名称
-  const branchName = `feature/task-${taskId.substring(0, 8)}-${timestamp}`;
+  // 仅为 CODE_CHANGE 类型生成分支名称
+  const branchName = type === TaskType.CODE_CHANGE 
+    ? `feature/task-${taskId.substring(0, 8)}-${timestamp}`
+    : undefined;
 
   return {
     id: taskId,
     prompt: prompt.trim(),
+    type,
     status: TaskStatus.PENDING,
     branchName,
     createdAt: new Date(),

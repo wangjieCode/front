@@ -6,7 +6,9 @@ import {
   CheckCircleOutlined,
   CloseCircleOutlined,
   BranchesOutlined,
-  LinkOutlined
+  LinkOutlined,
+  EditOutlined,
+  EyeOutlined
 } from '@ant-design/icons';
 import { Task, TaskStatus } from '../types';
 
@@ -53,6 +55,23 @@ const TaskList: React.FC<TaskListProps> = ({ tasks, onTaskClick, selectedTaskId 
 
     const config = statusConfig[status];
     return <Tag color={config.color}>{config.text}</Tag>;
+  };
+
+  // 任务类型标签
+  const getTypeTag = (type: string) => {
+    if (type === 'code_change') {
+      return (
+        <Tag color="green" icon={<EditOutlined />}>
+          编辑模式
+        </Tag>
+      );
+    } else {
+      return (
+        <Tag color="blue" icon={<EyeOutlined />}>
+          只读模式
+        </Tag>
+      );
+    }
   };
 
   // 格式化时间
@@ -106,6 +125,7 @@ const TaskList: React.FC<TaskListProps> = ({ tasks, onTaskClick, selectedTaskId 
               title={
                 <Space>
                   {getStatusTag(task.status)}
+                  {getTypeTag(task.type)}
                   <Text type="secondary" style={{ fontSize: '12px' }}>
                     {formatTime(task.createdAt)}
                   </Text>

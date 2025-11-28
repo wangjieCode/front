@@ -16,13 +16,13 @@ class ApiService {
   /**
    * 创建新任务
    */
-  async createTask(prompt: string): Promise<Task> {
+  async createTask(prompt: string, type: 'code_change' | 'query' = 'code_change'): Promise<Task> {
     const response = await fetch(`${this.baseUrl}/api/tasks`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ prompt }),
+      body: JSON.stringify({ prompt, type }),
     });
 
     if (!response.ok) {

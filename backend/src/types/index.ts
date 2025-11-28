@@ -39,6 +39,7 @@ export enum ChangeType {
 export interface Task {
   id: string;
   prompt: string;
+  type: TaskType;  // 任务类型
   status: TaskStatus;
   branchName?: string;
   mrUrl?: string;

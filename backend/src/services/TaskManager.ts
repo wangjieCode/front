@@ -1,4 +1,4 @@
-import { Task, LogEntry, TaskStatus } from '../types';
+import { Task, LogEntry, TaskStatus, TaskType } from '../types';
 import { createTask, updateTaskStatus as updateStatus, setTaskError, setTaskMRUrl, setTaskResult } from '../models/Task';
 import { createLogEntry } from '../models/LogEntry';
 import { validateTaskId } from '../utils/validation';
@@ -14,18 +14,20 @@ export class TaskManager {
   /**
    * 创建新任务
    * @param prompt 用户输入的提示词
+   * @param type 任务类型（默认为 CODE_CHANGE）
    * @returns 创建的任务对象
    */
-  createTask(prompt: string): Task {
-    const task = createTask(prompt);
+  createTask(prompt: string, type: TaskType = TaskType.CODE_CHANGE): Task {
+    const task = createTask(prompt, type);
     this.tasks.set(task.id, task);
     this.logs.set(task.id, []);
     
     // 添加任务创建日志
+    const typeLabel = type === TaskType.CODE_CHANGE ? '编辑模式' : '只读模式';
     this.addLog(task.id, createLogEntry(
       'info' as any,
       'system',
-      `任务已创建: ${task.id}`
+      `任务已创建 (${typeLabel}): ${task.id}`
     ));
 
     return task;

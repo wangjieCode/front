@@ -1,9 +1,14 @@
 import React, { useMemo, useState } from 'react';
-import { Card, Tag, Space, Empty, Spin, Alert, Typography, Button, Drawer, Badge } from 'antd';
+import { Card, Tag, Space, Empty, Spin, Alert, Typography, Button, Drawer, Badge, Steps } from 'antd';
 import {
   ToolOutlined,
   CodeOutlined,
-  FileTextOutlined
+  FileTextOutlined,
+  EditOutlined,
+  EyeOutlined,
+  BranchesOutlined,
+  CloudUploadOutlined,
+  MergeCellsOutlined
 } from '@ant-design/icons';
 import { Task, TaskStatus, LogEntry, CodeChange } from '../types';
 import LogViewer from './LogViewer';
@@ -74,6 +79,76 @@ const TaskExecutionView: React.FC<TaskExecutionViewProps> = ({
 
   // 判断是否正在流式传输
   const isStreaming = task?.status === TaskStatus.RUNNING || task?.status === TaskStatus.PENDING;
+
+  // 获取任务类型标签
+  const getTypeTag = (type: string) => {
+    if (type === 'code_change') {
+      return (
+        <Tag color="green" icon={<EditOutlined />}>
+          编辑模式
+        </Tag>
+      );
+    } else {
+      return (
+        <Tag color="blue" icon={<EyeOutlined />}>
+          只读模式
+        </Tag>
+      );
+    }
+  };
+
+  // 获取进度步骤（仅编辑模式）
+  const getProgressSteps = (task: Task) => {
+    if (task.type !== 'code_change') {
+      return null;
+    }
+
+    const steps = [
+      { title: '代码修改', icon: <CodeOutlined /> },
+      { title: '创建分支', icon: <BranchesOutlined /> },
+      { title: '提交代码', icon: <CloudUploadOutlined /> },
+      { title: '创建 MR', icon: <MergeCellsOutlined /> },
+    ];
+
+    let current = 0;
+    let status: 'wait' | 'process' | 'finish' | 'error' = 'process';
+
+    if (task.status === TaskStatus.SUCCESS) {
+      current = 4;
+      status = 'finish';
+    } else if (task.status === TaskStatus.FAILED) {
+      status = 'error';
+      // 根据日志判断失败在哪一步
+      const errorLog = logs.find(log => log.level === 'error');
+      if (errorLog) {
+        if (errorLog.message.includes('创建 MR')) current = 3;
+        else if (errorLog.message.includes('推送')) current = 2;
+        else if (errorLog.message.includes('提交')) current = 2;
+        else if (errorLog.message.includes('分支')) current = 1;
+        else current = 0;
+      }
+    } else if (task.status === TaskStatus.RUNNING) {
+      // 根据日志判断当前进度
+      const latestLog = logs[logs.length - 1];
+      if (latestLog) {
+        if (latestLog.message.includes('创建 MR') || latestLog.message.includes('Merge Request')) current = 3;
+        else if (latestLog.message.includes('推送')) current = 2;
+        else if (latestLog.message.includes('提交')) current = 2;
+        else if (latestLog.message.includes('分支')) current = 1;
+        else current = 0;
+      }
+    }
+
+    return (
+      <Steps
+        current={current}
+        status={status}
+        items={steps}
+        size="small"
+        style={{ marginBottom: 24 }}
+      />
+    );
+  };
 
   // 分离流式日志和普通日志
   const { streamLogs, normalLogs } = useMemo(() => {
@@ -171,6 +246,7 @@ const TaskExecutionView: React.FC<TaskExecutionViewProps> = ({
               </div>
               <Space>
                 <Text strong style={{ fontSize: 17 }}>AI 助手</Text>
+                {getTypeTag(task.type)}
                 {getStatusTag(task.status)}
                 {task.completedAt && (
                   <Text type="secondary" style={{ fontSize: 12 }}>
@@ -196,6 +272,9 @@ const TaskExecutionView: React.FC<TaskExecutionViewProps> = ({
               {isStreaming && <Badge status="processing" style={{ marginLeft: 4 }} />}
             </Button>
           </div>
+
+          {/* 进度步骤（仅编辑模式） */}
+          {getProgressSteps(task)}
 
           {/* 结果展示 */}
           {task.result && !task.mrUrl && (() => {
@@ -306,11 +385,22 @@ const TaskExecutionView: React.FC<TaskExecutionViewProps> = ({
           {/* MR 链接 */}
           {task.mrUrl && (
             <Alert
-              message="代码已提交"
+              message="Merge Request 已创建"
               description={
-                <a href={task.mrUrl} target="_blank" rel="noopener noreferrer">
-                  查看 Merge Request: {task.mrUrl}
-                </a>
+                <div>
+                  <div style={{ marginBottom: 8 }}>
+                    代码已提交到分支 <Tag>{task.branchName}</Tag>
+                  </div>
+                  <Button
+                    type="primary"
+                    href={task.mrUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    icon={<MergeCellsOutlined />}
+                  >
+                    查看 Merge Request
+                  </Button>
+                </div>
               }
               type="success"
               showIcon

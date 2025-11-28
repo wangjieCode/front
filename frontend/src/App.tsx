@@ -1,15 +1,17 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Layout, Typography, Input, Button, Space, Card, message } from 'antd';
+import { Layout, Typography, Input, Button, Space, Card, message, Radio } from 'antd';
 import {
   SendOutlined,
   ThunderboltOutlined,
   RocketOutlined,
-  PlusOutlined
+  PlusOutlined,
+  EditOutlined,
+  EyeOutlined
 } from '@ant-design/icons';
 import TaskExecutionView from './components/TaskExecutionView';
 import TaskList from './components/TaskList';
 import { apiService } from './services/api';
-import { Task, LogEntry, CodeChange, TaskStatus, LogLevel } from './types';
+import { Task, LogEntry, CodeChange, TaskStatus, LogLevel, TaskType } from './types';
 import './App.css';
 
 const { Content } = Layout;
@@ -18,6 +20,7 @@ const { TextArea } = Input;
 
 const App: React.FC = () => {
   const [prompt, setPrompt] = useState('');
+  const [taskType, setTaskType] = useState<TaskType>('code_change');
   const [tasks, setTasks] = useState<Task[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [currentTask, setCurrentTask] = useState<Task | null>(null);
@@ -126,6 +129,7 @@ const App: React.FC = () => {
     const optimisticTask: Task = {
       id: 'temp-' + Date.now(),
       prompt: prompt,
+      type: taskType,
       status: TaskStatus.PENDING,
       createdAt: new Date().toISOString(),
     };
@@ -136,8 +140,8 @@ const App: React.FC = () => {
     setTaskLogs([{
       timestamp: new Date().toISOString(),
       level: LogLevel.INFO,
-      source: 'codetool',
-      message: '正在分析需求...'
+      source: 'system',
+      message: taskType === 'code_change' ? '正在分析需求...' : '只读模式：查询中...'
     }]);
     setTaskCodeChanges([]);
 
@@ -145,7 +149,7 @@ const App: React.FC = () => {
     setIsLoading(true);
 
     try {
-      const newTask = await apiService.createTask(prompt);
+      const newTask = await apiService.createTask(prompt, taskType);
 
       // 设置为当前任务（更新为真实数据）
       setCurrentTask(newTask);
@@ -199,10 +203,9 @@ const App: React.FC = () => {
 
   // 示例提示
   const examplePrompts = [
-    '在首页添加一个搜索框',
-    '修改按钮颜色为蓝色',
-    '优化移动端布局',
-    '添加加载动画效果',
+    '修改一下文案',
+    '看一下页面的功能',
+    '看一下某接口调用使用了哪些返回值',
   ];
 
   return (
@@ -307,6 +310,29 @@ const App: React.FC = () => {
                 bodyStyle={{ padding: '24px' }}
               >
                 <Space direction="vertical" style={{ width: '100%' }} size="large">
+                  {/* 模式选择 */}
+                  <div>
+                    <div style={{ marginBottom: 12, fontWeight: 500, fontSize: 14 }}>任务模式</div>
+                    <Radio.Group 
+                      value={taskType} 
+                      onChange={(e) => setTaskType(e.target.value)}
+                      disabled={isLoading}
+                      style={{ width: '100%' }}
+                    >
+                      <Radio.Button value="code_change" style={{ width: '50%', textAlign: 'center' }}>
+                        <EditOutlined /> 编辑模式
+                      </Radio.Button>
+                      <Radio.Button value="query" style={{ width: '50%', textAlign: 'center' }}>
+                        <EyeOutlined /> 只读模式
+                      </Radio.Button>
+                    </Radio.Group>
+                    <div style={{ marginTop: 8, fontSize: 12, color: '#999' }}>
+                      {taskType === 'code_change' 
+                        ? '✨ 允许 AI 修改代码并创建 Merge Request' 
+                        : '👀 仅查询信息，不修改代码'}
+                    </div>
+                  </div>
+
                   <div className="main-input-wrapper" style={{ borderRadius: 12, padding: '4px', background: '#f5f5f5' }}>
                     <TextArea
                       className="main-input-area"

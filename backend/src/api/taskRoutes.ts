@@ -20,7 +20,7 @@ export function createTaskRoutes(
    */
   router.post('/', async (req: Request, res: Response) => {
     try {
-      const { prompt } = req.body;
+      const { prompt, type = 'code_change' } = req.body;
 
       if (!prompt) {
         return res.status(400).json({
@@ -28,8 +28,15 @@ export function createTaskRoutes(
         });
       }
 
+      // 验证任务类型
+      if (type !== 'code_change' && type !== 'query') {
+        return res.status(400).json({
+          error: '任务类型必须是 code_change 或 query',
+        });
+      }
+
       // 创建任务
-      const task = taskManager.createTask(prompt);
+      const task = taskManager.createTask(prompt, type);
 
       // 立即返回任务信息
       res.status(201).json({

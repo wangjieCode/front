@@ -1,20 +1,23 @@
 import React, { useState } from 'react';
-import { Input, Button, Card, Space, message } from 'antd';
-import { SendOutlined } from '@ant-design/icons';
+import { Input, Button, Card, Space, message, Radio } from 'antd';
+import { SendOutlined, EditOutlined, EyeOutlined } from '@ant-design/icons';
 
 const { TextArea } = Input;
 
+type TaskType = 'code_change' | 'query';
+
 interface TaskInputPanelProps {
-  onSubmit: (prompt: string) => void;
+  onSubmit: (prompt: string, type: TaskType) => void;
   isLoading: boolean;
 }
 
 /**
  * 任务输入面板组件
- * 提供输入框让用户输入自然语言提示词，并提交任务
+ * 提供输入框让用户输入自然语言提示词，并选择任务模式
  */
 const TaskInputPanel: React.FC<TaskInputPanelProps> = ({ onSubmit, isLoading }) => {
   const [prompt, setPrompt] = useState('');
+  const [taskType, setTaskType] = useState<TaskType>('code_change');
 
   const handleSubmit = () => {
     const trimmedPrompt = prompt.trim();
@@ -29,7 +32,7 @@ const TaskInputPanel: React.FC<TaskInputPanelProps> = ({ onSubmit, isLoading }) 
       return;
     }
 
-    onSubmit(trimmedPrompt);
+    onSubmit(trimmedPrompt, taskType);
     setPrompt(''); // 清空输入框
   };
 
@@ -46,6 +49,27 @@ const TaskInputPanel: React.FC<TaskInputPanelProps> = ({ onSubmit, isLoading }) 
       style={{ marginBottom: 24 }}
     >
       <Space direction="vertical" style={{ width: '100%' }} size="middle">
+        <div>
+          <div style={{ marginBottom: 8, fontWeight: 500 }}>任务模式</div>
+          <Radio.Group 
+            value={taskType} 
+            onChange={(e) => setTaskType(e.target.value)}
+            disabled={isLoading}
+          >
+            <Radio.Button value="code_change">
+              <EditOutlined /> 编辑模式
+            </Radio.Button>
+            <Radio.Button value="query">
+              <EyeOutlined /> 只读模式
+            </Radio.Button>
+          </Radio.Group>
+          <div style={{ marginTop: 8, fontSize: 12, color: '#666' }}>
+            {taskType === 'code_change' 
+              ? '允许 AI 修改代码并创建 Merge Request' 
+              : '仅查询信息，不修改代码'}
+          </div>
+        </div>
+        
         <TextArea
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}

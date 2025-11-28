@@ -26,11 +26,17 @@ export enum ChangeType {
 }
 
 /**
+ * 任务类型
+ */
+export type TaskType = 'code_change' | 'query';
+
+/**
  * 任务接口
  */
 export interface Task {
   id: string;
   prompt: string;
+  type: TaskType;  // 任务类型
   status: TaskStatus;
   branchName?: string;
   mrUrl?: string;

@@ -3,7 +3,7 @@ import { SSHExecutor } from './SSHExecutor';
 import { GitService } from './GitService';
 import { CodeToolService } from './CodeToolService';
 import { GitLabMCPService } from './GitLabMCPService';
-import { TaskStatus } from '../types';
+import { TaskStatus, TaskType } from '../types';
 import { createInfoLog, createErrorLog } from '../models/LogEntry';
 
 /**
@@ -39,44 +39,69 @@ export class TaskOrchestrator {
       // 步骤 1: 连接 SSH
       await this.step1_ConnectSSH(taskId);
 
-      // 步骤 2: 调用代码工具（先不创建分支）
-      const aiResult = await this.step2_ModifyCode(taskId, task.prompt);
+      // 步骤 2: 准备工作区（清理本地变更并切换到默认分支）
+      await this.step2_PrepareWorkspace(taskId);
 
-      // 检查是否有代码变更
-      const hasChanges = await this.gitService.hasUncommittedChanges();
-
-      if (!hasChanges) {
-        // 查询类任务：没有代码变更，直接标记为成功
-        this.addLog(taskId, 'info', 'system', '📋 这是一个查询类任务，无需提交代码');
-
-        // 保存查询结果
-        if (aiResult.rawOutput) {
-          this.taskManager.setTaskResult(taskId, aiResult.rawOutput);
+      // 根据任务类型执行不同的流程
+      if (task.type === TaskType.QUERY) {
+        // 只读模式：不调用代码工具，直接返回提示词作为结果
+        this.addLog(taskId, 'info', 'system', '📋 只读模式：不修改代码');
+        
+        // 保存提示词作为查询结果
+        this.taskManager.setTaskResult(taskId, task.prompt);
+        
+        this.taskManager.updateTaskStatus(taskId, TaskStatus.SUCCESS);
+        this.addLog(taskId, 'info', 'system', '✅ 只读任务执行成功！');
+      } else {
+        // 编辑模式：检查工具可用性
+        const toolAvailable = await this.codeToolService.isAvailable(this.workDir);
+        if (!toolAvailable) {
+          const toolName = this.codeToolService.getToolName();
+          throw new Error(
+            `代码工具 ${toolName} 不可用。请确保 ${toolName} 已安装并在 PATH 中。\n` +
+            `安装说明：请参考 ${toolName} 的官方文档。`
+          );
         }
 
-        this.taskManager.updateTaskStatus(taskId, TaskStatus.SUCCESS);
-        this.addLog(taskId, 'info', 'system', '✅ 任务执行成功！');
-      } else {
-        // 代码修改任务：创建分支并继续提交和创建 MR
-        this.addLog(taskId, 'info', 'system', '📝 检测到代码变更，开始创建分支');
+        // 步骤 3: 调用代码工具修改代码
+        const aiResult = await this.step3_ModifyCode(taskId, task.prompt);
 
-        // 步骤 3: 创建新分支
-        await this.step3_CreateBranch(taskId, task.branchName!);
+        // 检查是否有代码变更
+        const hasChanges = await this.gitService.hasUncommittedChanges();
 
-        // 步骤 4: 提交代码
-        await this.step4_CommitCode(taskId, task.prompt);
+        if (!hasChanges) {
+          // 没有代码变更（可能是查询类操作）
+          this.addLog(taskId, 'info', 'system', '📋 未检测到代码变更');
 
-        // 步骤 5: 推送分支
-        await this.step5_PushBranch(taskId, task.branchName!);
+          // 保存结果
+          if (aiResult.rawOutput) {
+            this.taskManager.setTaskResult(taskId, aiResult.rawOutput);
+          }
 
-        // 步骤 6: 创建 MR
-        const mrUrl = await this.step6_CreateMR(taskId, task.prompt, task.branchName!);
+          this.taskManager.updateTaskStatus(taskId, TaskStatus.SUCCESS);
+          this.addLog(taskId, 'info', 'system', '✅ 任务执行成功！');
+        } else {
+          // 代码修改任务：创建分支并继续提交和创建 MR
+          this.addLog(taskId, 'info', 'system', '📝 检测到代码变更，开始创建分支');
 
-        // 任务完成
-        this.taskManager.updateTaskStatus(taskId, TaskStatus.SUCCESS);
-        this.taskManager.setTaskMRUrl(taskId, mrUrl);
+          // 步骤 4: 创建新分支
+          await this.step4_CreateBranch(taskId, task.branchName!);
 
-        this.addLog(taskId, 'info', 'system', '✅ 任务执行成功！');
+          // 步骤 5: 提交代码
+          await this.step5_CommitCode(taskId, task.prompt);
+
+          // 步骤 6: 推送分支
+          await this.step6_PushBranch(taskId, task.branchName!);
+
+          // 步骤 7: 创建 MR
+          const mrUrl = await this.step7_CreateMR(taskId, task.prompt, task.branchName!);
+
+          // 任务完成
+          this.taskManager.updateTaskStatus(taskId, TaskStatus.SUCCESS);
+          this.taskManager.setTaskMRUrl(taskId, mrUrl);
+
+          this.addLog(taskId, 'info', 'system', '✅ 任务执行成功！');
+        }
       }
     } catch (error) {
       // 任务失败
@@ -106,9 +131,56 @@ export class TaskOrchestrator {
   }
 
   /**
-   * 步骤 2: 调用代码工具修改代码
+   * 步骤 2: 准备工作区
+   * 清理本地变更并切换到默认分支的最新代码
    */
-  private async step2_ModifyCode(taskId: string, prompt: string): Promise<any> {
+  private async step2_PrepareWorkspace(taskId: string): Promise<void> {
+    this.addLog(taskId, 'info', 'git', '🧹 正在准备工作区...');
+
+    // 1. 重置所有本地变更（丢弃未提交的修改）
+    this.addLog(taskId, 'info', 'git', '清理本地变更...');
+    const resetResult = await this.sshExecutor.executeCommand(
+      'git reset --hard HEAD',
+      this.workDir
+    );
+    if (resetResult.exitCode !== 0) {
+      throw new Error(`重置本地变更失败: ${resetResult.stderr}`);
+    }
+
+    // 2. 清理未跟踪的文件
+    const cleanResult = await this.sshExecutor.executeCommand(
+      'git clean -fd',
+      this.workDir
+    );
+    if (cleanResult.exitCode !== 0) {
+      throw new Error(`清理未跟踪文件失败: ${cleanResult.stderr}`);
+    }
+
+    // 3. 切换到默认分支
+    this.addLog(taskId, 'info', 'git', `切换到 ${this.defaultBranch} 分支...`);
+    const checkoutResult = await this.gitService.checkoutBranch(this.defaultBranch);
+    if (!checkoutResult.success) {
+      throw new Error(`切换到 ${this.defaultBranch} 分支失败: ${checkoutResult.error}`);
+    }
+
+    // 4. 拉取最新代码
+    this.addLog(taskId, 'info', 'git', '拉取最新代码...');
+    const pullResult = await this.sshExecutor.executeCommand(
+      `git pull origin ${this.defaultBranch}`,
+      this.workDir
+    );
+    if (pullResult.exitCode !== 0) {
+      // 拉取失败不一定是致命错误，可能只是网络问题或已经是最新
+      this.addLog(taskId, 'info', 'git', `⚠️ 拉取代码警告: ${pullResult.stderr}`);
+    }
+
+    this.addLog(taskId, 'info', 'git', `✅ 工作区已准备就绪（基于 ${this.defaultBranch} 最新代码）`);
+  }
+
+  /**
+   * 步骤 3: 调用代码工具修改代码
+   */
+  private async step3_ModifyCode(taskId: string, prompt: string): Promise<any> {
     // 获取当前使用的工具名称
     const toolName = this.codeToolService.getToolName();
 
@@ -158,9 +230,9 @@ export class TaskOrchestrator {
   }
 
   /**
-   * 步骤 3: 创建新分支
+   * 步骤 4: 创建新分支
    */
-  private async step3_CreateBranch(taskId: string, branchName: string): Promise<void> {
+  private async step4_CreateBranch(taskId: string, branchName: string): Promise<void> {
     this.addLog(taskId, 'info', 'git', `🌿 正在创建分支: ${branchName}`);
 
     // 检查分支是否已存在
@@ -182,9 +254,9 @@ export class TaskOrchestrator {
   }
 
   /**
-   * 步骤 4: 提交代码
+   * 步骤 5: 提交代码
    */
-  private async step4_CommitCode(taskId: string, prompt: string): Promise<void> {
+  private async step5_CommitCode(taskId: string, prompt: string): Promise<void> {
     this.addLog(taskId, 'info', 'git', '📝 正在提交代码...');
 
     // 添加所有文件
@@ -204,9 +276,9 @@ export class TaskOrchestrator {
   }
 
   /**
-   * 步骤 5: 推送分支
+   * 步骤 6: 推送分支
    */
-  private async step5_PushBranch(taskId: string, branchName: string): Promise<void> {
+  private async step6_PushBranch(taskId: string, branchName: string): Promise<void> {
     this.addLog(taskId, 'info', 'git', `🚀 正在推送分支: ${branchName}`);
 
     const result = await this.gitService.push(branchName);
@@ -218,9 +290,9 @@ export class TaskOrchestrator {
   }
 
   /**
-   * 步骤 6: 创建 MR
+   * 步骤 7: 创建 MR
    */
-  private async step6_CreateMR(
+  private async step7_CreateMR(
     taskId: string,
     prompt: string,
     branchName: string
