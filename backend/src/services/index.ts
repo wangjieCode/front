@@ -8,5 +8,6 @@ export * from './LocalExecutor';
 export * from './TaskManager';
 export * from './GitService';
 export * from './NeovateAIService';
+export * from './CodeToolService';
 export * from './GitLabMCPService';
 export * from './TaskOrchestrator';

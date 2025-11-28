@@ -6,7 +6,7 @@
 
 - **零门槛操作**: 用户通过自然语言描述需求，无需了解命令行或配置开发环境
 - **完整开发环境**: 远程虚拟机预装 Node.js、npm、构建工具等完整前端工具链
-- **AI 代码修改**: 集成 qodercli，自动理解需求并修改代码
+- **AI 代码修改**: 集成 neovate AI 代码工具，自动理解需求并修改代码
 - **自动化工作流**: 通过 GitLab MCP 自动创建 Merge Request，简化代码审查流程
 
 ## 项目结构
@@ -88,6 +88,10 @@ GIT_DEFAULT_BRANCH=main           # 默认分支
 GITLAB_URL=https://gitlab.com     # GitLab URL
 GITLAB_TOKEN=your-token           # Personal Access Token
 GITLAB_PROJECT_ID=12345           # 项目 ID
+
+# 代码工具配置
+CODE_TOOL_TYPE=neovate            # 代码工具类型（默认：neovate）
+IFLOW_API_KEY=your-api-key        # IFLOW API Key（必需）
 ```
 
 **本机模式优势**：
@@ -139,6 +143,27 @@ GITLAB_PROJECT_ID=12345          # 项目 ID
 **获取项目 ID**：
 - 在 GitLab 项目页面，进入 Settings > General
 - 项目 ID 显示在页面顶部
+
+#### 代码工具配置
+
+系统支持多种 AI 代码工具，默认使用 **neovate**：
+
+```bash
+# 代码工具类型选择
+CODE_TOOL_TYPE=neovate    # 可选：neovate, qodercli, cursor, copilot
+
+# neovate 配置（默认）
+IFLOW_API_KEY=your-api-key    # 必需：IFLOW API Key
+```
+
+**获取 IFLOW API Key**：
+- 联系系统管理员获取
+- 或访问 IFLOW 平台申请
+
+**其他代码工具**：
+- `qodercli`: 需要单独安装和配置
+- `cursor`: 开发中
+- `copilot`: 开发中
 
 ### 验证后端能力
 

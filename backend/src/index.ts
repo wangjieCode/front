@@ -1,8 +1,7 @@
-import express from 'express';
+import express, { Express } from 'express';
 import dotenv from 'dotenv';
 import { createServer } from 'http';
-import { TaskManager, SSHExecutor, GitService, NeovateAIService, GitLabMCPService, TaskOrchestrator } from './services';
-import { WebSocketServer } from './websocket/WebSocketServer';
+import { TaskManager, SSHExecutor, GitService, CodeToolService, GitLabMCPService, TaskOrchestrator } from './services';
 import { createTaskRoutes } from './api/taskRoutes';
 import {
   errorHandler,
@@ -16,7 +15,7 @@ import { loadSSHConfig, loadGitLabConfig, getGitWorkDir, getGitDefaultBranch } f
 // 加载环境变量
 dotenv.config();
 
-const app = express();
+const app: Express = express();
 const PORT = process.env.PORT || 3001;
 
 // 创建 HTTP 服务器
@@ -24,7 +23,6 @@ const server = createServer(app);
 
 // 创建服务实例
 const taskManager = new TaskManager();
-const wsServer = new WebSocketServer(server);
 
 // 初始化执行器和其他服务
 let orchestrator: TaskOrchestrator | undefined;
@@ -44,7 +42,7 @@ try {
     const { LocalExecutor } = require('./services');
     executor = new LocalExecutor();
     console.log('✅ 本机执行器已初始化');
-    
+
     // 确保工作目录存在
     const { existsSync, mkdirSync } = require('fs');
     const { resolve } = require('path');
@@ -57,7 +55,7 @@ try {
     // 远程模式：使用 SSHExecutor
     const sshConfig = loadSSHConfig();
     executor = new SSHExecutor();
-    
+
     // 连接 SSH
     executor.connect(sshConfig).then(() => {
       console.log('✅ SSH 连接已建立');
@@ -67,17 +65,22 @@ try {
   }
 
   const gitService = new GitService(executor, workDir);
-  const neovateAIService = new NeovateAIService(executor, workDir);
+  const codeToolService = new CodeToolService(executor);
   const gitlabService = new GitLabMCPService(gitlabConfig);
+
+  // 获取工具信息并记录
+  codeToolService.getToolInfo(workDir).then((info: { name: string; version: string; available: boolean }) => {
+    console.log(`🔧 代码工具: ${info.name} (${info.version})`);
+    console.log(`✅ 工具可用性: ${info.available ? '可用' : '不可用'}`);
+  });
 
   // 创建任务编排器
   orchestrator = new TaskOrchestrator(
     taskManager,
     executor,
     gitService,
-    neovateAIService,
+    codeToolService,
     gitlabService,
-    wsServer,
     workDir,
     defaultBranch
   );
@@ -100,9 +103,6 @@ app.get('/health', (req, res) => {
     status: 'ok',
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
-    websocket: {
-      clients: wsServer.getClientCount(),
-    },
   });
 });
 
@@ -120,13 +120,11 @@ server.listen(PORT, () => {
   console.log(`🚀 后端服务器运行在 http://localhost:${PORT}`);
   console.log(`📝 环境: ${process.env.NODE_ENV || 'development'}`);
   console.log(`📊 API 端点: http://localhost:${PORT}/api/tasks`);
-  console.log(`🔌 WebSocket 端点: ws://localhost:${PORT}`);
 });
 
 // 优雅关闭
 process.on('SIGTERM', () => {
   console.log('收到 SIGTERM 信号，正在关闭服务器...');
-  wsServer.close();
   server.close(() => {
     console.log('服务器已关闭');
     process.exit(0);
@@ -134,5 +132,6 @@ process.on('SIGTERM', () => {
 });
 
 // 导出实例供其他模块使用
-export { app, taskManager, wsServer };
+export { app, taskManager };
 export default app;
+

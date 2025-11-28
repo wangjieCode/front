@@ -1,9 +1,8 @@
 import { TaskManager } from './TaskManager';
 import { SSHExecutor } from './SSHExecutor';
 import { GitService } from './GitService';
-import { NeovateAIService } from './NeovateAIService';
+import { CodeToolService } from './CodeToolService';
 import { GitLabMCPService } from './GitLabMCPService';
-import { WebSocketServer } from '../websocket/WebSocketServer';
 import { TaskStatus } from '../types';
 import { createInfoLog, createErrorLog } from '../models/LogEntry';
 
@@ -16,12 +15,11 @@ export class TaskOrchestrator {
     private taskManager: TaskManager,
     private sshExecutor: SSHExecutor,
     private gitService: GitService,
-    private neovateAIService: NeovateAIService,
+    private codeToolService: CodeToolService,
     private gitlabService: GitLabMCPService,
-    private wsServer: WebSocketServer,
     private workDir: string,
     private defaultBranch: string = 'main'
-  ) {}
+  ) { }
 
   /**
    * 执行任务的完整流程
@@ -37,33 +35,31 @@ export class TaskOrchestrator {
 
       // 更新任务状态为运行中
       this.taskManager.updateTaskStatus(taskId, TaskStatus.RUNNING);
-      this.wsServer.sendTaskStatus(taskId, TaskStatus.RUNNING);
 
       // 步骤 1: 连接 SSH
       await this.step1_ConnectSSH(taskId);
 
-      // 步骤 2: 调用 qodercli（先不创建分支）
+      // 步骤 2: 调用代码工具（先不创建分支）
       const aiResult = await this.step2_ModifyCode(taskId, task.prompt);
 
       // 检查是否有代码变更
       const hasChanges = await this.gitService.hasUncommittedChanges();
-      
+
       if (!hasChanges) {
         // 查询类任务：没有代码变更，直接标记为成功
         this.addLog(taskId, 'info', 'system', '📋 这是一个查询类任务，无需提交代码');
-        
+
         // 保存查询结果
         if (aiResult.rawOutput) {
           this.taskManager.setTaskResult(taskId, aiResult.rawOutput);
         }
-        
+
         this.taskManager.updateTaskStatus(taskId, TaskStatus.SUCCESS);
-        this.wsServer.sendTaskCompleted(taskId);
         this.addLog(taskId, 'info', 'system', '✅ 任务执行成功！');
       } else {
         // 代码修改任务：创建分支并继续提交和创建 MR
         this.addLog(taskId, 'info', 'system', '📝 检测到代码变更，开始创建分支');
-        
+
         // 步骤 3: 创建新分支
         await this.step3_CreateBranch(taskId, task.branchName!);
 
@@ -79,7 +75,6 @@ export class TaskOrchestrator {
         // 任务完成
         this.taskManager.updateTaskStatus(taskId, TaskStatus.SUCCESS);
         this.taskManager.setTaskMRUrl(taskId, mrUrl);
-        this.wsServer.sendTaskCompleted(taskId, mrUrl);
 
         this.addLog(taskId, 'info', 'system', '✅ 任务执行成功！');
       }
@@ -87,7 +82,6 @@ export class TaskOrchestrator {
       // 任务失败
       const errorMessage = error instanceof Error ? error.message : String(error);
       this.taskManager.setTaskError(taskId, errorMessage);
-      this.wsServer.sendTaskError(taskId, errorMessage);
       this.addLog(taskId, 'error', 'system', `❌ 任务执行失败: ${errorMessage}`);
     }
   }
@@ -112,13 +106,28 @@ export class TaskOrchestrator {
   }
 
   /**
-   * 步骤 2: 调用 qodercli 修改代码
+   * 步骤 2: 调用代码工具修改代码
    */
   private async step2_ModifyCode(taskId: string, prompt: string): Promise<any> {
-    this.addLog(taskId, 'info', 'neovateai', '🤖 正在使用 AI 修改代码...');
-    this.addLog(taskId, 'info', 'neovateai', `提示词: ${prompt}`);
+    // 获取当前使用的工具名称
+    const toolName = this.codeToolService.getToolName();
 
-    const result = await this.neovateAIService.modifyCode(prompt);
+    this.addLog(taskId, 'info', 'codetool', `🤖 正在使用 ${toolName} 修改代码...`);
+    this.addLog(taskId, 'info', 'codetool', `提示词: ${prompt}`);
+
+    // 使用流式输出执行代码修改
+    const result = await this.codeToolService.modifyCodeStream(
+      prompt,
+      this.workDir,
+      (data: string) => {
+        // 添加日志到任务管理器，前端会通过轮询获取
+        this.taskManager.addLog(taskId, createInfoLog('codetool', data));
+      },
+      (error: string) => {
+        // 添加错误日志到任务管理器
+        this.taskManager.addLog(taskId, createErrorLog('codetool', error));
+      }
+    );
 
     if (!result.success) {
       throw new Error(`AI 代码修改失败: ${result.error}`);
@@ -127,20 +136,19 @@ export class TaskOrchestrator {
     this.addLog(
       taskId,
       'info',
-      'neovateai',
+      'codetool',
       `✅ 代码修改完成，共 ${result.changes.length} 个文件变更`
     );
 
-    // 发送代码变更通知
+    // 记录代码变更（前端通过轮询获取）
     if (result.changes.length > 0) {
-      this.wsServer.sendCodeChange(taskId, result.changes);
-      
+
       // 记录每个文件的变更
       result.changes.forEach((change) => {
         this.addLog(
           taskId,
           'info',
-          'neovateai',
+          'codetool',
           `  - ${change.changeType}: ${change.filePath}`
         );
       });
@@ -241,11 +249,10 @@ export class TaskOrchestrator {
     source: string,
     message: string
   ): void {
-    const log = level === 'info' 
+    const log = level === 'info'
       ? createInfoLog(source, message)
       : createErrorLog(source, message);
-    
+
     this.taskManager.addLog(taskId, log);
-    this.wsServer.sendTaskLog(taskId, log);
   }
 }

@@ -1,24 +1,30 @@
-import React, { useState, useEffect } from 'react';
-import { Layout, Typography, Row, Col, message } from 'antd';
-import TaskInputPanel from './components/TaskInputPanel';
-import TaskList from './components/TaskList';
+import React, { useState, useEffect, useRef } from 'react';
+import { Layout, Typography, Input, Button, Space, Card, message } from 'antd';
+import {
+  SendOutlined,
+  ThunderboltOutlined,
+  RocketOutlined,
+  PlusOutlined
+} from '@ant-design/icons';
 import TaskExecutionView from './components/TaskExecutionView';
+import TaskList from './components/TaskList';
 import { apiService } from './services/api';
-import { wsService } from './services/websocket';
-import { Task, LogEntry, CodeChange, WSMessage, TaskStatus } from './types';
+import { Task, LogEntry, CodeChange, TaskStatus, LogLevel } from './types';
 import './App.css';
 
-const { Header, Content } = Layout;
-const { Title } = Typography;
+const { Content } = Layout;
+const { Title, Text, Paragraph } = Typography;
+const { TextArea } = Input;
 
 const App: React.FC = () => {
+  const [prompt, setPrompt] = useState('');
   const [tasks, setTasks] = useState<Task[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [selectedTaskId, setSelectedTaskId] = useState<string | undefined>();
-  const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+  const [currentTask, setCurrentTask] = useState<Task | null>(null);
   const [taskLogs, setTaskLogs] = useState<LogEntry[]>([]);
   const [taskCodeChanges, setTaskCodeChanges] = useState<CodeChange[]>([]);
-  const [isLoadingTaskDetails, setIsLoadingTaskDetails] = useState(false);
+  const [showResult, setShowResult] = useState(false);
+  const pollingIntervalRef = useRef<number | null>(null);
 
   // 加载任务列表
   const loadTasks = async () => {
@@ -41,216 +47,348 @@ const App: React.FC = () => {
 
   // 加载任务详情
   const loadTaskDetails = async (taskId: string) => {
-    setIsLoadingTaskDetails(true);
     try {
       const [task, logs] = await Promise.all([
         apiService.getTask(taskId),
         apiService.getTaskLogs(taskId),
       ]);
-      
-      setSelectedTask(task);
+
+      setCurrentTask(task);
       setTaskLogs(logs);
-      // TODO: 在任务 13 中通过 WebSocket 实时更新代码变更
       setTaskCodeChanges([]);
     } catch (error) {
       console.error('加载任务详情失败:', error);
       message.error('加载任务详情失败');
-    } finally {
-      setIsLoadingTaskDetails(false);
     }
   };
 
-  // 组件挂载时加载任务列表并连接 WebSocket
+  // 轮询任务状态和日志
+  const startPolling = (taskId: string) => {
+    // 清除之前的轮询
+    stopPolling();
+
+    // 立即加载一次
+    loadTaskDetails(taskId);
+
+    // 每2秒轮询一次
+    pollingIntervalRef.current = window.setInterval(async () => {
+      try {
+        const task = await apiService.getTask(taskId);
+        setCurrentTask(task);
+
+        // 如果任务已完成或失败，停止轮询
+        if (task.status === TaskStatus.SUCCESS || task.status === TaskStatus.FAILED) {
+          stopPolling();
+          // 最后再获取一次完整的日志
+          const logs = await apiService.getTaskLogs(taskId);
+          setTaskLogs(logs);
+          // 更新任务列表
+          loadTasks();
+        } else {
+          // 继续获取日志更新
+          const logs = await apiService.getTaskLogs(taskId);
+          setTaskLogs(logs);
+        }
+      } catch (error) {
+        console.error('轮询任务状态失败:', error);
+      }
+    }, 2000);
+  };
+
+  // 停止轮询
+  const stopPolling = () => {
+    if (pollingIntervalRef.current !== null) {
+      window.clearInterval(pollingIntervalRef.current);
+      pollingIntervalRef.current = null;
+    }
+  };
+
+  // 组件挂载时加载任务列表
   useEffect(() => {
     loadTasks();
-    
-    // 连接 WebSocket
-    wsService.connect();
-    
-    // 监听 WebSocket 消息
-    const unsubscribe = wsService.onMessage(handleWebSocketMessage);
-    
-    // 组件卸载时断开连接
+
+    // 组件卸载时停止轮询
     return () => {
-      unsubscribe();
-      wsService.disconnect();
+      stopPolling();
     };
   }, []);
 
-  // 当选中任务变化时，加载任务详情
-  useEffect(() => {
-    if (selectedTaskId) {
-      loadTaskDetails(selectedTaskId);
-    } else {
-      setSelectedTask(null);
-      setTaskLogs([]);
-      setTaskCodeChanges([]);
-    }
-  }, [selectedTaskId]);
+
 
   // 提交新任务
-  const handleSubmitTask = async (prompt: string) => {
+  const handleSubmitTask = async () => {
+    if (!prompt.trim()) {
+      message.warning('请输入你的需求');
+      return;
+    }
+
+    // 创建乐观 UI 任务对象
+    const optimisticTask: Task = {
+      id: 'temp-' + Date.now(),
+      prompt: prompt,
+      status: TaskStatus.PENDING,
+      createdAt: new Date().toISOString(),
+    };
+
+    // 立即更新 UI
+    setCurrentTask(optimisticTask);
+    setShowResult(true);
+    setTaskLogs([{
+      timestamp: new Date().toISOString(),
+      level: LogLevel.INFO,
+      source: 'codetool',
+      message: '正在分析需求...'
+    }]);
+    setTaskCodeChanges([]);
+
+    // 保持 loading 状态以防万一，虽然界面已经切换
     setIsLoading(true);
+
     try {
       const newTask = await apiService.createTask(prompt);
-      message.success('任务创建成功');
-      
-      // 添加新任务到列表顶部
-      setTasks([newTask, ...tasks]);
-      setSelectedTaskId(newTask.id);
+
+      // 设置为当前任务（更新为真实数据）
+      setCurrentTask(newTask);
+      setTasks(prev => [newTask, ...prev]);
+
+      // 开始轮询任务状态和日志
+      startPolling(newTask.id);
+
+      // 清空输入框
+      setPrompt('');
     } catch (error) {
       console.error('创建任务失败:', error);
       message.error(error instanceof Error ? error.message : '创建任务失败');
+      // 如果失败，可能需要回退状态，但为了用户体验，暂时保留在结果页显示错误
+      if (currentTask?.id === optimisticTask.id) {
+        setCurrentTask({
+          ...optimisticTask,
+          status: TaskStatus.FAILED,
+          error: error instanceof Error ? error.message : '创建任务失败'
+        });
+      }
     } finally {
       setIsLoading(false);
     }
   };
 
-  // 点击任务
+  // 点击历史任务
   const handleTaskClick = (taskId: string) => {
-    setSelectedTaskId(taskId);
-  };
+    const task = tasks.find(t => t.id === taskId);
+    if (task) {
+      setCurrentTask(task);
+      setShowResult(true);
+      loadTaskDetails(taskId);
 
-  // 处理 WebSocket 消息
-  const handleWebSocketMessage = (wsMessage: WSMessage) => {
-    console.log('收到 WebSocket 消息:', wsMessage);
-    console.log('消息类型:', wsMessage.type);
-    console.log('消息 payload:', wsMessage.payload);
-    
-    switch (wsMessage.type) {
-      case 'task:status':
-        // 更新任务状态
-        if (wsMessage.payload.taskId && wsMessage.payload.status) {
-          const newStatus = wsMessage.payload.status as TaskStatus;
-          console.log('更新任务状态:', wsMessage.payload.taskId, '→', newStatus);
-          setTasks(prevTasks => 
-            prevTasks.map(task => 
-              task.id === wsMessage.payload.taskId 
-                ? { ...task, status: newStatus }
-                : task
-            )
-          );
-          
-          // 如果是当前选中的任务，也更新详情
-          if (selectedTask?.id === wsMessage.payload.taskId) {
-            setSelectedTask(prev => prev ? { ...prev, status: newStatus } : null);
-          }
-        }
-        break;
-        
-      case 'task:log':
-        // 添加新日志
-        if (wsMessage.payload.taskId && wsMessage.payload.log) {
-          if (selectedTask?.id === wsMessage.payload.taskId) {
-            const newLog = wsMessage.payload.log;
-            setTaskLogs(prevLogs => [...prevLogs, newLog]);
-          }
-        }
-        break;
-        
-      case 'task:codeChange':
-        // 更新代码变更
-        if (wsMessage.payload.taskId && wsMessage.payload.changes) {
-          if (selectedTask?.id === wsMessage.payload.taskId) {
-            setTaskCodeChanges(wsMessage.payload.changes);
-          }
-        }
-        break;
-        
-      case 'task:completed':
-        // 任务完成
-        console.log('收到任务完成消息:', wsMessage.payload);
-        if (wsMessage.payload.taskId) {
-          const mrUrl = wsMessage.payload.mrUrl;
-          console.log('任务完成，更新状态:', wsMessage.payload.taskId, 'MR:', mrUrl);
-          setTasks(prevTasks => 
-            prevTasks.map(task => 
-              task.id === wsMessage.payload.taskId 
-                ? { 
-                    ...task, 
-                    status: TaskStatus.SUCCESS,
-                    completedAt: new Date().toISOString(),
-                    mrUrl 
-                  }
-                : task
-            )
-          );
-          
-          if (selectedTask?.id === wsMessage.payload.taskId) {
-            console.log('更新选中任务的状态');
-            setSelectedTask(prev => prev ? { 
-              ...prev, 
-              status: TaskStatus.SUCCESS,
-              completedAt: new Date().toISOString(),
-              mrUrl 
-            } : null);
-          }
-          
-          message.success('任务执行成功！');
-        }
-        break;
-        
-      case 'task:error':
-        // 任务失败
-        if (wsMessage.payload.taskId) {
-          const errorMsg = wsMessage.payload.error;
-          setTasks(prevTasks => 
-            prevTasks.map(task => 
-              task.id === wsMessage.payload.taskId 
-                ? { ...task, status: TaskStatus.FAILED, error: errorMsg }
-                : task
-            )
-          );
-          
-          if (selectedTask?.id === wsMessage.payload.taskId) {
-            setSelectedTask(prev => prev ? { 
-              ...prev, 
-              status: TaskStatus.FAILED,
-              error: errorMsg 
-            } : null);
-          }
-          
-          message.error(`任务执行失败: ${errorMsg || '未知错误'}`);
-        }
-        break;
+      // 如果任务还在运行中，开始轮询
+      if (task.status === TaskStatus.RUNNING || task.status === TaskStatus.PENDING) {
+        startPolling(taskId);
+      }
     }
   };
 
+  // 新建任务
+  const handleNewTask = () => {
+    stopPolling(); // 停止当前轮询
+    setShowResult(false);
+    setCurrentTask(null);
+    setTaskLogs([]);
+    setTaskCodeChanges([]);
+    setPrompt('');
+  };
+
+  // 示例提示
+  const examplePrompts = [
+    '在首页添加一个搜索框',
+    '修改按钮颜色为蓝色',
+    '优化移动端布局',
+    '添加加载动画效果',
+  ];
+
   return (
     <Layout style={{ minHeight: '100vh' }}>
-      <Header style={{ background: '#fff', padding: '0 24px', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
-        <Title level={3} style={{ margin: '16px 0' }}>
-          🚀 Web 前端实习生助手系统
-        </Title>
-      </Header>
-      <Content style={{ padding: '24px', background: '#f0f2f5' }}>
-        <div style={{ maxWidth: 1600, margin: '0 auto' }}>
-          <Row gutter={24}>
-            {/* 左侧：任务输入和列表 */}
-            <Col xs={24} lg={8}>
-              <TaskInputPanel 
-                onSubmit={handleSubmitTask} 
-                isLoading={isLoading} 
-              />
-              <TaskList 
-                tasks={tasks}
-                onTaskClick={handleTaskClick}
-                selectedTaskId={selectedTaskId}
-              />
-            </Col>
-            
-            {/* 右侧：任务执行视图 */}
-            <Col xs={24} lg={16}>
+      <Layout.Sider
+        width={300}
+        theme="light"
+        style={{
+          borderRight: '1px solid #f0f0f0',
+          overflow: 'auto',
+          height: '100vh',
+          position: 'fixed',
+          left: 0,
+          top: 0,
+          bottom: 0,
+          zIndex: 10
+        }}
+      >
+        <div style={{ padding: '24px 16px', borderBottom: '1px solid #f0f0f0' }}>
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            marginBottom: 24,
+            cursor: 'pointer'
+          }} onClick={handleNewTask}>
+            <div style={{
+              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+              width: 32,
+              height: 32,
+              borderRadius: 8,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              marginRight: 12,
+              color: '#fff'
+            }}>
+              <RocketOutlined />
+            </div>
+            <Title level={4} style={{ margin: 0, fontSize: 18 }}>前端小秘</Title>
+          </div>
+          <Button
+            type="primary"
+            block
+            icon={<PlusOutlined />}
+            onClick={handleNewTask}
+            style={{ borderRadius: 8 }}
+          >
+            新对话
+          </Button>
+        </div>
+        <div style={{ padding: '16px 0' }}>
+          <TaskList
+            tasks={tasks}
+            onTaskClick={handleTaskClick}
+            selectedTaskId={currentTask?.id}
+          />
+        </div>
+      </Layout.Sider>
+
+      <Layout style={{ marginLeft: 300, background: '#f0f2f5', minHeight: '100vh' }}>
+        <Content style={{ padding: '24px', height: '100vh', overflow: 'auto' }}>
+          {!showResult ? (
+            // 主输入界面
+            <div style={{
+              maxWidth: 800,
+              margin: '0 auto',
+              paddingTop: '10vh',
+              animation: 'fadeIn 0.6s ease-in'
+            }}>
+              <style>
+                {`
+                  @keyframes fadeIn {
+                    from { opacity: 0; transform: translateY(20px); }
+                    to { opacity: 1; transform: translateY(0); }
+                  }
+                  @keyframes float {
+                    0%, 100% { transform: translateY(0); }
+                    50% { transform: translateY(-10px); }
+                  }
+                `}
+              </style>
+
+              {/* 欢迎标题 */}
+              <div style={{ textAlign: 'center', marginBottom: 48 }}>
+                <Title level={1} style={{ marginBottom: 16, fontSize: 42, fontWeight: 800 }}>
+                  有什么可以帮你的？
+                </Title>
+                <Paragraph style={{ color: '#666', fontSize: 18 }}>
+                  <ThunderboltOutlined style={{ color: '#faad14' }} /> 你的智能前端开发助手
+                </Paragraph>
+              </div>
+
+              {/* 输入卡片 */}
+              <Card
+                className="glass-card"
+                style={{
+                  borderRadius: 24,
+                  border: 'none',
+                  padding: '12px',
+                  background: '#fff'
+                }}
+                bodyStyle={{ padding: '24px' }}
+              >
+                <Space direction="vertical" style={{ width: '100%' }} size="large">
+                  <div className="main-input-wrapper" style={{ borderRadius: 12, padding: '4px', background: '#f5f5f5' }}>
+                    <TextArea
+                      className="main-input-area"
+                      value={prompt}
+                      onChange={(e) => setPrompt(e.target.value)}
+                      placeholder="描述你想要的功能，例如：在首页添加一个搜索框..."
+                      autoSize={{ minRows: 4, maxRows: 8 }}
+                      style={{
+                        fontSize: 16,
+                        background: 'transparent',
+                        border: 'none',
+                        resize: 'none'
+                      }}
+                      onPressEnter={(e) => {
+                        if (e.ctrlKey || e.metaKey) {
+                          handleSubmitTask();
+                        }
+                      }}
+                    />
+                  </div>
+
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <Text type="secondary" style={{ fontSize: 12 }}>
+                      按 Ctrl/Cmd + Enter 发送
+                    </Text>
+                    <Button
+                      type="primary"
+                      size="large"
+                      icon={<SendOutlined />}
+                      onClick={handleSubmitTask}
+                      loading={isLoading}
+                      style={{
+                        height: 48,
+                        padding: '0 32px',
+                        fontSize: 16,
+                        borderRadius: 24,
+                        background: 'linear-gradient(135deg, #1890ff 0%, #096dd9 100%)',
+                        border: 'none',
+                        boxShadow: '0 4px 12px rgba(24, 144, 255, 0.3)'
+                      }}
+                    >
+                      {isLoading ? '正在思考...' : '发送'}
+                    </Button>
+                  </div>
+                </Space>
+              </Card>
+
+              {/* 示例提示 */}
+              <div style={{ marginTop: 48 }}>
+                <Space wrap size={[12, 12]} style={{ justifyContent: 'center', width: '100%' }}>
+                  {examplePrompts.map((example, index) => (
+                    <Button
+                      key={index}
+                      style={{
+                        borderRadius: 20,
+                        background: '#fff',
+                        border: '1px solid #eee',
+                        color: '#666',
+                        padding: '4px 16px',
+                        height: 'auto'
+                      }}
+                      onClick={() => setPrompt(example)}
+                    >
+                      {example}
+                    </Button>
+                  ))}
+                </Space>
+              </div>
+            </div>
+          ) : (
+            // 执行结果界面
+            <div style={{ maxWidth: 1200, margin: '0 auto' }}>
               <TaskExecutionView
-                task={selectedTask}
+                task={currentTask}
                 logs={taskLogs}
                 codeChanges={taskCodeChanges}
-                isLoading={isLoadingTaskDetails}
+                isLoading={false}
               />
-            </Col>
-          </Row>
-        </div>
-      </Content>
+            </div>
+          )}
+        </Content>
+      </Layout>
     </Layout>
   );
 };

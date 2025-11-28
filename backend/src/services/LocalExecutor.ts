@@ -45,10 +45,27 @@ export class LocalExecutor {
    * @returns 命令执行结果
    */
   async executeCommand(command: string, workDir?: string): Promise<CommandResult> {
+    console.log('[LocalExecutor] 执行命令:', command.substring(0, 100) + '...');
+    console.log('[LocalExecutor] 工作目录:', workDir || '(当前目录)');
+    
     try {
-      const options = workDir ? { cwd: workDir, maxBuffer: 10 * 1024 * 1024 } : { maxBuffer: 10 * 1024 * 1024 };
+      const options = {
+        cwd: workDir,
+        maxBuffer: 10 * 1024 * 1024,
+        env: {
+          ...process.env,
+          // 确保传递 IFLOW_API_KEY 给子进程
+          IFLOW_API_KEY: process.env.IFLOW_API_KEY,
+        }
+      };
+      
+      console.log('[LocalExecutor] IFLOW_API_KEY 已传递:', !!options.env.IFLOW_API_KEY);
       
       const { stdout, stderr } = await execAsync(command, options);
+
+      console.log('[LocalExecutor] ✅ 命令执行成功');
+      console.log('[LocalExecutor] stdout 长度:', stdout.length);
+      console.log('[LocalExecutor] stderr 长度:', stderr.length);
 
       return {
         stdout: stdout.trim(),
@@ -56,10 +73,95 @@ export class LocalExecutor {
         exitCode: 0,
       };
     } catch (error: any) {
+      console.error('[LocalExecutor] ❌ 命令执行失败');
+      console.error('[LocalExecutor] 错误码:', error.code);
+      console.error('[LocalExecutor] 错误信息:', error.message);
       return {
         stdout: error.stdout?.trim() || '',
         stderr: error.stderr?.trim() || error.message,
         exitCode: error.code || 1,
+      };
+    }
+  }
+
+  /**
+   * 执行命令并流式处理输出
+   * @param command 要执行的命令
+   * @param workDir 工作目录（可选）
+   * @param onData 数据回调函数
+   * @param onError 错误回调函数
+   * @returns 命令执行结果
+   */
+  async executeCommandStream(
+    command: string,
+    workDir: string | undefined,
+    onData: (data: string) => void,
+    onError?: (data: string) => void
+  ): Promise<CommandResult> {
+    console.log('[LocalExecutor] 流式执行命令:', command.substring(0, 100) + '...');
+    console.log('[LocalExecutor] 工作目录:', workDir || '(当前目录)');
+    
+    try {
+      const { spawn } = require('child_process');
+      const options = {
+        cwd: workDir,
+        env: {
+          ...process.env,
+          // 确保传递 IFLOW_API_KEY 给子进程
+          IFLOW_API_KEY: process.env.IFLOW_API_KEY,
+        }
+      };
+      
+      console.log('[LocalExecutor] IFLOW_API_KEY 已传递:', !!options.env.IFLOW_API_KEY);
+      
+      return new Promise((resolve, reject) => {
+        console.log('[LocalExecutor] 启动子进程...');
+        const child = spawn('sh', ['-c', command], options);
+        
+        let stdout = '';
+        let stderr = '';
+        let exitCode = 0;
+
+        // 捕获标准输出并实时回调
+        child.stdout.on('data', (data: Buffer) => {
+          const output = data.toString('utf8');
+          stdout += output;
+          onData(output);
+        });
+
+        // 捕获标准错误并实时回调
+        child.stderr.on('data', (data: Buffer) => {
+          const output = data.toString('utf8');
+          stderr += output;
+          if (onError) {
+            onError(output);
+          }
+        });
+
+        // 进程结束
+        child.on('close', (code: number) => {
+          exitCode = code || 0;
+          console.log('[LocalExecutor] 子进程结束，退出码:', exitCode);
+          console.log('[LocalExecutor] stdout 总长度:', stdout.length);
+          console.log('[LocalExecutor] stderr 总长度:', stderr.length);
+          resolve({
+            stdout: stdout.trim(),
+            stderr: stderr.trim(),
+            exitCode,
+          });
+        });
+
+        // 错误处理
+        child.on('error', (error: Error) => {
+          console.error('[LocalExecutor] ❌ 子进程错误:', error.message);
+          reject(error);
+        });
+      });
+    } catch (error: any) {
+      return {
+        stdout: '',
+        stderr: error.message || String(error),
+        exitCode: 1,
       };
     }
   }

@@ -201,6 +201,90 @@ export class SSHExecutor {
   }
 
   /**
+   * 执行命令并流式处理输出
+   * @param command 要执行的命令
+   * @param workDir 工作目录（可选）
+   * @param onData 数据回调函数
+   * @param onError 错误回调函数
+   * @returns 命令执行结果
+   */
+  async executeCommandStream(
+    command: string,
+    workDir: string | undefined,
+    onData: (data: string) => void,
+    onError?: (data: string) => void
+  ): Promise<CommandResult> {
+    if (!this.isConnected() || !this.client) {
+      throw new Error('SSH 未连接');
+    }
+
+    // 如果指定了工作目录，添加 cd 命令
+    const fullCommand = workDir 
+      ? `cd ${workDir} && ${command}`
+      : command;
+
+    return new Promise((resolve, reject) => {
+      this.client!.exec(fullCommand, (err, channel: ClientChannel) => {
+        if (err) {
+          reject(err);
+          return;
+        }
+
+        let stdout = '';
+        let stderr = '';
+        let exitCode = 0;
+
+        // 捕获标准输出并实时回调
+        channel.on('data', (data: Buffer) => {
+          const output = data.toString('utf8');
+          stdout += output;
+          
+          // 实时回调
+          onData(output);
+          
+          // 检查输出大小，防止内存溢出
+          if (stdout.length > 10 * 1024 * 1024) { // 10MB
+            stdout = stdout.substring(0, 10 * 1024 * 1024) + '\n[输出已截断: 超过 10MB]';
+            channel.close();
+          }
+        });
+
+        // 捕获标准错误并实时回调
+        channel.stderr.on('data', (data: Buffer) => {
+          const output = data.toString('utf8');
+          stderr += output;
+          
+          // 实时回调错误输出
+          if (onError) {
+            onError(output);
+          }
+          
+          // 检查输出大小
+          if (stderr.length > 10 * 1024 * 1024) { // 10MB
+            stderr = stderr.substring(0, 10 * 1024 * 1024) + '\n[输出已截断: 超过 10MB]';
+            channel.close();
+          }
+        });
+
+        // 命令执行完成
+        channel.on('close', (code: number) => {
+          exitCode = code || 0;
+          resolve({
+            stdout: stdout.trim(),
+            stderr: stderr.trim(),
+            exitCode,
+          });
+        });
+
+        // 错误处理
+        channel.on('error', (error: Error) => {
+          reject(error);
+        });
+      });
+    });
+  }
+
+  /**
    * 测试连接
    * @returns 如果连接正常返回 true
    */

@@ -52,11 +52,25 @@ const LogViewer: React.FC<LogViewerProps> = ({ logs, autoScroll = true }) => {
     const colorMap: Record<string, string> = {
       ssh: 'cyan',
       neovateai: 'purple',
+      codetool: 'purple',  // 新增：代码工具
       gitlab: 'orange',
       git: 'green',
       system: 'default',
     };
     return colorMap[source] || 'default';
+  };
+
+  // 获取来源显示名称
+  const getSourceDisplayName = (source: string) => {
+    const nameMap: Record<string, string> = {
+      ssh: 'SSH',
+      neovateai: 'AI工具',
+      codetool: 'AI工具',
+      gitlab: 'GitLab',
+      git: 'Git',
+      system: '系统',
+    };
+    return nameMap[source] || source;
   };
 
   // 下载日志
@@ -137,7 +151,7 @@ const LogViewer: React.FC<LogViewerProps> = ({ logs, autoScroll = true }) => {
                 </Text>
                 {getLevelTag(log.level)}
                 <Tag color={getSourceColor(log.source)} style={{ fontSize: 11 }}>
-                  {log.source}
+                  {getSourceDisplayName(log.source)}
                 </Tag>
               </Space>
               <div style={{ marginTop: 4, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
