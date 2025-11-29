@@ -149,9 +149,6 @@ app.get('/health', (req, res) => {
   });
 });
 
-// SSE 流式响应路由
-import streamingRoutes from './routes/streaming';
-
 // 启动服务器（异步）
 async function startServer() {
   // 1. 先初始化服务
@@ -162,9 +159,6 @@ async function startServer() {
   if (conversationManager && messageRouter && conversationAIService) {
     app.use('/api/conversations', createConversationRoutes(conversationManager, messageRouter, conversationAIService));
   }
-
-  // SSE 流式响应路由
-  app.use('/api', streamingRoutes);
 
   // 404 处理
   app.use(notFoundHandler);
