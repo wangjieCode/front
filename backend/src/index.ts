@@ -96,6 +96,8 @@ async function initializeServices() {
   const { ConversationAIService } = require('./services/ConversationAIService');
   const { NeovateAIService } = require('./services/NeovateAIService');
   const { ConversationStorageAdapter } = require('./storage/ConversationStorageAdapter');
+  const { GitService } = require('./services/GitService');
+  const { GitLabMCPService } = require('./services/GitLabMCPService');
 
   // 使用 Drizzle 存储
   if (!conversationStorage) {
@@ -104,10 +106,16 @@ async function initializeServices() {
   
   // 使用适配器包装存储
   const storageAdapter = new ConversationStorageAdapter(conversationStorage);
-  conversationManager = new ConversationManager(storageAdapter);
+  const gitService = new GitService(executor, workDir);
+  const gitlabService = new GitLabMCPService({
+    url: process.env.GITLAB_URL || '',
+    token: process.env.GITLAB_TOKEN || '',
+    projectId: process.env.GITLAB_PROJECT_ID || '',
+  });
+  conversationManager = new ConversationManager(storageAdapter, gitService, gitlabService);
   const neovateAIService = new NeovateAIService(executor, workDir);
   const databaseUrl = process.env.DATABASE_URL || '';
-  conversationAIService = new ConversationAIService(neovateAIService, databaseUrl);
+  conversationAIService = new ConversationAIService(neovateAIService, databaseUrl, gitService, gitlabService);
   messageRouter = new MessageRouter(conversationManager, conversationAIService);
 
   console.log('✅ 对话服务已初始化 (存储: Drizzle/Supabase)');

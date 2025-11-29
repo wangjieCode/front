@@ -14,6 +14,8 @@ import {
 } from '../types';
 import { IConversationStorage } from '../storage/ConversationStorageAdapter';
 import { ModeValidator } from './ModeValidator';
+import { GitService } from './GitService';
+import { GitLabMCPService } from './GitLabMCPService';
 
 /**
  * 对话管理器类
@@ -23,10 +25,18 @@ export class ConversationManager {
   private storage: IConversationStorage;
   private locks: Map<string, boolean> = new Map();
   private modeValidator: ModeValidator;
+  private gitService?: GitService;
+  private gitlabService?: GitLabMCPService;
 
-  constructor(storage: IConversationStorage) {
+  constructor(
+    storage: IConversationStorage,
+    gitService?: GitService,
+    gitlabService?: GitLabMCPService
+  ) {
     this.storage = storage;
     this.modeValidator = new ModeValidator();
+    this.gitService = gitService;
+    this.gitlabService = gitlabService;
   }
 
   /**
@@ -80,6 +90,36 @@ export class ConversationManager {
       mode, // 保存模式
     };
 
+    // 根据模式处理 Git 操作
+    if (mode === ConversationMode.EDIT) {
+      if (!this.gitService || !this.gitlabService) {
+        throw new Error('编辑模式需要 Git 服务，但服务未初始化');
+      }
+      
+      // 编辑模式：创建新分支和 MR
+      const gitResult = await this.handleEditModeSetup(sessionId, initialPrompt);
+      if (!gitResult.success) {
+        throw new Error(`Git 操作失败: ${gitResult.error}`);
+      }
+      
+      context.gitBranch = gitResult.branchName;
+      context.mrUrl = gitResult.mrUrl;
+      console.log(`[ConversationManager] ✅ Git 分支和 MR 已创建: ${gitResult.branchName}`);
+      console.log(`[ConversationManager] ✅ MR URL: ${gitResult.mrUrl}`);
+    } else if (mode === ConversationMode.READONLY) {
+      if (!this.gitService) {
+        throw new Error('只读模式需要 Git 服务，但服务未初始化');
+      }
+      
+      // 只读模式：丢弃变更，切换到主分支
+      const gitResult = await this.handleReadonlyModeSetup();
+      if (!gitResult.success) {
+        throw new Error(`Git 操作失败: ${gitResult.error}`);
+      }
+      
+      console.log(`[ConversationManager] ✅ 已切换到主分支`);
+    }
+
     // 创建会话
     const session: ConversationSession = {
       id: sessionId,
@@ -94,6 +134,99 @@ export class ConversationManager {
     await this.storage.saveSession(session);
 
     return session;
+  }
+
+  /**
+   * 处理编辑模式的 Git 设置
+   */
+  private async handleEditModeSetup(
+    sessionId: string,
+    taskDescription: string
+  ): Promise<{ success: boolean; branchName?: string; mrUrl?: string; error?: string }> {
+    if (!this.gitService || !this.gitlabService) {
+      return { success: false, error: 'Git 服务未初始化' };
+    }
+
+    try {
+      // 生成分支名称
+      const branchName = `feature/ai-${sessionId.substring(0, 8)}-${Date.now()}`;
+      console.log(`[ConversationManager] 创建新分支: ${branchName}`);
+
+      // 创建并切换到新分支
+      const createResult = await this.gitService.createBranch(
+        branchName,
+        process.env.GIT_DEFAULT_BRANCH || 'master'
+      );
+
+      if (!createResult.success) {
+        return {
+          success: false,
+          error: `创建分支失败: ${createResult.error}`,
+        };
+      }
+
+      // 创建 MR
+      console.log(`[ConversationManager] 创建 MR`);
+      const targetBranch = process.env.GIT_DEFAULT_BRANCH || 'master';
+      const mrResult = await this.gitlabService.createMRForTask(
+        sessionId,
+        taskDescription,
+        branchName,
+        targetBranch
+      );
+
+      return {
+        success: true,
+        branchName,
+        mrUrl: mrResult.webUrl,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  /**
+   * 处理只读模式的 Git 设置
+   */
+  private async handleReadonlyModeSetup(): Promise<{ success: boolean; error?: string }> {
+    if (!this.gitService) {
+      return { success: false, error: 'Git 服务未初始化' };
+    }
+
+    try {
+      console.log(`[ConversationManager] 只读模式：丢弃变更并切换到主分支`);
+
+      // 丢弃所有变更
+      const resetResult = await this.gitService.resetHard();
+      if (!resetResult.success) {
+        return {
+          success: false,
+          error: `丢弃变更失败: ${resetResult.error}`,
+        };
+      }
+
+      // 切换到主分支
+      const checkoutResult = await this.gitService.checkoutBranch(
+        process.env.GIT_DEFAULT_BRANCH || 'master'
+      );
+
+      if (!checkoutResult.success) {
+        return {
+          success: false,
+          error: `切换分支失败: ${checkoutResult.error}`,
+        };
+      }
+
+      return { success: true };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
   }
 
   /**

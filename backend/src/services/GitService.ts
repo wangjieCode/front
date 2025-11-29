@@ -492,4 +492,45 @@ export class GitService {
       );
     }
   }
+
+  /**
+   * 硬重置到 HEAD（丢弃所有变更）
+   * @returns 操作结果
+   */
+  async resetHard(): Promise<GitOperationResult> {
+    try {
+      const result = await this.sshExecutor.executeCommand(
+        'git reset --hard HEAD',
+        this.workDir
+      );
+
+      if (result.exitCode === 0) {
+        return {
+          success: true,
+          message: '成功丢弃所有变更',
+          output: result.stdout,
+        };
+      } else {
+        return {
+          success: false,
+          message: '丢弃变更失败',
+          error: result.stderr,
+        };
+      }
+    } catch (error) {
+      return {
+        success: false,
+        message: '重置时发生错误',
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  /**
+   * 添加所有文件到暂存区
+   * @returns 操作结果
+   */
+  async addAll(): Promise<GitOperationResult> {
+    return this.addFiles([]);
+  }
 }

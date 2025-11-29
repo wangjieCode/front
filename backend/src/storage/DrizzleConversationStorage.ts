@@ -73,6 +73,10 @@ export class DrizzleConversationStorage {
   async saveSession(session: NewConversation): Promise<void> {
     const db = this.getDb();
     
+    if (!session.id) {
+      throw new Error('Session ID is required');
+    }
+    
     // 检查会话是否已存在
     const existing = await db
       .select()

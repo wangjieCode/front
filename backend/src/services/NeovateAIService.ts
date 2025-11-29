@@ -13,6 +13,8 @@ export interface NeovateAIResult {
   rawOutput?: string;
   error?: string;
   neovateSessionId?: string;  // 新增：Neovate 会话 ID
+  gitBranch?: string;  // Git 分支名称
+  mrUrl?: string;  // MR URL
 }
 
 /**

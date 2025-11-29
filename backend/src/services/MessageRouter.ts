@@ -73,6 +73,17 @@ export class MessageRouter {
       response.metadata
     );
 
+    // 如果 metadata 中包含 gitBranch 或 mrUrl，更新到 session.context
+    if (response.metadata?.gitBranch || response.metadata?.mrUrl) {
+      if (response.metadata.gitBranch) {
+        session.context.gitBranch = response.metadata.gitBranch;
+      }
+      if (response.metadata.mrUrl) {
+        session.context.mrUrl = response.metadata.mrUrl;
+      }
+      await this.conversationManager.saveContext(sessionId);
+    }
+
     // 如果 AI 需要暂停等待用户输入，且当前不是暂停状态
     if (response.shouldPause && session.status !== ConversationStatus.PAUSED) {
       await this.conversationManager.updateSessionStatus(

@@ -1,5 +1,6 @@
 import {
   ConversationContext,
+  ConversationMode,
   AIResponse,
   MessageMetadata,
   ToolCall,
@@ -7,6 +8,8 @@ import {
 } from '../types';
 import { NeovateAIService, NeovateAIResult } from './NeovateAIService';
 import { NeovateSessionManagerDB } from './NeovateSessionManagerDB';
+import { GitService } from './GitService';
+import { GitLabMCPService } from './GitLabMCPService';
 
 /**
  * 对话 AI 服务类
@@ -15,10 +18,19 @@ import { NeovateSessionManagerDB } from './NeovateSessionManagerDB';
 export class ConversationAIService {
   private neovateService: NeovateAIService;
   private sessionManager: NeovateSessionManagerDB;
+  private gitService: GitService;
+  private gitlabService: GitLabMCPService;
 
-  constructor(neovateService: NeovateAIService, databaseUrl: string) {
+  constructor(
+    neovateService: NeovateAIService,
+    databaseUrl: string,
+    gitService: GitService,
+    gitlabService: GitLabMCPService
+  ) {
     this.neovateService = neovateService;
     this.sessionManager = new NeovateSessionManagerDB(databaseUrl);
+    this.gitService = gitService;
+    this.gitlabService = gitlabService;
   }
 
   /**
@@ -31,6 +43,7 @@ export class ConversationAIService {
   ): Promise<AIResponse> {
     try {
       console.log(`[ConversationAIService] 生成响应 - sessionId: ${sessionId}`);
+      console.log(`[ConversationAIService] 模式: ${context.mode}`);
       console.log(`[ConversationAIService] 用户消息: ${userMessage.substring(0, 100)}`);
       
       // 检查是否需要询问用户（现阶段总是返回 false）
@@ -68,10 +81,17 @@ export class ConversationAIService {
         neovateSessionId
       );
 
-      // 构建响应元数据
+      // 编辑模式：提交变更
+      if (context.mode === ConversationMode.EDIT && result.success && result.changes.length > 0) {
+        await this.commitChanges(context, userMessage);
+      }
+
+      // 构建响应元数据（包含 context 中已有的 gitBranch 和 mrUrl）
       const metadata: MessageMetadata = {
         codeChanges: result.changes,
         toolCalls: this.extractToolCalls(result),
+        gitBranch: context.gitBranch,
+        mrUrl: context.mrUrl,
       };
 
       // 返回原始输出，让前端来解析
@@ -102,6 +122,33 @@ export class ConversationAIService {
         shouldPause: false,
         metadata: {},
       };
+    }
+  }
+
+  /**
+   * 提交变更
+   */
+  private async commitChanges(
+    context: ConversationContext,
+    userMessage: string
+  ): Promise<void> {
+    try {
+      console.log(`[ConversationAIService] 提交变更`);
+
+      // 添加所有变更
+      await this.gitService.addAll();
+
+      // 提交变更
+      const commitMessage = `AI: ${userMessage.substring(0, 50)}${userMessage.length > 50 ? '...' : ''}`;
+      const commitResult = await this.gitService.commit(commitMessage);
+
+      if (commitResult.success && context.gitBranch) {
+        // 推送到远程
+        await this.gitService.push(context.gitBranch);
+        console.log(`[ConversationAIService] ✅ 变更已提交并推送`);
+      }
+    } catch (error) {
+      console.error(`[ConversationAIService] ❌ 提交变更失败:`, error);
     }
   }
 

@@ -5,6 +5,7 @@ import {
   ConversationContext,
   ConversationBranch,
   ConversationStatus,
+  ConversationMode,
   MessageRole,
 } from '../types';
 import { v4 as uuidv4 } from 'uuid';
@@ -75,6 +76,9 @@ export class ConversationStorageAdapter implements IConversationStorage {
       taskDescription: session.context.taskDescription,
       currentBranchId: session.context.currentBranchId,
       variables: session.context.variables,
+      mode: session.context.mode || 'edit',
+      contextGitBranch: session.context.gitBranch || null,
+      mrUrl: session.context.mrUrl || null,
     });
   }
 
@@ -123,6 +127,9 @@ export class ConversationStorageAdapter implements IConversationStorage {
       currentBranchId: dbContext.currentBranchId,
       branches,
       variables: dbContext.variables || {},
+      mode: (dbContext.mode as ConversationMode) || ConversationMode.EDIT,
+      gitBranch: dbContext.contextGitBranch || undefined,
+      mrUrl: dbContext.mrUrl || undefined,
     };
 
     // 获取当前分支的消息历史
@@ -334,6 +341,9 @@ export class ConversationStorageAdapter implements IConversationStorage {
       currentBranchId: dbContext.currentBranchId,
       branches,
       variables: dbContext.variables || {},
+      mode: (dbContext.mode as ConversationMode) || ConversationMode.EDIT,
+      gitBranch: dbContext.contextGitBranch || undefined,
+      mrUrl: dbContext.mrUrl || undefined,
     };
 
     // 获取当前分支的消息历史
