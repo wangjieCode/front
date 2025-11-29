@@ -149,21 +149,26 @@ const MessageList: React.FC<MessageListProps> = ({
    * 解析 AI 消息内容（处理 stream-json 格式）
    */
   const parseAIContent = (content: string): string => {
+    let allText = '';
+
     // 先尝试直接解析整个内容（可能是完整的 JSON 数组）
     try {
       const fullParsed = JSON.parse(content);
 
       if (Array.isArray(fullParsed)) {
-        // 从后往前查找最后一个 assistant 消息的 text 字段
-        for (let i = fullParsed.length - 1; i >= 0; i--) {
-          const item = fullParsed[i];
+        // 收集所有 assistant 消息的 text 字段
+        for (const item of fullParsed) {
           if (item.role === 'assistant' && item.text) {
-            return item.text;
+            allText += item.text;
           }
           // 兼容旧格式：type: "result"
           if (item.type === 'result' && item.content) {
-            return item.content;
+            allText += item.content;
           }
+        }
+        
+        if (allText) {
+          return allText;
         }
       }
     } catch (e) {
@@ -171,32 +176,35 @@ const MessageList: React.FC<MessageListProps> = ({
       try {
         const lines = content.trim().split('\n').filter(line => line.trim());
 
-        // 查找消息
+        // 收集所有消息
         for (const line of lines) {
           try {
             const parsed = JSON.parse(line);
 
             // 处理数组格式：[{...}]
             if (Array.isArray(parsed)) {
-              for (let i = parsed.length - 1; i >= 0; i--) {
-                const item = parsed[i];
+              for (const item of parsed) {
                 if (item.role === 'assistant' && item.text) {
-                  return item.text;
+                  allText += item.text;
                 }
                 if (item.type === 'result' && item.content) {
-                  return item.content;
+                  allText += item.content;
                 }
               }
             }
             // 处理对象格式：{...}
             else if (parsed.type === 'result' && parsed.content) {
-              return parsed.content;
+              allText += parsed.content;
             } else if (parsed.role === 'assistant' && parsed.text) {
-              return parsed.text;
+              allText += parsed.text;
             }
           } catch (e2) {
             // 跳过无法解析的行
           }
+        }
+        
+        if (allText) {
+          return allText;
         }
       } catch (e2) {
         // 解析失败，返回原始内容
@@ -317,62 +325,6 @@ const MessageList: React.FC<MessageListProps> = ({
           {message.metadata?.codeChanges &&
             renderCodeChanges(message.metadata.codeChanges)}
 
-          {/* MR 链接展示 */}
-          {message.metadata?.mrUrl && (
-            <div style={{ marginTop: 12 }}>
-              <Card
-                size="small"
-                style={{
-                  background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                  border: 'none',
-                  borderRadius: 8
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                  <span style={{
-                    fontSize: 20,
-                    filter: 'brightness(0) invert(1)'
-                  }}>
-                    🔀
-                  </span>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ color: '#fff', fontWeight: 500, marginBottom: 4 }}>
-                      Merge Request 已创建
-                    </div>
-                    {message.metadata.gitBranch && (
-                      <div style={{ color: 'rgba(255,255,255,0.8)', fontSize: 12 }}>
-                        分支: {message.metadata.gitBranch}
-                      </div>
-                    )}
-                  </div>
-                  <a
-                    href={message.metadata.mrUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    style={{
-                      background: 'rgba(255,255,255,0.2)',
-                      color: '#fff',
-                      padding: '6px 16px',
-                      borderRadius: 6,
-                      textDecoration: 'none',
-                      fontSize: 13,
-                      fontWeight: 500,
-                      transition: 'all 0.2s',
-                      border: '1px solid rgba(255,255,255,0.3)'
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.background = 'rgba(255,255,255,0.3)';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.background = 'rgba(255,255,255,0.2)';
-                    }}
-                  >
-                    查看 MR →
-                  </a>
-                </div>
-              </Card>
-            </div>
-          )}
 
           {/* 问题选项 */}
           {message.metadata?.questionOptions &&

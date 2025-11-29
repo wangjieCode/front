@@ -449,5 +449,35 @@ export function createConversationRoutes(
     }
   });
 
+  /**
+   * DELETE /api/conversations/:sessionId
+   * 删除对话会话
+   */
+  router.delete('/:sessionId', async (req: Request, res: Response) => {
+    try {
+      const { sessionId } = req.params;
+
+      const session = await conversationManager.getSession(sessionId);
+      if (!session) {
+        return res.status(404).json({
+          success: false,
+          error: '会话不存在',
+        });
+      }
+
+      await conversationManager.deleteSession(sessionId);
+
+      res.json({
+        success: true,
+        message: '会话已删除',
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : '删除会话失败',
+      });
+    }
+  });
+
   return router;
 }

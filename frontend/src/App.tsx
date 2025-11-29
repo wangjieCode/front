@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { Layout, Typography, Button, message, List, Spin } from 'antd';
+import { Layout, Typography, Button, message, List, Spin, Popconfirm } from 'antd';
 import {
   PlusOutlined,
   MessageOutlined,
   EditOutlined,
   EyeOutlined,
+  DeleteOutlined,
 } from '@ant-design/icons';
 import ConversationView from './components/ConversationView';
 import { conversationService } from './services/conversationService';
@@ -18,6 +19,7 @@ const App: React.FC = () => {
   const [conversations, setConversations] = useState<any[]>([]);
   const [isConversationsLoading, setIsConversationsLoading] = useState(true);
   const [currentConversation, setCurrentConversation] = useState<any | null>(null);
+  const [hoveredConvId, setHoveredConvId] = useState<string | null>(null);
   const [mode, setMode] = useState<ConversationMode>(ConversationMode.EDIT);
 
   // 加载对话列表
@@ -149,7 +151,8 @@ const App: React.FC = () => {
                 return (
                   <List.Item
                     key={conv.id}
-                    onClick={() => handleConversationClick(conv)}
+                    onMouseEnter={() => setHoveredConvId(conv.id)}
+                    onMouseLeave={() => setHoveredConvId(null)}
                     style={{
                       cursor: 'pointer',
                       padding: '12px',
@@ -157,29 +160,87 @@ const App: React.FC = () => {
                       marginBottom: 8,
                       background: currentConversation?.id === conv.id ? '#e6f7ff' : '#fff',
                       border: '1px solid #f0f0f0',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 8,
                     }}
                   >
-                    <List.Item.Meta
-                      avatar={
-                        <div style={{ position: 'relative' }}>
-                          <MessageOutlined />
-                          <ModeIcon
-                            style={{
-                              position: 'absolute',
-                              bottom: -4,
-                              right: -4,
-                              fontSize: 10,
-                              color: modeColor,
-                              background: '#fff',
-                              borderRadius: '50%',
-                              padding: 2
-                            }}
-                          />
-                        </div>
-                      }
-                      title={conv.context?.taskDescription || '未命名对话'}
-                      description={new Date(conv.createdAt).toLocaleString('zh-CN')}
-                    />
+                    <div 
+                      style={{ flex: 1, minWidth: 0 }}
+                      onClick={() => handleConversationClick(conv)}
+                    >
+                      <List.Item.Meta
+                        avatar={
+                          <div style={{ position: 'relative' }}>
+                            <MessageOutlined />
+                            <ModeIcon
+                              style={{
+                                position: 'absolute',
+                                bottom: -4,
+                                right: -4,
+                                fontSize: 10,
+                                color: modeColor,
+                                background: '#fff',
+                                borderRadius: '50%',
+                                padding: 2
+                              }}
+                            />
+                          </div>
+                        }
+                        title={conv.context?.taskDescription || '未命名对话'}
+                        description={new Date(conv.createdAt).toLocaleString('zh-CN')}
+                      />
+                    </div>
+                    {hoveredConvId === conv.id && (
+                      <Popconfirm
+                        title="确认删除"
+                        description="确定要删除这个对话吗？"
+                        onConfirm={async (e) => {
+                          e?.stopPropagation();
+                          try {
+                            const response = await fetch(`/api/conversations/${conv.id}`, {
+                              method: 'DELETE',
+                            });
+                            const data = await response.json();
+                            
+                            if (data.success) {
+                              message.success('对话已删除');
+                              setConversations(prev => prev.filter(c => c.id !== conv.id));
+                              if (currentConversation?.id === conv.id) {
+                                setCurrentConversation(null);
+                              }
+                            } else {
+                              message.error(data.error || '删除失败');
+                            }
+                          } catch (error) {
+                            console.error('删除对话失败:', error);
+                            message.error('删除失败');
+                          }
+                        }}
+                        okText="删除"
+                        cancelText="取消"
+                        okButtonProps={{ danger: true }}
+                      >
+                        <Button
+                          type="text"
+                          danger
+                          size="small"
+                          icon={<DeleteOutlined />}
+                          onClick={(e) => e.stopPropagation()}
+                          style={{ 
+                            flexShrink: 0,
+                            opacity: 0.8,
+                            transition: 'opacity 0.2s'
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.opacity = '1';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.opacity = '0.8';
+                          }}
+                        />
+                      </Popconfirm>
+                    )}
                   </List.Item>
                 );
               }}
