@@ -1,5 +1,5 @@
 import React, { useState, useRef, KeyboardEvent } from 'react';
-import { Input, Button, Tooltip } from 'antd';
+import { Input, Button } from 'antd';
 import { SendOutlined } from '@ant-design/icons';
 
 const { TextArea } = Input;
@@ -74,7 +74,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
   const canSend = content.trim().length > 0 && !isDisabled;
 
   return (
-    <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
+    <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
       <div style={{ flex: 1 }}>
         <TextArea
           ref={textAreaRef}
@@ -86,36 +86,27 @@ const MessageInput: React.FC<MessageInputProps> = ({
           autoSize={{ minRows: 2, maxRows: 8 }}
           style={{
             resize: 'none',
+            fontSize: 15,
+            lineHeight: 1.6,
             borderRadius: 8,
+            padding: '12px'
           }}
         />
-        <div
-          style={{
-            marginTop: 4,
-            fontSize: 12,
-            color: '#999',
-            textAlign: 'right',
-          }}
-        >
-          支持 Markdown 格式 | Ctrl+Enter 发送
-        </div>
       </div>
-      <Tooltip title={canSend ? '发送消息' : '请输入消息内容'}>
-        <Button
-          type="primary"
-          icon={<SendOutlined />}
-          onClick={handleSend}
-          disabled={!canSend}
-          loading={sending}
-          size="large"
-          style={{
-            height: 48,
-            borderRadius: 8,
-          }}
-        >
-          发送
-        </Button>
-      </Tooltip>
+      <Button
+        type="primary"
+        icon={<SendOutlined />}
+        onClick={handleSend}
+        disabled={!canSend}
+        loading={sending}
+        shape="circle"
+        size="large"
+        style={{
+          background: canSend ? 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' : undefined,
+          border: 'none',
+          boxShadow: canSend ? '0 2px 8px rgba(102, 126, 234, 0.3)' : undefined
+        }}
+      />
     </div>
   );
 };

@@ -13,21 +13,22 @@ function parseAIResponse(content: string): string {
     console.log('[parseAIResponse] content 不是字符串，类型:', typeof content);
     content = JSON.stringify(content);
   }
-  
+
   console.log('[parseAIResponse] 原始内容长度:', content.length);
 
   // stream-json 格式：每行一个 JSON 对象
   const lines = content.trim().split('\n').filter(line => line.trim());
   console.log('[parseAIResponse] 总行数:', lines.length);
-  
+
   let allText = '';
   let assistantCount = 0;
-  
+
   for (const line of lines) {
     try {
       const event = JSON.parse(line);
-      
+
       // 提取 assistant 的文本内容
+      let hasContent = false;
       if (event.role === 'assistant' && event.content) {
         assistantCount++;
         // content 是一个数组，包含多个内容块
@@ -35,13 +36,14 @@ function parseAIResponse(content: string): string {
           for (const block of event.content) {
             if (block.type === 'text' && block.text) {
               allText += block.text + '\n\n';
+              hasContent = true;
             }
           }
         }
       }
-      
-      // 也提取 text 字段（某些版本可能直接有 text）
-      if (event.role === 'assistant' && event.text) {
+
+      // 也提取 text 字段（某些版本可能直接有 text），但仅当没有从 content 提取到内容时
+      if (!hasContent && event.role === 'assistant' && event.text) {
         allText += event.text + '\n\n';
       }
     } catch (e) {
@@ -49,14 +51,14 @@ function parseAIResponse(content: string): string {
       console.log('[parseAIResponse] 跳过无法解析的行:', line.substring(0, 100));
     }
   }
-  
+
   console.log('[parseAIResponse] 找到', assistantCount, '个 assistant 消息');
-  
+
   if (allText) {
     console.log('[parseAIResponse] 提取的文本长度:', allText.length);
     return allText.trim();
   }
-  
+
   console.log('[parseAIResponse] 未找到 assistant 文本内容');
   return 'AI 未返回可显示的内容';
 }
@@ -227,13 +229,13 @@ export function createConversationRoutes(
 
           // 解析 AI 响应并流式发送
           const parsedContent = parseAIResponse(aiResponse.content);
-          
+
           // 按较大的块发送（平衡流畅度和性能）
           const chunkSize = 50; // 每次发送 50 个字符
           for (let i = 0; i < parsedContent.length; i += chunkSize) {
             const chunk = parsedContent.slice(i, i + chunkSize);
             res.write(`data: ${JSON.stringify({ type: 'chunk', content: chunk })}\n\n`);
-            
+
             // 减少延迟，提高响应速度
             await new Promise(resolve => setTimeout(resolve, 10));
           }

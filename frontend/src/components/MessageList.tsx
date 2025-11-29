@@ -1,5 +1,5 @@
 import React from 'react';
-import { Tag, Card, Collapse } from 'antd';
+import { Tag, Card, Collapse, Spin } from 'antd';
 import {
   CodeOutlined,
   FileAddOutlined,
@@ -31,17 +31,7 @@ const MessageList: React.FC<MessageListProps> = ({
   messages,
   onMessageClick,
 }) => {
-  /**
-   * 格式化时间戳
-   */
-  const formatTime = (timestamp: string) => {
-    const date = new Date(timestamp);
-    return date.toLocaleTimeString('zh-CN', {
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-    });
-  };
+
 
   /**
    * 获取代码变更图标
@@ -222,7 +212,6 @@ const MessageList: React.FC<MessageListProps> = ({
   const renderMessage = (message: ConversationMessage) => {
     const isUser = message.role === MessageRole.USER;
     const isSystem = message.role === MessageRole.SYSTEM;
-    const isQuestion = message.metadata?.isQuestion;
 
     // 解析 AI 消息内容
     const displayContent = !isUser && !isSystem
@@ -235,100 +224,93 @@ const MessageList: React.FC<MessageListProps> = ({
         style={{
           display: 'flex',
           justifyContent: isUser ? 'flex-end' : 'flex-start',
-          marginBottom: 16,
+          marginBottom: 24,
+          padding: '0 24px'
         }}
         onClick={() => onMessageClick?.(message)}
       >
         <div
           style={{
-            maxWidth: '80%',
-            padding: '12px 16px',
-            borderRadius: 12,
-            background: isUser
-              ? '#1890ff'
-              : isSystem
-                ? '#f5f5f5'
-                : isQuestion
-                  ? '#fff7e6'
-                  : '#fff',
-            color: isUser ? '#fff' : '#000',
-            boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+            maxWidth: '48rem',
+            width: '100%',
+            padding: isUser ? '12px 16px' : '16px 0',
+            borderRadius: isUser ? 12 : 0,
+            background: isUser ? '#f4f4f4' : 'transparent',
+            color: '#000',
             cursor: onMessageClick ? 'pointer' : 'default',
-            transition: 'all 0.2s',
-          }}
-          onMouseEnter={(e) => {
-            if (onMessageClick) {
-              e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.15)';
-            }
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.1)';
           }}
         >
           {/* 角色标签 */}
-          <div style={{ marginBottom: 8 }}>
-            <Tag
-              color={
-                isUser ? 'blue' : isSystem ? 'default' : isQuestion ? 'orange' : 'green'
-              }
-              style={{ fontSize: 11 }}
-            >
-              {isUser ? '用户' : isSystem ? '系统' : isQuestion ? 'AI 询问' : 'AI'}
-            </Tag>
-            <span
-              style={{
-                fontSize: 11,
-                opacity: 0.7,
-                marginLeft: 8,
-                color: isUser ? '#fff' : '#999',
-              }}
-            >
-              {formatTime(message.timestamp)}
-            </span>
-          </div>
+          {!isUser && (
+            <div style={{ marginBottom: 12 }}>
+              <img
+                src="/ai-avatar.png"
+                alt="AI"
+                style={{
+                  width: 32,
+                  height: 32,
+                  borderRadius: '50%',
+                  objectFit: 'cover'
+                }}
+              />
+            </div>
+          )}
 
           {/* 消息内容 - 使用 Markdown 渲染 */}
-          <div
-            style={{
-              color: isUser ? '#fff' : '#000',
-            }}
-          >
-            <ReactMarkdown
-              components={{
-                code({ className, children }: any) {
-                  const match = /language-(\w+)/.exec(className || '');
-                  const inline = !match;
-                  return !inline && match ? (
-                    <SyntaxHighlighter
-                      style={vscDarkPlus as any}
-                      language={match[1]}
-                      PreTag="div"
-                      customStyle={{
-                        margin: '8px 0',
-                        borderRadius: 4,
-                        fontSize: 13,
-                      }}
-                    >
-                      {String(children).replace(/\n$/, '')}
-                    </SyntaxHighlighter>
-                  ) : (
-                    <code
-                      className={className}
-                      style={{
-                        background: isUser ? 'rgba(255,255,255,0.2)' : '#f5f5f5',
-                        padding: '2px 6px',
-                        borderRadius: 3,
-                        fontSize: 13,
-                      }}
-                    >
-                      {children}
-                    </code>
-                  );
-                },
-              }}
-            >
-              {displayContent}
-            </ReactMarkdown>
+          <div style={{ color: '#000', lineHeight: 1.7 }}>
+            {!isUser && !isSystem && !displayContent ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#999', padding: '8px 0' }}>
+                <Spin size="small" />
+                <span>思考中...</span>
+              </div>
+            ) : (
+              <ReactMarkdown
+                components={{
+                  code({ className, children }: any) {
+                    const match = /language-(\w+)/.exec(className || '');
+                    const inline = !match;
+                    return !inline && match ? (
+                      <SyntaxHighlighter
+                        style={vscDarkPlus as any}
+                        language={match[1]}
+                        PreTag="div"
+                        customStyle={{
+                          margin: '12px 0',
+                          borderRadius: 6,
+                          fontSize: 14,
+                        }}
+                      >
+                        {String(children).replace(/\n$/, '')}
+                      </SyntaxHighlighter>
+                    ) : (
+                      <code
+                        className={className}
+                        style={{
+                          background: '#f4f4f4',
+                          padding: '2px 6px',
+                          borderRadius: 4,
+                          fontSize: 14,
+                          fontFamily: 'monospace'
+                        }}
+                      >
+                        {children}
+                      </code>
+                    );
+                  },
+                  p({ children }: any) {
+                    return <p style={{ margin: '0 0 12px 0' }}>{children}</p>;
+                  },
+                  ul({ children }: any) {
+                    return <ul style={{ margin: '8px 0', paddingLeft: 24 }}>{children}</ul>;
+                  },
+                  ol({ children }: any) {
+                    return <ol style={{ margin: '8px 0', paddingLeft: 24 }}>{children}</ol>;
+                  },
+                }}
+              >
+                {displayContent}
+              </ReactMarkdown>
+            )}
           </div>
 
           {/* 代码变更展示 */}

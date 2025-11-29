@@ -1,5 +1,5 @@
-export { default as TaskInputPanel } from './TaskInputPanel';
-export { default as TaskList } from './TaskList';
-export { default as TaskExecutionView } from './TaskExecutionView';
-export { default as LogViewer } from './LogViewer';
-export { default as CodeDiffViewer } from './CodeDiffViewer';
+// Export active components
+export { default as ConversationView } from './ConversationView';
+export { default as MessageInput } from './MessageInput';
+export { default as MessageList } from './MessageList';
+export { default as ModeSelector } from './ModeSelector';

@@ -1,41 +1,105 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Card, Space, Spin, Empty, Tag, Tooltip } from 'antd';
-import { EditOutlined, EyeOutlined } from '@ant-design/icons';
+import { Spin, Typography, Button, Input } from 'antd';
+import { ThunderboltOutlined, SendOutlined } from '@ant-design/icons';
+import ModeSelector from './ModeSelector';
 import {
   ConversationSession,
   ConversationMessage,
-  ConversationStatus,
   ConversationMode,
 } from '../types/conversation';
 import MessageInput from './MessageInput';
 import MessageList from './MessageList';
 
 interface ConversationViewProps {
-  sessionId: string;
+  sessionId?: string;
   initialPrompt?: string;
-  onClose?: () => void;
+  initialSession?: ConversationSession;
+  onNewConversation?: (prompt: string, mode: ConversationMode) => Promise<void>;
+  mode?: ConversationMode;
+  onModeChange?: (mode: ConversationMode) => void;
 }
 
 /**
  * 对话视图组件
  * 展示完整的对话历史和消息输入
  */
+const { Title, Paragraph, Text } = Typography;
+const { TextArea } = Input;
+
 const ConversationView: React.FC<ConversationViewProps> = ({
   sessionId,
   initialPrompt,
-  onClose,
+  initialSession,
+  onNewConversation,
+  mode = ConversationMode.EDIT,
+  onModeChange,
 }) => {
-  const [session, setSession] = useState<ConversationSession | null>(null);
+  const [session, setSession] = useState<ConversationSession | null>(initialSession || null);
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
+  const [loadingMessages, setLoadingMessages] = useState(false);
   const [sending, setSending] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  // New conversation state
+  const [prompt, setPrompt] = useState('');
+
+  const examplePrompts = [
+    '修改一下文案',
+    '看一下页面的功能',
+    '看一下某接口调用使用了哪些返回值',
+  ];
+
   // 加载会话数据
   useEffect(() => {
-    loadSession();
-    loadMessages();
-  }, [sessionId]);
+    if (sessionId) {
+      // 切换会话时清空状态
+      setMessages([]);
+      setSending(false);
+      setLoadingMessages(true);
+
+      // If initialSession is provided and matches the current sessionId, use it immediately
+      if (initialSession && initialSession.id === sessionId) {
+        setSession(initialSession);
+        // We still fetch messages, but we don't need to block the UI with a full spinner
+        // if we already have the session structure.
+        // However, if we are switching to a new session, we might want to show loading for messages?
+        // For a newly created session, messages are empty, so it's fine.
+        // For an existing session, we might want to show loading in the message area.
+
+        // We only set global loading if we don't have a session to show
+        if (!session || session.id !== sessionId) {
+          // If we are switching, we might want to clear old session data to avoid confusion
+          // But if initialSession is here, we use it.
+        }
+      } else {
+        // If no initial session, or it doesn't match, we need to fetch.
+        // If we are switching sessions, we should probably show loading.
+        setLoading(true);
+        setSession(null);
+      }
+
+      const tasks = [loadSession()];
+
+      // Only load messages if there is NO initial prompt.
+      // If there is an initial prompt, we rely on handleSendMessage to create the first message optimistically.
+      // Fetching messages immediately would return empty and overwrite the optimistic message.
+      if (!initialPrompt) {
+        tasks.push(loadMessages());
+      }
+
+      Promise.all(tasks).finally(() => {
+        setLoading(false);
+        setLoadingMessages(false);
+      });
+    } else {
+      setLoading(false);
+      setSession(null);
+      setMessages([]);
+      setPrompt('');
+      setSending(false);
+    }
+  }, [sessionId, initialSession, initialPrompt]);
 
   // 自动发送初始消息
   useEffect(() => {
@@ -50,6 +114,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
   }, [messages]);
 
   const loadSession = async () => {
+    if (!sessionId) return;
     try {
       const response = await fetch(`/api/conversations/${sessionId}`);
       const data = await response.json();
@@ -58,12 +123,11 @@ const ConversationView: React.FC<ConversationViewProps> = ({
       }
     } catch (error) {
       console.error('加载会话失败:', error);
-    } finally {
-      setLoading(false);
     }
   };
 
   const loadMessages = async () => {
+    if (!sessionId) return;
     try {
       const response = await fetch(`/api/conversations/${sessionId}/messages`);
       const data = await response.json();
@@ -80,8 +144,9 @@ const ConversationView: React.FC<ConversationViewProps> = ({
   };
 
   const handleSendMessage = async (content: string) => {
+    if (!sessionId) return;
     setSending(true);
-    
+
     // 立即添加用户消息到界面
     const userMessage: ConversationMessage = {
       id: `temp-${Date.now()}`,
@@ -129,7 +194,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
 
       while (true) {
         const { done, value } = await reader.read();
-        
+
         if (done) break;
 
         buffer += decoder.decode(value, { stream: true });
@@ -140,12 +205,12 @@ const ConversationView: React.FC<ConversationViewProps> = ({
           if (line.startsWith('data: ')) {
             try {
               const data = JSON.parse(line.slice(6));
-              
+
               if (data.type === 'chunk') {
                 // 更新 AI 消息内容
-                setMessages(prev => 
-                  prev.map(msg => 
-                    msg.id === aiMessageId 
+                setMessages(prev =>
+                  prev.map(msg =>
+                    msg.id === aiMessageId
                       ? { ...msg, content: msg.content + data.content }
                       : msg
                   )
@@ -171,84 +236,162 @@ const ConversationView: React.FC<ConversationViewProps> = ({
     }
   };
 
-  const getStatusTag = (status: ConversationStatus) => {
-    const statusConfig = {
-      [ConversationStatus.PLANNING]: { color: 'blue', text: '规划中' },
-      [ConversationStatus.EXECUTING]: { color: 'processing', text: '执行中' },
-      [ConversationStatus.PAUSED]: { color: 'warning', text: '已暂停' },
-      [ConversationStatus.COMPLETED]: { color: 'success', text: '已完成' },
-      [ConversationStatus.FAILED]: { color: 'error', text: '失败' },
-    };
 
-    const config = statusConfig[status];
-    return <Tag color={config.color}>{config.text}</Tag>;
-  };
-
-  const getModeTag = (mode: ConversationMode) => {
-    if (mode === ConversationMode.EDIT) {
-      return (
-        <Tooltip title="AI 可以修改代码，创建 Git 分支和 MR">
-          <Tag icon={<EditOutlined />} color="blue">
-            编辑模式
-          </Tag>
-        </Tooltip>
-      );
-    } else {
-      return (
-        <Tooltip title="AI 只能查询代码，不能修改">
-          <Tag icon={<EyeOutlined />} color="default">
-            只读模式
-          </Tag>
-        </Tooltip>
-      );
-    }
-  };
 
   const handleMessageClick = (message: ConversationMessage) => {
     console.log('Message clicked:', message);
     // 可以在这里添加消息点击处理逻辑
   };
 
-  if (loading) {
-    return (
-      <Card>
-        <div style={{ textAlign: 'center', padding: '40px 0' }}>
-          <Spin size="large" tip="加载对话..." />
-        </div>
-      </Card>
-    );
-  }
+  const renderLandingContent = () => (
+    <div style={{
+      maxWidth: 800,
+      margin: '0 auto',
+      paddingTop: '5vh',
+      animation: 'fadeIn 0.6s ease-in'
+    }}>
+      <style>
+        {`
+          @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+          }
+        `}
+      </style>
 
-  if (!session) {
-    return (
-      <Card>
-        <Empty description="会话不存在" />
-      </Card>
-    );
-  }
+      {/* 欢迎标题 */}
+      <div style={{ textAlign: 'center', marginBottom: 48 }}>
+        <Title level={1} style={{ marginBottom: 16, fontSize: 42, fontWeight: 800 }}>
+          有什么可以帮你的？
+        </Title>
+        <Paragraph style={{ color: '#666', fontSize: 18 }}>
+          <ThunderboltOutlined style={{ color: '#faad14' }} /> 你的智能前端开发助手
+        </Paragraph>
+      </div>
 
-  return (
-    <Card
-      title={
-        <Space>
-          <span>对话会话</span>
-          {getStatusTag(session.status)}
-          {session.context?.mode && getModeTag(session.context.mode)}
-        </Space>
-      }
-      extra={onClose && <a onClick={onClose}>关闭</a>}
-    >
+      {/* 输入卡片 */}
       <div
+        className="glass-card"
         style={{
-          height: '600px',
-          overflowY: 'auto',
-          padding: '16px',
-          background: '#fafafa',
-          borderRadius: 8,
+          borderRadius: 24,
+          border: '1px solid #f0f0f0',
+          padding: '36px',
+          background: '#fff',
+          boxShadow: '0 4px 20px rgba(0,0,0,0.05)'
         }}
       >
-        {messages.length === 0 ? (
-          <Empty description="暂无消息" />
+        <div style={{ marginBottom: 24 }}>
+          {/* 模式选择器 */}
+          <div>
+            <Text type="secondary" style={{ fontSize: 14, marginBottom: 8, display: 'block' }}>
+              选择对话模式：
+            </Text>
+            <ModeSelector value={mode} onChange={onModeChange || (() => { })} />
+          </div>
+        </div>
+
+        <div className="main-input-wrapper" style={{ borderRadius: 12, padding: '4px', background: '#f5f5f5', marginBottom: 16 }}>
+          <TextArea
+            className="main-input-area"
+            value={prompt}
+            onChange={(e) => setPrompt(e.target.value)}
+            placeholder="描述你想要的功能，例如：在首页添加一个搜索框..."
+            autoSize={{ minRows: 4, maxRows: 8 }}
+            style={{
+              fontSize: 16,
+              background: 'transparent',
+              border: 'none',
+              resize: 'none'
+            }}
+            onPressEnter={async (e) => {
+              if ((e.ctrlKey || e.metaKey) && onNewConversation) {
+                setSending(true);
+                try {
+                  await onNewConversation(prompt, mode);
+                } finally {
+                  setSending(false);
+                }
+              }
+            }}
+          />
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            按 Ctrl/Cmd + Enter 发送
+          </Text>
+          <Button
+            type="primary"
+            size="large"
+            icon={<SendOutlined />}
+            onClick={async () => {
+              if (onNewConversation) {
+                setSending(true);
+                try {
+                  await onNewConversation(prompt, mode);
+                } finally {
+                  setSending(false);
+                }
+              }
+            }}
+            loading={sending}
+            style={{
+              height: 48,
+              padding: '0 32px',
+              fontSize: 16,
+              borderRadius: 24,
+              background: 'linear-gradient(135deg, #1890ff 0%, #096dd9 100%)',
+              border: 'none',
+              boxShadow: '0 4px 12px rgba(24, 144, 255, 0.3)'
+            }}
+          >
+            {sending ? '正在思考...' : '发送'}
+          </Button>
+        </div>
+      </div>
+
+      {/* 示例提示 */}
+      <div style={{ marginTop: 48, display: 'flex', flexWrap: 'wrap', gap: 12, justifyContent: 'center' }}>
+        {examplePrompts.map((example, index) => (
+          <Button
+            key={index}
+            style={{
+              borderRadius: 20,
+              background: '#fff',
+              border: '1px solid #eee',
+              color: '#666',
+              padding: '4px 16px',
+              height: 'auto'
+            }}
+            onClick={() => setPrompt(example)}
+          >
+            {example}
+          </Button>
+        ))}
+      </div>
+    </div>
+  );
+
+  const renderChatContent = () => (
+    <div style={{
+      display: 'flex',
+      flexDirection: 'column',
+      height: '100%'
+    }}>
+      {/* Messages */}
+      <div style={{
+        flex: 1,
+        overflowY: 'auto',
+        padding: '20px 0'
+      }}>
+        {loadingMessages ? (
+          <div style={{ textAlign: 'center', padding: '40px 0' }}>
+            <Spin size="large" tip="加载消息..." />
+          </div>
+        ) : messages.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '40px 0', color: '#999' }}>
+            暂无消息
+          </div>
         ) : (
           <>
             <MessageList messages={messages} onMessageClick={handleMessageClick} />
@@ -257,19 +400,71 @@ const ConversationView: React.FC<ConversationViewProps> = ({
         )}
       </div>
 
-      {/* 消息输入 */}
-      <div style={{ marginTop: 16 }}>
-        <MessageInput
-          sessionId={sessionId}
-          disabled={
-            sending ||
-            session.status === ConversationStatus.COMPLETED ||
-            session.status === ConversationStatus.FAILED
-          }
-          onSend={handleSendMessage}
-        />
+      {/* Input Area */}
+      <div style={{
+        padding: '16px 24px 24px',
+        background: '#fff'
+      }}>
+        <div style={{
+          background: '#fff',
+          borderRadius: 24,
+          border: '1px solid #e5e5e5',
+          boxShadow: '0 2px 12px rgba(0,0,0,0.08)',
+          padding: '12px 16px',
+          transition: 'all 0.2s'
+        }}>
+          <MessageInput
+            sessionId={sessionId}
+            disabled={sending}
+            onSend={handleSendMessage}
+          />
+        </div>
       </div>
-    </Card>
+    </div>
+  );
+
+  return (
+    <div style={{
+      display: 'flex',
+      flexDirection: 'column',
+      height: '100vh',
+      background: '#fff'
+    }}>
+      {/* Header */}
+      {sessionId && session && (
+        <div style={{
+          padding: '12px 24px',
+          borderBottom: '1px solid #e5e5e5'
+        }}>
+          <span style={{
+            fontSize: 14,
+            color: '#333',
+            fontWeight: 500,
+            display: 'block',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap'
+          }}>
+            {initialPrompt || '对话会话'}
+          </span>
+        </div>
+      )}
+
+      {/* Messages Area */}
+      <div style={{
+        flex: 1,
+        overflowY: 'auto',
+        background: '#fff'
+      }}>
+        {loading && !session ? (
+          <div style={{ textAlign: 'center', padding: '40px 0' }}>
+            <Spin size="large" tip="加载对话..." />
+          </div>
+        ) : (
+          sessionId ? renderChatContent() : renderLandingContent()
+        )}
+      </div>
+    </div>
   );
 };
 
