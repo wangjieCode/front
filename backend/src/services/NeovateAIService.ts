@@ -1,7 +1,7 @@
 import { SSHExecutor } from './SSHExecutor';
 import { CodeChange, ChangeType } from '../types';
 import { createCodeChange, detectChangeType, parseFilePathFromDiff } from '../models/CodeChange';
-import { NeovateSessionManager } from './NeovateSessionManager';
+import { NeovateSessionManagerDB } from './NeovateSessionManagerDB';
 
 /**
  * qodercli 执行结果接口
@@ -23,16 +23,17 @@ export interface NeovateAIResult {
  */
 export class NeovateAIService {
   private absoluteWorkDir: string;
-  private sessionManager: NeovateSessionManager;
+  private sessionManager: NeovateSessionManagerDB;
 
   constructor(
     private sshExecutor: SSHExecutor,
-    private workDir: string
+    private workDir: string,
+    databaseUrl: string
   ) {
     // 将工作目录转换为绝对路径
     const path = require('path');
     this.absoluteWorkDir = path.resolve(workDir);
-    this.sessionManager = new NeovateSessionManager();
+    this.sessionManager = new NeovateSessionManagerDB(databaseUrl);
   }
 
   /**
@@ -91,33 +92,22 @@ export class NeovateAIService {
       // 提取 Neovate 会话 ID
       let neovateSessionId: string | undefined;
       try {
-        // 尝试解析整个输出为 JSON 数组
-        try {
-          const parsed = JSON.parse(result.stdout);
-          if (Array.isArray(parsed)) {
-            // 遍历数组查找 sessionId
-            for (const item of parsed) {
-              if (item.sessionId && typeof item.sessionId === 'string') {
-                neovateSessionId = item.sessionId;
-                console.log(`[NeovateAIService] ✅ 提取到会话 ID: ${neovateSessionId}`);
-                break;
-              }
+        console.log('[NeovateAIService] 开始提取会话 ID...');
+        
+        // 按行解析（Neovate 输出是 stream-json 格式，每行一个 JSON）
+        const lines = result.stdout.split('\n').filter(line => line.trim());
+        console.log(`[NeovateAIService] 总共 ${lines.length} 行输出`);
+        
+        for (const line of lines) {
+          try {
+            const parsed = JSON.parse(line);
+            if (parsed.sessionId && typeof parsed.sessionId === 'string') {
+              neovateSessionId = parsed.sessionId;
+              console.log(`[NeovateAIService] ✅ 提取到会话 ID: ${neovateSessionId}`);
+              break;
             }
-          }
-        } catch (e) {
-          // 如果不是有效的 JSON 数组，尝试按行解析
-          const lines = result.stdout.split('\n').filter(line => line.trim());
-          for (const line of lines) {
-            try {
-              const parsed = JSON.parse(line);
-              if (parsed.sessionId && typeof parsed.sessionId === 'string') {
-                neovateSessionId = parsed.sessionId;
-                console.log(`[NeovateAIService] ✅ 提取到会话 ID (按行): ${neovateSessionId}`);
-                break;
-              }
-            } catch (e2) {
-              // 跳过无法解析的行
-            }
+          } catch (e2) {
+            // 跳过无法解析的行
           }
         }
 

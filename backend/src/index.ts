@@ -113,8 +113,8 @@ async function initializeServices() {
     projectId: process.env.GITLAB_PROJECT_ID || '',
   });
   conversationManager = new ConversationManager(storageAdapter, gitService, gitlabService);
-  const neovateAIService = new NeovateAIService(executor, workDir);
   const databaseUrl = process.env.DATABASE_URL || '';
+  const neovateAIService = new NeovateAIService(executor, workDir, databaseUrl);
   conversationAIService = new ConversationAIService(neovateAIService, databaseUrl, gitService, gitlabService);
   messageRouter = new MessageRouter(conversationManager, conversationAIService);
 
