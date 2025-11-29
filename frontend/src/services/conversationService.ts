@@ -106,6 +106,40 @@ class ConversationService {
   }
 
   /**
+   * 获取所有对话会话列表（别名）
+   */
+  async listConversations(): Promise<{ success: boolean; data: ConversationSession[] }> {
+    const data = await this.getSessions();
+    return { success: true, data };
+  }
+
+  /**
+   * 创建新对话（别名）
+   */
+  async createConversation(params: {
+    taskId: string;
+    initialPrompt: string;
+    projectInfo: { workDir: string; gitBranch?: string };
+    mode?: string; // 对话模式：'edit' 或 'readonly'
+  }): Promise<{ success: boolean; data: ConversationSession }> {
+    const response = await fetch(`${this.baseUrl}/api/conversations`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(params),
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ error: '创建对话失败' }));
+      throw new Error(error.error || '创建对话失败');
+    }
+
+    const result = await response.json();
+    return result;
+  }
+
+  /**
    * 发送用户消息
    */
   async sendMessage(

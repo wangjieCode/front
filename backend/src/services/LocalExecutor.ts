@@ -51,10 +51,9 @@ export class LocalExecutor {
     try {
       const options = {
         cwd: workDir,
-        maxBuffer: 10 * 1024 * 1024,
+        maxBuffer: 100 * 1024 * 1024, // 100MB
         env: {
           ...process.env,
-          // 确保传递 IFLOW_API_KEY 给子进程
           IFLOW_API_KEY: process.env.IFLOW_API_KEY,
         }
       };
@@ -63,13 +62,14 @@ export class LocalExecutor {
       
       const { stdout, stderr } = await execAsync(command, options);
 
-      console.log('[LocalExecutor] ✅ 命令执行成功');
+      console.log('[LocalExecutor] ✅ 命令执行完成');
       console.log('[LocalExecutor] stdout 长度:', stdout.length);
+      console.log('[LocalExecutor] stdout 最后50字符:', JSON.stringify(stdout.slice(-50)));
       console.log('[LocalExecutor] stderr 长度:', stderr.length);
 
       return {
-        stdout: stdout.trim(),
-        stderr: stderr.trim(),
+        stdout: stdout,
+        stderr: stderr,
         exitCode: 0,
       };
     } catch (error: any) {
@@ -77,8 +77,8 @@ export class LocalExecutor {
       console.error('[LocalExecutor] 错误码:', error.code);
       console.error('[LocalExecutor] 错误信息:', error.message);
       return {
-        stdout: error.stdout?.trim() || '',
-        stderr: error.stderr?.trim() || error.message,
+        stdout: error.stdout || '',
+        stderr: error.stderr || error.message,
         exitCode: error.code || 1,
       };
     }

@@ -1,5 +1,5 @@
 import { SSHExecutor } from './SSHExecutor';
-import { CommandResult } from '../types';
+import { CommandResult, MergeRequestInfo } from '../types';
 
 /**
  * Git 操作结果接口
@@ -394,6 +394,102 @@ export class GitService {
     } catch (error) {
       console.error('检查 Git 状态失败:', error);
       return false;
+    }
+  }
+
+  /**
+   * 为对话创建 Git 分支
+   * @param sessionId 会话 ID
+   * @param baseBranch 基础分支（默认为 master）
+   * @returns 创建的分支名称
+   */
+  async createBranchForConversation(
+    sessionId: string,
+    baseBranch: string = 'master'
+  ): Promise<string> {
+    try {
+      // 生成分支名称：conversation-{sessionId前8位}-{时间戳}
+      const shortSessionId = sessionId.substring(0, 8);
+      const timestamp = Date.now();
+      const branchName = `conversation-${shortSessionId}-${timestamp}`;
+
+      // 创建分支
+      const result = await this.createBranch(branchName, baseBranch);
+
+      if (!result.success) {
+        throw new Error(result.error || result.message);
+      }
+
+      return branchName;
+    } catch (error) {
+      throw new Error(
+        `创建对话分支失败: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+  }
+
+  /**
+   * 创建 Merge Request
+   * @param sourceBranch 源分支
+   * @param targetBranch 目标分支
+   * @param title MR 标题
+   * @param description MR 描述
+   * @returns MR 信息
+   */
+  async createMergeRequest(
+    sourceBranch: string,
+    targetBranch: string,
+    title: string,
+    description: string
+  ): Promise<MergeRequestInfo> {
+    try {
+      // 注意：这里需要根据实际的 Git 平台（GitLab/GitHub）来实现
+      // 这里提供一个基础实现，假设使用 GitLab CLI
+      
+      // 首先推送分支
+      const pushResult = await this.push(sourceBranch);
+      if (!pushResult.success) {
+        throw new Error(`推送分支失败: ${pushResult.error}`);
+      }
+
+      // 使用 GitLab CLI 创建 MR（需要安装 glab）
+      // 或者使用 GitHub CLI（需要安装 gh）
+      // 这里提供一个示例实现
+      
+      const escapedTitle = title.replace(/"/g, '\\"');
+      const escapedDescription = description.replace(/"/g, '\\"');
+      
+      const result = await this.sshExecutor.executeCommand(
+        `glab mr create --source-branch ${sourceBranch} --target-branch ${targetBranch} --title "${escapedTitle}" --description "${escapedDescription}" --yes`,
+        this.workDir
+      );
+
+      if (result.exitCode !== 0) {
+        throw new Error(`创建 MR 失败: ${result.stderr}`);
+      }
+
+      // 从输出中提取 MR URL
+      // GitLab CLI 输出格式: https://gitlab.com/project/repo/-/merge_requests/123
+      const urlMatch = result.stdout.match(/https?:\/\/[^\s]+\/merge_requests\/(\d+)/);
+      
+      if (!urlMatch) {
+        throw new Error('无法从输出中提取 MR URL');
+      }
+
+      const mrUrl = urlMatch[0];
+      const mrId = parseInt(urlMatch[1]);
+
+      return {
+        mrId,
+        webUrl: mrUrl,
+        sourceBranch,
+        targetBranch,
+        title,
+      };
+    } catch (error) {
+      throw new Error(
+        `创建 Merge Request 失败: ${error instanceof Error ? error.message : String(error)}`
+      );
     }
   }
 }

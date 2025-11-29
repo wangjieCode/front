@@ -72,8 +72,19 @@ export class NeovateAIService {
 
       // 记录原始输出用于调试
       console.log('[NeovateAIService] === neovate 原始输出 ===');
+      console.log('[NeovateAIService] result.stdout 长度:', result.stdout.length);
+      console.log('[NeovateAIService] result.stdout 最后100字符:', JSON.stringify(result.stdout.slice(-100)));
       console.log(result.stdout.substring(0, 500) + '...');
       console.log('[NeovateAIService] === neovate 输出结束 ===');
+      
+      // 验证 JSON 完整性
+      try {
+        JSON.parse(result.stdout);
+        console.log('[NeovateAIService] ✅ JSON 格式有效');
+      } catch (e) {
+        console.error('[NeovateAIService] ❌ JSON 格式无效:', (e as Error).message);
+        console.error('[NeovateAIService] 最后100字符:', JSON.stringify(result.stdout.slice(-100)));
+      }
 
       // 提取 Neovate 会话 ID
       let neovateSessionId: string | undefined;
@@ -161,10 +172,10 @@ export class NeovateAIService {
     // 构造 neovate 命令
     // -q: 非交互模式
     // --cwd: 指定工作目录（使用绝对路径）
-    // --output-format json: 使用 JSON 输出格式
+    // --output-format stream-json: 使用流式 JSON 输出格式（每行一个 JSON 对象）
     // --approval-mode yolo: 自动批准所有操作
     // --resume: 恢复会话（如果提供了 sessionId）
-    let command = `neovate -q --cwd "${this.absoluteWorkDir}" --output-format json --approval-mode yolo`;
+    let command = `neovate -q --cwd "${this.absoluteWorkDir}" --output-format stream-json --approval-mode yolo`;
     
     // 如果提供了 sessionId，添加 --resume 参数
     if (sessionId) {

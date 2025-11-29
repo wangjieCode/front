@@ -2,8 +2,64 @@ import { Router, Request, Response } from 'express';
 import { ConversationManager } from '../services/ConversationManager';
 import { MessageRouter } from '../services/MessageRouter';
 import { ConversationAIService } from '../services/ConversationAIService';
-import { MessageParser } from '../utils/MessageParser';
-import { MessageRole } from '../types';
+
+/**
+ * 解析 AI 响应内容，提取可读文本
+ * neovate stream-json 格式：每行一个 JSON 对象
+ */
+function parseAIResponse(content: string): string {
+  // 确保 content 是字符串
+  if (typeof content !== 'string') {
+    console.log('[parseAIResponse] content 不是字符串，类型:', typeof content);
+    content = JSON.stringify(content);
+  }
+  
+  console.log('[parseAIResponse] 原始内容长度:', content.length);
+
+  // stream-json 格式：每行一个 JSON 对象
+  const lines = content.trim().split('\n').filter(line => line.trim());
+  console.log('[parseAIResponse] 总行数:', lines.length);
+  
+  let allText = '';
+  let assistantCount = 0;
+  
+  for (const line of lines) {
+    try {
+      const event = JSON.parse(line);
+      
+      // 提取 assistant 的文本内容
+      if (event.role === 'assistant' && event.content) {
+        assistantCount++;
+        // content 是一个数组，包含多个内容块
+        if (Array.isArray(event.content)) {
+          for (const block of event.content) {
+            if (block.type === 'text' && block.text) {
+              allText += block.text + '\n\n';
+            }
+          }
+        }
+      }
+      
+      // 也提取 text 字段（某些版本可能直接有 text）
+      if (event.role === 'assistant' && event.text) {
+        allText += event.text + '\n\n';
+      }
+    } catch (e) {
+      // 跳过无法解析的行
+      console.log('[parseAIResponse] 跳过无法解析的行:', line.substring(0, 100));
+    }
+  }
+  
+  console.log('[parseAIResponse] 找到', assistantCount, '个 assistant 消息');
+  
+  if (allText) {
+    console.log('[parseAIResponse] 提取的文本长度:', allText.length);
+    return allText.trim();
+  }
+  
+  console.log('[parseAIResponse] 未找到 assistant 文本内容');
+  return 'AI 未返回可显示的内容';
+}
 
 /**
  * 创建对话路由
@@ -21,7 +77,7 @@ export function createConversationRoutes(
    */
   router.post('/', async (req: Request, res: Response) => {
     try {
-      const { taskId, initialPrompt, taskDescription, projectInfo } = req.body;
+      const { taskId, initialPrompt, taskDescription, projectInfo, mode } = req.body;
 
       // 兼容 initialPrompt 和 taskDescription 两种参数名
       const prompt = initialPrompt || taskDescription;
@@ -40,12 +96,23 @@ export function createConversationRoutes(
         });
       }
 
+      // 验证 mode 参数（如果提供）
+      if (mode && mode !== 'edit' && mode !== 'readonly') {
+        return res.status(400).json({
+          success: false,
+          error: '无效的 mode 参数，必须是 "edit" 或 "readonly"',
+        });
+      }
+
       const session = await conversationManager.createSession(
         taskId,
         prompt,
-        projectInfo
+        projectInfo,
+        mode
       );
 
+      // 只创建会话，不自动生成响应
+      // 前端需要调用 POST /api/conversations/:sessionId/messages 来流式获取响应
       res.status(201).json({
         success: true,
         data: session,
@@ -109,7 +176,7 @@ export function createConversationRoutes(
 
   /**
    * POST /api/conversations/:sessionId/messages
-   * 发送用户消息
+   * 发送用户消息（SSE 流式响应）
    */
   router.post('/:sessionId/messages', async (req: Request, res: Response) => {
     try {
@@ -139,32 +206,50 @@ export function createConversationRoutes(
       // 处理用户消息
       await messageRouter.handleUserMessage(sessionId, content);
 
-      // 获取用户消息
-      const messages = await conversationManager.getMessageHistory(sessionId);
-      const userMessage = messages[messages.length - 1];
+      // 设置 SSE 响应头
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Connection', 'keep-alive');
+      res.setHeader('X-Accel-Buffering', 'no');
 
-      // 同步生成 AI 响应
+      // 发送用户消息确认
+      res.write(`data: ${JSON.stringify({ type: 'user_message', content })}\n\n`);
+
+      // 生成 AI 响应（流式）
       try {
         const updatedSession = await conversationManager.getSession(sessionId);
         if (updatedSession) {
           const aiResponse = await aiService.generateResponse(
             updatedSession.context,
             content,
-            sessionId  // 传递 sessionId 用于会话管理
+            sessionId
           );
+
+          // 解析 AI 响应并流式发送
+          const parsedContent = parseAIResponse(aiResponse.content);
+          
+          // 按词发送（更快的打字机效果）
+          const chunkSize = 5; // 每次发送 5 个字符
+          for (let i = 0; i < parsedContent.length; i += chunkSize) {
+            const chunk = parsedContent.slice(i, i + chunkSize);
+            res.write(`data: ${JSON.stringify({ type: 'chunk', content: chunk })}\n\n`);
+            
+            // 减少延迟
+            await new Promise(resolve => setTimeout(resolve, 30));
+          }
+
+          // 保存 AI 响应
           await messageRouter.handleAIResponse(sessionId, aiResponse);
+
+          // 发送完成信号
+          res.write(`data: ${JSON.stringify({ type: 'complete' })}\n\n`);
         }
       } catch (error) {
         console.error('生成 AI 响应失败:', error);
+        res.write(`data: ${JSON.stringify({ type: 'error', message: '生成响应失败' })}\n\n`);
       }
 
-      // 返回所有消息（包括AI回复）
-      const allMessages = await conversationManager.getMessageHistory(sessionId);
-
-      res.json({
-        success: true,
-        data: allMessages,
-      });
+      res.end();
     } catch (error) {
       res.status(500).json({
         success: false,

@@ -1,15 +1,18 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Card, Space, Spin, Empty, Tag } from 'antd';
+import { Card, Space, Spin, Empty, Tag, Tooltip } from 'antd';
+import { EditOutlined, EyeOutlined } from '@ant-design/icons';
 import {
   ConversationSession,
   ConversationMessage,
   ConversationStatus,
+  ConversationMode,
 } from '../types/conversation';
 import MessageInput from './MessageInput';
 import MessageList from './MessageList';
 
 interface ConversationViewProps {
   sessionId: string;
+  initialPrompt?: string;
   onClose?: () => void;
 }
 
@@ -19,6 +22,7 @@ interface ConversationViewProps {
  */
 const ConversationView: React.FC<ConversationViewProps> = ({
   sessionId,
+  initialPrompt,
   onClose,
 }) => {
   const [session, setSession] = useState<ConversationSession | null>(null);
@@ -32,6 +36,13 @@ const ConversationView: React.FC<ConversationViewProps> = ({
     loadSession();
     loadMessages();
   }, [sessionId]);
+
+  // 自动发送初始消息
+  useEffect(() => {
+    if (initialPrompt && messages.length === 0 && !sending && session) {
+      handleSendMessage(initialPrompt);
+    }
+  }, [initialPrompt, messages.length, session]);
 
   // 自动滚动到最新消息
   useEffect(() => {
@@ -70,6 +81,30 @@ const ConversationView: React.FC<ConversationViewProps> = ({
 
   const handleSendMessage = async (content: string) => {
     setSending(true);
+    
+    // 立即添加用户消息到界面
+    const userMessage: ConversationMessage = {
+      id: `temp-${Date.now()}`,
+      sessionId,
+      branchId: session?.context?.currentBranchId || 'main',
+      role: 'user' as any,
+      content,
+      timestamp: new Date().toISOString(),
+    };
+    setMessages(prev => [...prev, userMessage]);
+
+    // 创建临时 AI 消息用于流式更新
+    const aiMessageId = `ai-${Date.now()}`;
+    const aiMessage: ConversationMessage = {
+      id: aiMessageId,
+      sessionId,
+      branchId: session?.context?.currentBranchId || 'main',
+      role: 'assistant' as any,
+      content: '',
+      timestamp: new Date().toISOString(),
+    };
+    setMessages(prev => [...prev, aiMessage]);
+
     try {
       const response = await fetch(`/api/conversations/${sessionId}/messages`, {
         method: 'POST',
@@ -79,13 +114,58 @@ const ConversationView: React.FC<ConversationViewProps> = ({
         body: JSON.stringify({ content }),
       });
 
-      const data = await response.json();
-      if (data.success) {
-        // 重新加载消息
-        await loadMessages();
+      if (!response.ok) {
+        throw new Error('发送消息失败');
+      }
+
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
+
+      if (!reader) {
+        throw new Error('无法读取响应流');
+      }
+
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.slice(6));
+              
+              if (data.type === 'chunk') {
+                // 更新 AI 消息内容
+                setMessages(prev => 
+                  prev.map(msg => 
+                    msg.id === aiMessageId 
+                      ? { ...msg, content: msg.content + data.content }
+                      : msg
+                  )
+                );
+              } else if (data.type === 'complete') {
+                // 流式传输完成，重新加载消息获取完整数据
+                await loadMessages();
+              } else if (data.type === 'error') {
+                console.error('AI 响应错误:', data.message);
+              }
+            } catch (e) {
+              console.error('解析 SSE 数据失败:', e);
+            }
+          }
+        }
       }
     } catch (error) {
       console.error('发送消息失败:', error);
+      // 移除临时消息
+      setMessages(prev => prev.filter(msg => msg.id !== aiMessageId));
     } finally {
       setSending(false);
     }
@@ -102,6 +182,26 @@ const ConversationView: React.FC<ConversationViewProps> = ({
 
     const config = statusConfig[status];
     return <Tag color={config.color}>{config.text}</Tag>;
+  };
+
+  const getModeTag = (mode: ConversationMode) => {
+    if (mode === ConversationMode.EDIT) {
+      return (
+        <Tooltip title="AI 可以修改代码，创建 Git 分支和 MR">
+          <Tag icon={<EditOutlined />} color="blue">
+            编辑模式
+          </Tag>
+        </Tooltip>
+      );
+    } else {
+      return (
+        <Tooltip title="AI 只能查询代码，不能修改">
+          <Tag icon={<EyeOutlined />} color="default">
+            只读模式
+          </Tag>
+        </Tooltip>
+      );
+    }
   };
 
   const handleMessageClick = (message: ConversationMessage) => {
@@ -133,6 +233,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
         <Space>
           <span>对话会话</span>
           {getStatusTag(session.status)}
+          {session.context?.mode && getModeTag(session.context.mode)}
         </Space>
       }
       extra={onClose && <a onClick={onClose}>关闭</a>}

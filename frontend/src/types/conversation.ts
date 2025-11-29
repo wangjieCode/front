@@ -1,5 +1,20 @@
 // 对话相关的前端类型定义
 
+export enum ConversationMode {
+  EDIT = 'edit',
+  READONLY = 'readonly',
+}
+
+export enum OperationType {
+  READ_FILE = 'read_file',
+  SEARCH_CODE = 'search_code',
+  MODIFY_CODE = 'modify_code',
+  CREATE_FILE = 'create_file',
+  DELETE_FILE = 'delete_file',
+  CREATE_BRANCH = 'create_branch',
+  CREATE_MR = 'create_mr',
+}
+
 export enum ConversationStatus {
   PLANNING = 'planning',
   EXECUTING = 'executing',
@@ -36,6 +51,12 @@ export interface MessageMetadata {
   requiresResponse?: boolean;
   references?: string[];
   isInvalid?: boolean;
+  gitBranch?: string;
+  mrUrl?: string;
+  operationDenied?: {
+    operation: OperationType;
+    reason: string;
+  };
 }
 
 export interface ConversationMessage {
@@ -71,6 +92,9 @@ export interface ConversationContext {
   currentBranchId: string;
   branches: ConversationBranch[];
   variables: Record<string, any>;
+  mode: ConversationMode;
+  gitBranch?: string;
+  mrUrl?: string;
 }
 
 export interface ConversationSession {
@@ -87,4 +111,17 @@ export interface ConversationSession {
 export interface PendingQuestion {
   question: string;
   options?: string[];
+}
+
+export interface ValidationResult {
+  allowed: boolean;
+  reason?: string;
+}
+
+export interface MergeRequestInfo {
+  mrId: number;
+  webUrl: string;
+  sourceBranch: string;
+  targetBranch: string;
+  title: string;
 }

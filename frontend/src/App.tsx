@@ -1,17 +1,18 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Layout, Typography, Input, Button, Space, Card, message, Radio } from 'antd';
+import React, { useState, useEffect } from 'react';
+import { Layout, Typography, Input, Button, Space, Card, message, List } from 'antd';
 import {
   SendOutlined,
   ThunderboltOutlined,
   RocketOutlined,
   PlusOutlined,
+  MessageOutlined,
   EditOutlined,
   EyeOutlined,
 } from '@ant-design/icons';
-import TaskExecutionView from './components/TaskExecutionView';
-import TaskList from './components/TaskList';
-import { apiService } from './services/api';
-import { Task, LogEntry, CodeChange, TaskStatus, LogLevel, TaskType } from './types';
+import ConversationView from './components/ConversationView';
+import ModeSelector from './components/ModeSelector';
+import { conversationService } from './services/conversationService';
+import { ConversationMode } from './types/conversation';
 import './App.css';
 
 const { Content } = Layout;
@@ -20,185 +21,77 @@ const { TextArea } = Input;
 
 const App: React.FC = () => {
   const [prompt, setPrompt] = useState('');
-  const [taskType, setTaskType] = useState<TaskType>('code_change');
-  const [tasks, setTasks] = useState<Task[]>([]);
+  const [conversations, setConversations] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [currentTask, setCurrentTask] = useState<Task | null>(null);
-  const [taskLogs, setTaskLogs] = useState<LogEntry[]>([]);
-  const [taskCodeChanges, setTaskCodeChanges] = useState<CodeChange[]>([]);
-  const [showResult, setShowResult] = useState(false);
-  const pollingIntervalRef = useRef<number | null>(null);
+  const [currentConversation, setCurrentConversation] = useState<any | null>(null);
+  const [showConversation, setShowConversation] = useState(false);
+  const [mode, setMode] = useState<ConversationMode>(ConversationMode.EDIT);
 
-  // 加载任务列表
-  const loadTasks = async () => {
+  // 加载对话列表
+  const loadConversations = async () => {
     try {
-      const taskList = await apiService.getTasks();
-      // 确保返回的是数组
-      if (Array.isArray(taskList)) {
-        setTasks(taskList);
-      } else {
-        console.error('API 返回的不是数组:', taskList);
-        setTasks([]);
-        message.error('加载任务列表失败：数据格式错误');
+      const response = await conversationService.listConversations();
+      if (response.success && Array.isArray(response.data)) {
+        setConversations(response.data);
       }
     } catch (error) {
-      console.error('加载任务列表失败:', error);
-      message.error('加载任务列表失败');
-      setTasks([]); // 确保出错时也设置为空数组
+      console.error('加载对话列表失败:', error);
+      message.error('加载对话列表失败');
     }
   };
 
-  // 加载任务详情
-  const loadTaskDetails = async (taskId: string) => {
-    try {
-      const [task, logs] = await Promise.all([
-        apiService.getTask(taskId),
-        apiService.getTaskLogs(taskId),
-      ]);
-
-      setCurrentTask(task);
-      setTaskLogs(logs);
-      setTaskCodeChanges([]);
-    } catch (error) {
-      console.error('加载任务详情失败:', error);
-      message.error('加载任务详情失败');
-    }
-  };
-
-  // 轮询任务状态和日志
-  const startPolling = (taskId: string) => {
-    // 清除之前的轮询
-    stopPolling();
-
-    // 立即加载一次
-    loadTaskDetails(taskId);
-
-    // 每2秒轮询一次
-    pollingIntervalRef.current = window.setInterval(async () => {
-      try {
-        const task = await apiService.getTask(taskId);
-        setCurrentTask(task);
-
-        // 如果任务已完成或失败，停止轮询
-        if (task.status === TaskStatus.SUCCESS || task.status === TaskStatus.FAILED) {
-          stopPolling();
-          // 最后再获取一次完整的日志
-          const logs = await apiService.getTaskLogs(taskId);
-          setTaskLogs(logs);
-          // 更新任务列表
-          loadTasks();
-        } else {
-          // 继续获取日志更新
-          const logs = await apiService.getTaskLogs(taskId);
-          setTaskLogs(logs);
-        }
-      } catch (error) {
-        console.error('轮询任务状态失败:', error);
-      }
-    }, 2000);
-  };
-
-  // 停止轮询
-  const stopPolling = () => {
-    if (pollingIntervalRef.current !== null) {
-      window.clearInterval(pollingIntervalRef.current);
-      pollingIntervalRef.current = null;
-    }
-  };
-
-  // 组件挂载时加载任务列表
+  // 组件挂载时加载对话列表
   useEffect(() => {
-    loadTasks();
-
-    // 组件卸载时停止轮询
-    return () => {
-      stopPolling();
-    };
+    loadConversations();
   }, []);
 
-
-
-  // 提交新任务
-  const handleSubmitTask = async () => {
+  // 提交新对话
+  const handleSubmit = async () => {
     if (!prompt.trim()) {
       message.warning('请输入你的需求');
       return;
     }
 
-    // 创建乐观 UI 任务对象
-    const optimisticTask: Task = {
-      id: 'temp-' + Date.now(),
-      prompt: prompt,
-      type: taskType,
-      status: TaskStatus.PENDING,
-      createdAt: new Date().toISOString(),
-    };
-
-    // 立即更新 UI
-    setCurrentTask(optimisticTask);
-    setShowResult(true);
-    setTaskLogs([{
-      timestamp: new Date().toISOString(),
-      level: LogLevel.INFO,
-      source: 'system',
-      message: taskType === 'code_change' ? '正在分析需求...' : '只读模式：查询中...'
-    }]);
-    setTaskCodeChanges([]);
-
-    // 保持 loading 状态以防万一，虽然界面已经切换
     setIsLoading(true);
 
     try {
-      const newTask = await apiService.createTask(prompt, taskType);
+      const response = await conversationService.createConversation({
+        taskId: `task-${Date.now()}`,
+        initialPrompt: prompt,
+        projectInfo: {
+          workDir: '/workspace/dtmall-admin',
+          gitBranch: 'master',
+        },
+        mode,
+      });
 
-      // 设置为当前任务（更新为真实数据）
-      setCurrentTask(newTask);
-      setTasks(prev => [newTask, ...prev]);
-
-      // 开始轮询任务状态和日志
-      startPolling(newTask.id);
-
-      // 清空输入框
-      setPrompt('');
-    } catch (error) {
-      console.error('创建任务失败:', error);
-      message.error(error instanceof Error ? error.message : '创建任务失败');
-      // 如果失败，可能需要回退状态，但为了用户体验，暂时保留在结果页显示错误
-      if (currentTask?.id === optimisticTask.id) {
-        setCurrentTask({
-          ...optimisticTask,
-          status: TaskStatus.FAILED,
-          error: error instanceof Error ? error.message : '创建任务失败'
-        });
+      if (response.success) {
+        const initialPrompt = prompt;
+        setCurrentConversation({ ...response.data, initialPrompt });
+        setShowConversation(true);
+        setConversations(prev => [response.data, ...prev]);
+        setPrompt('');
       }
+    } catch (error) {
+      console.error('创建对话失败:', error);
+      message.error('创建对话失败');
     } finally {
       setIsLoading(false);
     }
   };
 
-  // 点击历史任务
-  const handleTaskClick = (taskId: string) => {
-    const task = tasks.find(t => t.id === taskId);
-    if (task) {
-      setCurrentTask(task);
-      setShowResult(true);
-      loadTaskDetails(taskId);
-
-      // 如果任务还在运行中，开始轮询
-      if (task.status === TaskStatus.RUNNING || task.status === TaskStatus.PENDING) {
-        startPolling(taskId);
-      }
-    }
+  // 点击历史对话
+  const handleConversationClick = (conversation: any) => {
+    setCurrentConversation(conversation);
+    setShowConversation(true);
   };
 
-  // 新建任务
-  const handleNewTask = () => {
-    stopPolling(); // 停止当前轮询
-    setShowResult(false);
-    setCurrentTask(null);
-    setTaskLogs([]);
-    setTaskCodeChanges([]);
+  // 新建对话
+  const handleNewConversation = () => {
+    setShowConversation(false);
+    setCurrentConversation(null);
     setPrompt('');
+    setMode(ConversationMode.EDIT); // 重置为默认模式
   };
 
   // 示例提示
@@ -232,7 +125,7 @@ const App: React.FC = () => {
               marginBottom: 24,
               cursor: 'pointer',
             }}
-            onClick={handleNewTask}
+            onClick={handleNewConversation}
           >
             <div
               style={{
@@ -257,24 +150,64 @@ const App: React.FC = () => {
             type="primary"
             block
             icon={<PlusOutlined />}
-            onClick={handleNewTask}
+            onClick={handleNewConversation}
             style={{ borderRadius: 8 }}
           >
             新对话
           </Button>
         </div>
-        <div style={{ padding: '16px 0' }}>
-          <TaskList
-            tasks={tasks}
-            onTaskClick={handleTaskClick}
-            selectedTaskId={currentTask?.id}
+        <div style={{ padding: '16px' }}>
+          <List
+            dataSource={conversations}
+            renderItem={(conv: any) => {
+              const mode = conv.context?.mode || ConversationMode.EDIT;
+              const ModeIcon = mode === ConversationMode.EDIT ? EditOutlined : EyeOutlined;
+              const modeColor = mode === ConversationMode.EDIT ? '#1890ff' : '#8c8c8c';
+              
+              return (
+                <List.Item
+                  key={conv.id}
+                  onClick={() => handleConversationClick(conv)}
+                  style={{
+                    cursor: 'pointer',
+                    padding: '12px',
+                    borderRadius: 8,
+                    marginBottom: 8,
+                    background: currentConversation?.id === conv.id ? '#e6f7ff' : '#fff',
+                    border: '1px solid #f0f0f0',
+                  }}
+                >
+                  <List.Item.Meta
+                    avatar={
+                      <div style={{ position: 'relative' }}>
+                        <MessageOutlined />
+                        <ModeIcon 
+                          style={{ 
+                            position: 'absolute', 
+                            bottom: -4, 
+                            right: -4, 
+                            fontSize: 10,
+                            color: modeColor,
+                            background: '#fff',
+                            borderRadius: '50%',
+                            padding: 2
+                          }} 
+                        />
+                      </div>
+                    }
+                    title={conv.context?.taskDescription || '未命名对话'}
+                    description={new Date(conv.createdAt).toLocaleString('zh-CN')}
+                  />
+                </List.Item>
+              );
+            }}
           />
         </div>
       </Layout.Sider>
 
       <Layout style={{ marginLeft: 300, background: '#f0f2f5', minHeight: '100vh' }}>
         <Content style={{ padding: '24px', height: '100vh', overflow: 'auto' }}>
-          {!showResult ? (
+          {!showConversation ? (
             // 主输入界面
             <div style={{
               maxWidth: 800,
@@ -287,10 +220,6 @@ const App: React.FC = () => {
                   @keyframes fadeIn {
                     from { opacity: 0; transform: translateY(20px); }
                     to { opacity: 1; transform: translateY(0); }
-                  }
-                  @keyframes float {
-                    0%, 100% { transform: translateY(0); }
-                    50% { transform: translateY(-10px); }
                   }
                 `}
               </style>
@@ -317,27 +246,12 @@ const App: React.FC = () => {
                 bodyStyle={{ padding: '24px' }}
               >
                 <Space direction="vertical" style={{ width: '100%' }} size="large">
-                  {/* 模式选择 */}
+                  {/* 模式选择器 */}
                   <div>
-                    <div style={{ marginBottom: 12, fontWeight: 500, fontSize: 14 }}>任务模式</div>
-                    <Radio.Group 
-                      value={taskType} 
-                      onChange={(e) => setTaskType(e.target.value)}
-                      disabled={isLoading}
-                      style={{ width: '100%' }}
-                    >
-                      <Radio.Button value="code_change" style={{ width: '50%', textAlign: 'center' }}>
-                        <EditOutlined /> 编辑模式
-                      </Radio.Button>
-                      <Radio.Button value="query" style={{ width: '50%', textAlign: 'center' }}>
-                        <EyeOutlined /> 只读模式
-                      </Radio.Button>
-                    </Radio.Group>
-                    <div style={{ marginTop: 8, fontSize: 12, color: '#999' }}>
-                      {taskType === 'code_change' 
-                        ? '✨ 允许 AI 修改代码并创建 Merge Request' 
-                        : '👀 仅查询信息，不修改代码'}
-                    </div>
+                    <Text type="secondary" style={{ fontSize: 14, marginBottom: 8, display: 'block' }}>
+                      选择对话模式：
+                    </Text>
+                    <ModeSelector value={mode} onChange={setMode} />
                   </div>
 
                   <div className="main-input-wrapper" style={{ borderRadius: 12, padding: '4px', background: '#f5f5f5' }}>
@@ -355,7 +269,7 @@ const App: React.FC = () => {
                       }}
                       onPressEnter={(e) => {
                         if (e.ctrlKey || e.metaKey) {
-                          handleSubmitTask();
+                          handleSubmit();
                         }
                       }}
                     />
@@ -369,7 +283,7 @@ const App: React.FC = () => {
                       type="primary"
                       size="large"
                       icon={<SendOutlined />}
-                      onClick={handleSubmitTask}
+                      onClick={handleSubmit}
                       loading={isLoading}
                       style={{
                         height: 48,
@@ -410,14 +324,15 @@ const App: React.FC = () => {
               </div>
             </div>
           ) : (
-            // 执行结果界面
+            // 对话界面
             <div style={{ maxWidth: 1200, margin: '0 auto' }}>
-              <TaskExecutionView
-                task={currentTask}
-                logs={taskLogs}
-                codeChanges={taskCodeChanges}
-                isLoading={false}
-              />
+              {currentConversation && (
+                <ConversationView 
+                  sessionId={currentConversation.id}
+                  initialPrompt={currentConversation.initialPrompt}
+                  onClose={handleNewConversation}
+                />
+              )}
             </div>
           )}
         </Content>

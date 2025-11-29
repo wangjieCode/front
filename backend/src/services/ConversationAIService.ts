@@ -6,7 +6,7 @@ import {
   CodeChange,
 } from '../types';
 import { NeovateAIService, NeovateAIResult } from './NeovateAIService';
-import { NeovateSessionManager } from './NeovateSessionManager';
+import { NeovateSessionManagerDB } from './NeovateSessionManagerDB';
 
 /**
  * 对话 AI 服务类
@@ -14,11 +14,11 @@ import { NeovateSessionManager } from './NeovateSessionManager';
  */
 export class ConversationAIService {
   private neovateService: NeovateAIService;
-  private sessionManager: NeovateSessionManager;
+  private sessionManager: NeovateSessionManagerDB;
 
-  constructor(neovateService: NeovateAIService) {
+  constructor(neovateService: NeovateAIService, databaseUrl: string) {
     this.neovateService = neovateService;
-    this.sessionManager = new NeovateSessionManager();
+    this.sessionManager = new NeovateSessionManagerDB(databaseUrl);
   }
 
   /**

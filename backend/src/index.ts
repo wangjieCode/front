@@ -1,8 +1,7 @@
 import express, { Express } from 'express';
 import dotenv from 'dotenv';
 import { createServer } from 'http';
-import { TaskManager, SSHExecutor, GitService, CodeToolService, GitLabMCPService, TaskOrchestrator } from './services';
-import { createTaskRoutes } from './api/taskRoutes';
+import { SSHExecutor, GitService, CodeToolService, GitLabMCPService } from './services';
 import { createConversationRoutes } from './api/conversationRoutes';
 import {
   errorHandler,
@@ -22,21 +21,34 @@ const PORT = process.env.PORT || 3001;
 // 创建 HTTP 服务器
 const server = createServer(app);
 
-// 创建任务存储和管理器
-const { FileSystemTaskStorage } = require('./storage/TaskStorage');
-const taskStorage = new FileSystemTaskStorage();
-const taskManager = new TaskManager(taskStorage);
+// 初始化数据库
+import { initializeDatabase } from './db/init';
+import { DrizzleConversationStorage } from './storage/DrizzleConversationStorage';
 
-// 初始化执行器和其他服务
-let orchestrator: TaskOrchestrator | undefined;
+// 初始化服务
 let conversationManager: any;
 let messageRouter: any;
 let conversationAIService: any;
+let conversationStorage: DrizzleConversationStorage | null = null;
 
 const runMode = process.env.RUN_MODE || 'local';
 console.log(`🔧 运行模式: ${runMode === 'local' ? '本机模式' : '远程模式'}`);
 
-try {
+// 初始化服务的异步函数
+async function initializeServices() {
+  try {
+    // 1. 先初始化数据库
+    await initializeDatabase();
+    conversationStorage = new DrizzleConversationStorage();
+    console.log('✅ 数据库已初始化，使用 Drizzle/Supabase 存储');
+  } catch (error) {
+    console.error('❌ 数据库初始化失败:', error instanceof Error ? error.message : error);
+    console.error('   请检查 DATABASE_URL 环境变量配置');
+    process.exit(1);
+  }
+
+  // 2. 然后初始化其他服务
+  try {
   const gitlabConfig = loadGitLabConfig();
   const workDir = getGitWorkDir();
   const defaultBranch = getGitDefaultBranch();
@@ -70,9 +82,7 @@ try {
     });
   }
 
-  const gitService = new GitService(executor, workDir);
   const codeToolService = new CodeToolService(executor);
-  const gitlabService = new GitLabMCPService(gitlabConfig);
 
   // 获取工具信息并记录
   codeToolService.getToolInfo(workDir).then((info: { name: string; version: string; available: boolean }) => {
@@ -80,33 +90,27 @@ try {
     console.log(`✅ 工具可用性: ${info.available ? '可用' : '不可用'}`);
   });
 
-  // 创建任务编排器
-  orchestrator = new TaskOrchestrator(
-    taskManager,
-    executor,
-    gitService,
-    codeToolService,
-    gitlabService,
-    workDir,
-    defaultBranch
-  );
-
-  console.log('✅ 任务编排器已初始化');
-
   // 创建对话服务实例
   const { ConversationManager } = require('./services/ConversationManager');
   const { MessageRouter } = require('./services/MessageRouter');
   const { ConversationAIService } = require('./services/ConversationAIService');
   const { NeovateAIService } = require('./services/NeovateAIService');
-  const { FileSystemConversationStorage } = require('./storage/ConversationStorage');
+  const { ConversationStorageAdapter } = require('./storage/ConversationStorageAdapter');
 
-  const conversationStorage = new FileSystemConversationStorage();
-  conversationManager = new ConversationManager(conversationStorage);
+  // 使用 Drizzle 存储
+  if (!conversationStorage) {
+    throw new Error('数据库未初始化，无法启动对话服务');
+  }
+  
+  // 使用适配器包装存储
+  const storageAdapter = new ConversationStorageAdapter(conversationStorage);
+  conversationManager = new ConversationManager(storageAdapter);
   const neovateAIService = new NeovateAIService(executor, workDir);
-  conversationAIService = new ConversationAIService(neovateAIService);
+  const databaseUrl = process.env.DATABASE_URL || '';
+  conversationAIService = new ConversationAIService(neovateAIService, databaseUrl);
   messageRouter = new MessageRouter(conversationManager, conversationAIService);
 
-  console.log('✅ 对话服务已初始化');
+  console.log('✅ 对话服务已初始化 (存储: Drizzle/Supabase)');
 
   // 加载历史会话
   conversationManager.listSessions().then((sessions: any[]) => {
@@ -123,9 +127,10 @@ try {
   }).catch((error: Error) => {
     console.error('❌ 加载历史会话失败:', error.message);
   });
-} catch (error) {
-  console.warn('⚠️  服务初始化失败（可能缺少配置）:', error instanceof Error ? error.message : error);
-  console.warn('⚠️  系统将以只读模式运行（仅支持查询任务）');
+  } catch (error) {
+    console.warn('⚠️  服务初始化失败（可能缺少配置）:', error instanceof Error ? error.message : error);
+    console.warn('⚠️  系统将以只读模式运行（仅支持查询任务）');
+  }
 }
 
 // 全局中间件
@@ -144,46 +149,75 @@ app.get('/health', (req, res) => {
   });
 });
 
-// API 路由
-app.use('/api/tasks', createTaskRoutes(taskManager, orchestrator));
+// SSE 流式响应路由
+import streamingRoutes from './routes/streaming';
 
-// 对话路由（仅在对话服务初始化成功时注册）
-if (conversationManager && messageRouter && conversationAIService) {
-  app.use('/api/conversations', createConversationRoutes(conversationManager, messageRouter, conversationAIService));
-  console.log('📊 对话 API 端点: http://localhost:' + PORT + '/api/conversations');
+// 启动服务器（异步）
+async function startServer() {
+  // 1. 先初始化服务
+  await initializeServices();
+
+  // 2. 注册 API 路由
+  // 对话路由（在服务初始化后注册）
+  if (conversationManager && messageRouter && conversationAIService) {
+    app.use('/api/conversations', createConversationRoutes(conversationManager, messageRouter, conversationAIService));
+  }
+
+  // SSE 流式响应路由
+  app.use('/api', streamingRoutes);
+
+  // 404 处理
+  app.use(notFoundHandler);
+
+  // 错误处理
+  app.use(errorHandler);
+
+  // 3. 启动服务器
+  server.listen(PORT, async () => {
+    console.log(`🚀 后端服务器运行在 http://localhost:${PORT}`);
+    console.log(`📝 环境: ${process.env.NODE_ENV || 'development'}`);
+    console.log(`🌊 SSE 流式响应端点: http://localhost:${PORT}/api/streaming`);
+    
+    if (conversationManager && messageRouter && conversationAIService) {
+      console.log(`💬 对话 API 端点: http://localhost:${PORT}/api/conversations`);
+    }
+  });
 }
 
-// 404 处理
-app.use(notFoundHandler);
-
-// 错误处理
-app.use(errorHandler);
-
 // 启动服务器
-server.listen(PORT, async () => {
-  console.log(`🚀 后端服务器运行在 http://localhost:${PORT}`);
-  console.log(`📝 环境: ${process.env.NODE_ENV || 'development'}`);
-  console.log(`📊 API 端点: http://localhost:${PORT}/api/tasks`);
-
-  // 加载历史任务
-  try {
-    await taskManager.loadFromStorage();
-    const tasks = taskManager.getTasks();
-    console.log(`📋 已加载 ${tasks.length} 个历史任务`);
-    if (tasks.length > 0) {
-      console.log('   最近的任务:');
-      tasks.slice(0, 5).forEach((task: any) => {
-        console.log(`   - ${task.id.substring(0, 8)} (${task.status}) - ${task.prompt.substring(0, 30)}...`);
-      });
-    }
-  } catch (error) {
-    console.error('❌ 加载历史任务失败:', error);
-  }
+startServer().catch((error) => {
+  console.error('❌ 服务器启动失败:', error);
+  process.exit(1);
 });
 
 // 优雅关闭
-process.on('SIGTERM', () => {
+import { closeDatabase } from './db/init';
+import { streamingManager } from './streaming/StreamingResponseManager';
+
+process.on('SIGTERM', async () => {
   console.log('收到 SIGTERM 信号，正在关闭服务器...');
+  
+  // 关闭所有 SSE 连接
+  await streamingManager.closeAll();
+  
+  // 关闭数据库连接
+  await closeDatabase();
+  
+  server.close(() => {
+    console.log('服务器已关闭');
+    process.exit(0);
+  });
+});
+
+process.on('SIGINT', async () => {
+  console.log('\n收到 SIGINT 信号，正在关闭服务器...');
+  
+  // 关闭所有 SSE 连接
+  await streamingManager.closeAll();
+  
+  // 关闭数据库连接
+  await closeDatabase();
+  
   server.close(() => {
     console.log('服务器已关闭');
     process.exit(0);
@@ -191,6 +225,6 @@ process.on('SIGTERM', () => {
 });
 
 // 导出实例供其他模块使用
-export { app, taskManager };
+export { app };
 export default app;
 

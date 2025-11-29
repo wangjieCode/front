@@ -179,6 +179,27 @@ export interface CodeToolConfigData {
 // ==================== 对话相关类型定义 ====================
 
 /**
+ * 对话模式枚举
+ */
+export enum ConversationMode {
+  EDIT = 'edit',              // 编辑模式：允许修改代码，创建分支和 MR
+  READONLY = 'readonly'       // 只读模式：只能查询代码，不能修改
+}
+
+/**
+ * 操作类型枚举
+ */
+export enum OperationType {
+  READ_FILE = 'read_file',           // 读取文件
+  SEARCH_CODE = 'search_code',       // 搜索代码
+  MODIFY_CODE = 'modify_code',       // 修改代码
+  CREATE_FILE = 'create_file',       // 创建文件
+  DELETE_FILE = 'delete_file',       // 删除文件
+  CREATE_BRANCH = 'create_branch',   // 创建分支
+  CREATE_MR = 'create_mr'            // 创建 MR
+}
+
+/**
  * 对话会话状态枚举
  */
 export enum ConversationStatus {
@@ -220,6 +241,12 @@ export interface MessageMetadata {
   requiresResponse?: boolean; // 是否需要用户响应
   references?: string[];      // 引用的消息或文件 ID
   isInvalid?: boolean;        // 是否已失效(如代码变更被回滚)
+  gitBranch?: string;         // 关联的 Git 分支
+  mrUrl?: string;             // 关联的 MR URL
+  operationDenied?: {         // 操作被拒绝的信息
+    operation: OperationType;
+    reason: string;
+  };
 }
 
 /**
@@ -267,6 +294,9 @@ export interface ConversationContext {
   currentBranchId: string;    // 当前分支 ID
   branches: ConversationBranch[]; // 所有分支
   variables: Record<string, any>; // 上下文变量
+  mode: ConversationMode;     // 对话模式
+  gitBranch?: string;         // 编辑模式下创建的 Git 分支
+  mrUrl?: string;             // 编辑模式下创建的 MR URL
 }
 
 /**
@@ -290,6 +320,25 @@ export interface AIResponse {
   content: string;            // 响应内容
   metadata?: MessageMetadata; // 元数据
   shouldPause?: boolean;      // 是否应该暂停等待用户输入
+}
+
+/**
+ * 操作验证结果接口
+ */
+export interface ValidationResult {
+  allowed: boolean;           // 是否允许
+  reason?: string;            // 拒绝原因
+}
+
+/**
+ * Merge Request 信息接口
+ */
+export interface MergeRequestInfo {
+  mrId: number;               // MR ID
+  webUrl: string;             // MR URL
+  sourceBranch: string;       // 源分支
+  targetBranch: string;       // 目标分支
+  title: string;              // MR 标题
 }
 
 // ==================== Neovate 会话管理类型定义 ====================

@@ -8,8 +8,12 @@ import {
   MessageRole,
   MessageMetadata,
   ProjectInfo,
+  ConversationMode,
+  OperationType,
+  ValidationResult,
 } from '../types';
-import { IConversationStorage } from '../storage/ConversationStorage';
+import { IConversationStorage } from '../storage/ConversationStorageAdapter';
+import { ModeValidator } from './ModeValidator';
 
 /**
  * 对话管理器类
@@ -18,9 +22,11 @@ import { IConversationStorage } from '../storage/ConversationStorage';
 export class ConversationManager {
   private storage: IConversationStorage;
   private locks: Map<string, boolean> = new Map();
+  private modeValidator: ModeValidator;
 
   constructor(storage: IConversationStorage) {
     this.storage = storage;
+    this.modeValidator = new ModeValidator();
   }
 
   /**
@@ -46,14 +52,16 @@ export class ConversationManager {
   async createSession(
     taskId: string,
     initialPrompt: string,
-    projectInfo: ProjectInfo
+    projectInfo: ProjectInfo,
+    mode: ConversationMode = ConversationMode.EDIT
   ): Promise<ConversationSession> {
     const sessionId = uuidv4();
+    const mainBranchId = uuidv4(); // 使用 UUID 作为分支 ID
     const now = new Date();
 
     // 创建主分支
     const mainBranch: ConversationBranch = {
-      id: 'main',
+      id: mainBranchId,
       name: '主分支',
       parentMessageId: '',
       messageIds: [],
@@ -66,9 +74,10 @@ export class ConversationManager {
       projectInfo,
       taskDescription: initialPrompt,
       messageHistory: [],
-      currentBranchId: 'main',
+      currentBranchId: mainBranchId,
       branches: [mainBranch],
       variables: {},
+      mode, // 保存模式
     };
 
     // 创建会话
@@ -81,10 +90,8 @@ export class ConversationManager {
       updatedAt: now,
     };
 
-    // 保存会话和上下文
+    // 保存会话（会自动保存上下文和分支）
     await this.storage.saveSession(session);
-    await this.storage.saveContext(sessionId, context);
-    await this.storage.saveBranch(sessionId, mainBranch);
 
     return session;
   }
@@ -101,6 +108,24 @@ export class ConversationManager {
    */
   async listSessions(): Promise<ConversationSession[]> {
     return await this.storage.listSessions();
+  }
+
+  /**
+   * 验证操作是否允许
+   */
+  async validateOperation(
+    sessionId: string,
+    operation: OperationType
+  ): Promise<ValidationResult> {
+    const session = await this.getSession(sessionId);
+    if (!session) {
+      return {
+        allowed: false,
+        reason: `会话不存在: ${sessionId}`,
+      };
+    }
+
+    return this.modeValidator.validateOperation(session.context.mode, operation);
   }
 
   /**
