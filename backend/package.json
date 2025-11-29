@@ -17,6 +17,7 @@
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
     "db:test": "tsx src/db/init.ts",
+    "db:clear": "tsx scripts/clear-database.ts",
     "test:storage": "tsx scripts/test-storage.ts",
     "test:sse": "tsx scripts/test-sse.ts",
     "test:integration": "tsx scripts/test-integration.ts"

@@ -228,14 +228,14 @@ export function createConversationRoutes(
           // 解析 AI 响应并流式发送
           const parsedContent = parseAIResponse(aiResponse.content);
           
-          // 按词发送（更快的打字机效果）
-          const chunkSize = 5; // 每次发送 5 个字符
+          // 按较大的块发送（平衡流畅度和性能）
+          const chunkSize = 50; // 每次发送 50 个字符
           for (let i = 0; i < parsedContent.length; i += chunkSize) {
             const chunk = parsedContent.slice(i, i + chunkSize);
             res.write(`data: ${JSON.stringify({ type: 'chunk', content: chunk })}\n\n`);
             
-            // 减少延迟
-            await new Promise(resolve => setTimeout(resolve, 30));
+            // 减少延迟，提高响应速度
+            await new Promise(resolve => setTimeout(resolve, 10));
           }
 
           // 保存 AI 响应
