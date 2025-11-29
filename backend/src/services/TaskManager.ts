@@ -2,14 +2,38 @@ import { Task, LogEntry, TaskStatus, TaskType } from '../types';
 import { createTask, updateTaskStatus as updateStatus, setTaskError, setTaskMRUrl, setTaskResult } from '../models/Task';
 import { createLogEntry } from '../models/LogEntry';
 import { validateTaskId } from '../utils/validation';
+import { ITaskStorage } from '../storage/TaskStorage';
 
 /**
  * 任务管理器类
- * 负责任务的生命周期管理、状态跟踪和日志管理（内存存储）
+ * 负责任务的生命周期管理、状态跟踪和日志管理（支持持久化）
  */
 export class TaskManager {
   private tasks: Map<string, Task> = new Map();
   private logs: Map<string, LogEntry[]> = new Map();
+  private storage?: ITaskStorage;
+
+  constructor(storage?: ITaskStorage) {
+    this.storage = storage;
+  }
+
+  /**
+   * 从存储加载所有任务
+   */
+  async loadFromStorage(): Promise<void> {
+    if (!this.storage) return;
+
+    try {
+      const tasks = await this.storage.listTasks();
+      for (const task of tasks) {
+        this.tasks.set(task.id, task);
+        const logs = await this.storage.loadLogs(task.id);
+        this.logs.set(task.id, logs);
+      }
+    } catch (error) {
+      console.error('从存储加载任务失败:', error);
+    }
+  }
 
   /**
    * 创建新任务
@@ -30,7 +54,33 @@ export class TaskManager {
       `任务已创建 (${typeLabel}): ${task.id}`
     ));
 
+    // 持久化（异步，不阻塞）
+    this.persistTask(task.id).catch(err => {
+      console.error(`创建任务持久化失败 ${task.id}:`, err);
+    });
+
     return task;
+  }
+
+  /**
+   * 持久化任务和日志
+   */
+  private async persistTask(taskId: string): Promise<void> {
+    if (!this.storage) return;
+
+    try {
+      const task = this.tasks.get(taskId);
+      const logs = this.logs.get(taskId);
+      
+      if (task) {
+        await this.storage.saveTask(task);
+      }
+      if (logs) {
+        await this.storage.saveLogs(taskId, logs);
+      }
+    } catch (error) {
+      console.error(`持久化任务失败 ${taskId}:`, error);
+    }
   }
 
   /**
@@ -74,6 +124,11 @@ export class TaskManager {
       'system',
       `任务状态更新: ${newStatus}`
     ));
+
+    // 持久化（异步，不阻塞）
+    this.persistTask(taskId).catch(err => {
+      console.error(`更新状态持久化失败 ${taskId}:`, err);
+    });
   }
 
   /**
@@ -97,6 +152,11 @@ export class TaskManager {
       'system',
       `任务失败: ${error}`
     ));
+
+    // 持久化（异步，不阻塞）
+    this.persistTask(taskId).catch(err => {
+      console.error(`设置错误持久化失败 ${taskId}:`, err);
+    });
   }
 
   /**
@@ -120,6 +180,11 @@ export class TaskManager {
       'gitlab',
       `Merge Request 已创建: ${mrUrl}`
     ));
+
+    // 持久化（异步，不阻塞）
+    this.persistTask(taskId).catch(err => {
+      console.error(`设置MR持久化失败 ${taskId}:`, err);
+    });
   }
 
   /**
@@ -136,6 +201,11 @@ export class TaskManager {
     }
 
     setTaskResult(task, result);
+
+    // 持久化（异步，不阻塞）
+    this.persistTask(taskId).catch(err => {
+      console.error(`设置结果持久化失败 ${taskId}:`, err);
+    });
   }
 
   /**
@@ -161,6 +231,13 @@ export class TaskManager {
     }
 
     taskLogs.push(log);
+
+    // 持久化日志（异步，不阻塞）
+    if (this.storage) {
+      this.storage.saveLogs(taskId, taskLogs).catch(err => {
+        console.error(`持久化日志失败 ${taskId}:`, err);
+      });
+    }
   }
 
   /**

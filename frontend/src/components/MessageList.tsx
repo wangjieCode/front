@@ -156,12 +156,78 @@ const MessageList: React.FC<MessageListProps> = ({
   };
 
   /**
+   * 解析 AI 消息内容（处理 stream-json 格式）
+   */
+  const parseAIContent = (content: string): string => {
+    // 先尝试直接解析整个内容（可能是完整的 JSON 数组）
+    try {
+      const fullParsed = JSON.parse(content);
+
+      if (Array.isArray(fullParsed)) {
+        // 从后往前查找最后一个 assistant 消息的 text 字段
+        for (let i = fullParsed.length - 1; i >= 0; i--) {
+          const item = fullParsed[i];
+          if (item.role === 'assistant' && item.text) {
+            return item.text;
+          }
+          // 兼容旧格式：type: "result"
+          if (item.type === 'result' && item.content) {
+            return item.content;
+          }
+        }
+      }
+    } catch (e) {
+      // 不是完整的 JSON，尝试按行解析
+      try {
+        const lines = content.trim().split('\n').filter(line => line.trim());
+
+        // 查找消息
+        for (const line of lines) {
+          try {
+            const parsed = JSON.parse(line);
+
+            // 处理数组格式：[{...}]
+            if (Array.isArray(parsed)) {
+              for (let i = parsed.length - 1; i >= 0; i--) {
+                const item = parsed[i];
+                if (item.role === 'assistant' && item.text) {
+                  return item.text;
+                }
+                if (item.type === 'result' && item.content) {
+                  return item.content;
+                }
+              }
+            }
+            // 处理对象格式：{...}
+            else if (parsed.type === 'result' && parsed.content) {
+              return parsed.content;
+            } else if (parsed.role === 'assistant' && parsed.text) {
+              return parsed.text;
+            }
+          } catch (e2) {
+            // 跳过无法解析的行
+          }
+        }
+      } catch (e2) {
+        // 解析失败，返回原始内容
+      }
+    }
+
+    return content;
+  };
+
+  /**
    * 渲染单条消息
    */
   const renderMessage = (message: ConversationMessage) => {
     const isUser = message.role === MessageRole.USER;
     const isSystem = message.role === MessageRole.SYSTEM;
     const isQuestion = message.metadata?.isQuestion;
+
+    // 解析 AI 消息内容
+    const displayContent = !isUser && !isSystem
+      ? parseAIContent(message.content)
+      : message.content;
 
     return (
       <div
@@ -181,10 +247,10 @@ const MessageList: React.FC<MessageListProps> = ({
             background: isUser
               ? '#1890ff'
               : isSystem
-              ? '#f5f5f5'
-              : isQuestion
-              ? '#fff7e6'
-              : '#fff',
+                ? '#f5f5f5'
+                : isQuestion
+                  ? '#fff7e6'
+                  : '#fff',
             color: isUser ? '#fff' : '#000',
             boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
             cursor: onMessageClick ? 'pointer' : 'default',
@@ -261,7 +327,7 @@ const MessageList: React.FC<MessageListProps> = ({
                 },
               }}
             >
-              {message.content}
+              {displayContent}
             </ReactMarkdown>
           </div>
 

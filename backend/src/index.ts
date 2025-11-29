@@ -22,8 +22,10 @@ const PORT = process.env.PORT || 3001;
 // 创建 HTTP 服务器
 const server = createServer(app);
 
-// 创建服务实例
-const taskManager = new TaskManager();
+// 创建任务存储和管理器
+const { FileSystemTaskStorage } = require('./storage/TaskStorage');
+const taskStorage = new FileSystemTaskStorage();
+const taskManager = new TaskManager(taskStorage);
 
 // 初始化执行器和其他服务
 let orchestrator: TaskOrchestrator | undefined;
@@ -105,6 +107,22 @@ try {
   messageRouter = new MessageRouter(conversationManager, conversationAIService);
 
   console.log('✅ 对话服务已初始化');
+
+  // 加载历史会话
+  conversationManager.listSessions().then((sessions: any[]) => {
+    console.log(`📚 已加载 ${sessions.length} 个历史对话会话`);
+    if (sessions.length > 0) {
+      console.log('   最近的会话:');
+      sessions
+        .sort((a: any, b: any) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
+        .slice(0, 5)
+        .forEach((session: any) => {
+          console.log(`   - ${session.id} (${session.status}) - ${new Date(session.updatedAt).toLocaleString('zh-CN')}`);
+        });
+    }
+  }).catch((error: Error) => {
+    console.error('❌ 加载历史会话失败:', error.message);
+  });
 } catch (error) {
   console.warn('⚠️  服务初始化失败（可能缺少配置）:', error instanceof Error ? error.message : error);
   console.warn('⚠️  系统将以只读模式运行（仅支持查询任务）');
@@ -112,7 +130,8 @@ try {
 
 // 全局中间件
 app.use(corsMiddleware);
-app.use(express.json());
+app.use(express.json({ limit: '10mb' })); // 增加 JSON body 大小限制
+app.use(express.urlencoded({ limit: '10mb', extended: true }));
 app.use(requestLogger);
 app.use(validateRequest);
 
@@ -141,10 +160,25 @@ app.use(notFoundHandler);
 app.use(errorHandler);
 
 // 启动服务器
-server.listen(PORT, () => {
+server.listen(PORT, async () => {
   console.log(`🚀 后端服务器运行在 http://localhost:${PORT}`);
   console.log(`📝 环境: ${process.env.NODE_ENV || 'development'}`);
   console.log(`📊 API 端点: http://localhost:${PORT}/api/tasks`);
+
+  // 加载历史任务
+  try {
+    await taskManager.loadFromStorage();
+    const tasks = taskManager.getTasks();
+    console.log(`📋 已加载 ${tasks.length} 个历史任务`);
+    if (tasks.length > 0) {
+      console.log('   最近的任务:');
+      tasks.slice(0, 5).forEach((task: any) => {
+        console.log(`   - ${task.id.substring(0, 8)} (${task.status}) - ${task.prompt.substring(0, 30)}...`);
+      });
+    }
+  } catch (error) {
+    console.error('❌ 加载历史任务失败:', error);
+  }
 });
 
 // 优雅关闭

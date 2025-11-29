@@ -25,6 +25,7 @@ import {
   MessageOutlined,
 } from '@ant-design/icons';
 import { Task, TaskStatus, LogEntry, CodeChange } from '../types';
+import { MessageRole } from '../types/conversation';
 import LogViewer from './LogViewer';
 import StreamingLogViewer from './StreamingLogViewer';
 import CodeDiffViewer from './CodeDiffViewer';
@@ -177,6 +178,7 @@ const TaskExecutionView: React.FC<TaskExecutionViewProps> = ({
       });
 
       const data = await response.json();
+
       if (data.success) {
         // 直接使用返回的消息列表（包含AI回复）
         if (data.data && Array.isArray(data.data)) {
@@ -185,7 +187,6 @@ const TaskExecutionView: React.FC<TaskExecutionViewProps> = ({
           // 如果返回格式不对，重新加载
           await loadConversationMessages(sessionId);
         }
-        antMessage.success('消息已发送');
       } else {
         antMessage.error(data.error || '发送消息失败');
       }
@@ -409,7 +410,7 @@ const TaskExecutionView: React.FC<TaskExecutionViewProps> = ({
             try {
               // 按换行符分割 JSON 对象（neovate stream-json 格式是换行符分隔的）
               const lines = task.result.trim().split('\n').filter(line => line.trim());
-              
+
               // 提取最终的 result 消息
               let finalResult = null;
               for (const line of lines) {
@@ -567,24 +568,94 @@ const TaskExecutionView: React.FC<TaskExecutionViewProps> = ({
                   继续对话
                 </Text>
               </div>
-              {conversationMessages.map((msg) => (
-                <div
-                  key={msg.id}
-                  style={{
-                    marginBottom: 16,
-                    padding: 12,
-                    background: msg.role === 'user' ? '#e6f7ff' : '#f5f5f5',
-                    borderRadius: 8,
-                    borderLeft: `3px solid ${msg.role === 'user' ? '#1890ff' : '#52c41a'}`,
-                  }}
-                >
-                  <div style={{ fontSize: 12, color: '#999', marginBottom: 4 }}>
-                    {msg.role === 'user' ? '你' : 'AI 助手'} ·{' '}
-                    {new Date(msg.timestamp).toLocaleTimeString('zh-CN')}
+              {conversationMessages.map((msg) => {
+                // 解析 AI 消息内容
+                let displayContent = msg.content;
+
+                // 如果是 AI 消息，尝试解析 stream-json 格式
+                const isAIMessage = msg.role === 'assistant' || msg.role === MessageRole.ASSISTANT;
+
+                if (isAIMessage) {
+                  // 先尝试直接解析整个内容（可能是完整的 JSON 数组）
+                  try {
+                    const fullParsed = JSON.parse(msg.content);
+
+                    if (Array.isArray(fullParsed)) {
+                      // 从后往前查找最后一个 assistant 消息的 text 字段
+                      for (let i = fullParsed.length - 1; i >= 0; i--) {
+                        const item = fullParsed[i];
+                        if (item.role === 'assistant' && item.text) {
+                          displayContent = item.text;
+                          break;
+                        }
+                        // 兼容旧格式：type: "result"
+                        if (item.type === 'result' && item.content) {
+                          displayContent = item.content;
+                          break;
+                        }
+                      }
+                    }
+                  } catch (e) {
+                    // 不是完整的 JSON，尝试按行解析
+                    try {
+                      const lines = msg.content.trim().split('\n').filter((line: string) => line.trim());
+
+                      // 查找 result 类型的消息
+                      for (const line of lines) {
+                        try {
+                          const parsed = JSON.parse(line);
+
+                          // 处理数组格式：[{...}]
+                          if (Array.isArray(parsed)) {
+                            for (let i = parsed.length - 1; i >= 0; i--) {
+                              const item = parsed[i];
+                              if (item.role === 'assistant' && item.text) {
+                                displayContent = item.text;
+                                break;
+                              }
+                              if (item.type === 'result' && item.content) {
+                                displayContent = item.content;
+                                break;
+                              }
+                            }
+                          }
+                          // 处理对象格式：{...}
+                          else if (parsed.type === 'result' && parsed.content) {
+                            displayContent = parsed.content;
+                            break;
+                          } else if (parsed.role === 'assistant' && parsed.text) {
+                            displayContent = parsed.text;
+                            break;
+                          }
+                        } catch (e2) {
+                          // 跳过无法解析的行
+                        }
+                      }
+                    } catch (e2) {
+                      // 保持原始内容
+                    }
+                  }
+                }
+
+                return (
+                  <div
+                    key={msg.id}
+                    style={{
+                      marginBottom: 16,
+                      padding: 12,
+                      background: msg.role === 'user' ? '#e6f7ff' : '#f5f5f5',
+                      borderRadius: 8,
+                      borderLeft: `3px solid ${msg.role === 'user' ? '#1890ff' : '#52c41a'}`,
+                    }}
+                  >
+                    <div style={{ fontSize: 12, color: '#999', marginBottom: 4 }}>
+                      {msg.role === 'user' ? '你' : 'AI 助手'} ·{' '}
+                      {new Date(msg.timestamp).toLocaleTimeString('zh-CN')}
+                    </div>
+                    <div style={{ whiteSpace: 'pre-wrap' }}>{displayContent}</div>
                   </div>
-                  <div style={{ whiteSpace: 'pre-wrap' }}>{msg.content}</div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </Space>

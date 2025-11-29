@@ -74,34 +74,12 @@ export class ConversationAIService {
         toolCalls: this.extractToolCalls(result),
       };
 
-      // 直接返回 AI 的原始输出，而不是解析后的消息
+      // 返回原始输出，让前端来解析
       let content = '';
       if (result.success) {
-        // 如果有原始输出，优先使用原始输出
         if (result.rawOutput) {
-          // 尝试从 stream-json 格式中提取最终结果
-          const lines = result.rawOutput.trim().split('\n').filter(line => line.trim());
-          let finalResult = null;
-          
-          for (const line of lines) {
-            try {
-              const parsed = JSON.parse(line);
-              if (parsed.type === 'result') {
-                finalResult = parsed;
-                break;
-              }
-            } catch (e) {
-              // 跳过无法解析的行
-            }
-          }
-          
-          // 如果找到了 result 消息，使用它的内容
-          if (finalResult && finalResult.content) {
-            content = finalResult.content;
-          } else {
-            // 否则使用原始输出
-            content = result.rawOutput;
-          }
+          // 直接返回原始输出，前端会解析 stream-json 格式
+          content = result.rawOutput;
         } else {
           // 没有原始输出，使用默认消息
           content = result.message;
