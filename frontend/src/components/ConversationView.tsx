@@ -269,6 +269,37 @@ const ConversationView: React.FC<ConversationViewProps> = ({
         </Paragraph>
       </div>
 
+      {/* 项目信息展示 */}
+      <div style={{
+        marginBottom: 24,
+        padding: '16px 20px',
+        background: 'linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%)',
+        borderRadius: 12,
+        border: '1px solid #e5e5e5'
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+          <span style={{ fontSize: 20 }}>📁</span>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 13, color: '#666', marginBottom: 4 }}>代码仓库</div>
+            <div style={{ fontSize: 14, fontWeight: 500, color: '#333', fontFamily: 'monospace' }}>
+              /workspace/dtmall-admin
+            </div>
+          </div>
+          <div style={{
+            padding: '4px 12px',
+            background: 'rgba(255,255,255,0.8)',
+            borderRadius: 6,
+            fontSize: 13,
+            fontWeight: 500,
+            color: '#667eea',
+            border: '1px solid rgba(102, 126, 234, 0.2)'
+          }}>
+            <span style={{ marginRight: 4 }}>🌿</span>
+            master
+          </div>
+        </div>
+      </div>
+
       {/* 输入卡片 */}
       <div
         className="glass-card"

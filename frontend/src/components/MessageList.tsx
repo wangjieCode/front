@@ -317,6 +317,63 @@ const MessageList: React.FC<MessageListProps> = ({
           {message.metadata?.codeChanges &&
             renderCodeChanges(message.metadata.codeChanges)}
 
+          {/* MR 链接展示 */}
+          {message.metadata?.mrUrl && (
+            <div style={{ marginTop: 12 }}>
+              <Card
+                size="small"
+                style={{
+                  background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                  border: 'none',
+                  borderRadius: 8
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <span style={{
+                    fontSize: 20,
+                    filter: 'brightness(0) invert(1)'
+                  }}>
+                    🔀
+                  </span>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ color: '#fff', fontWeight: 500, marginBottom: 4 }}>
+                      Merge Request 已创建
+                    </div>
+                    {message.metadata.gitBranch && (
+                      <div style={{ color: 'rgba(255,255,255,0.8)', fontSize: 12 }}>
+                        分支: {message.metadata.gitBranch}
+                      </div>
+                    )}
+                  </div>
+                  <a
+                    href={message.metadata.mrUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{
+                      background: 'rgba(255,255,255,0.2)',
+                      color: '#fff',
+                      padding: '6px 16px',
+                      borderRadius: 6,
+                      textDecoration: 'none',
+                      fontSize: 13,
+                      fontWeight: 500,
+                      transition: 'all 0.2s',
+                      border: '1px solid rgba(255,255,255,0.3)'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = 'rgba(255,255,255,0.3)';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = 'rgba(255,255,255,0.2)';
+                    }}
+                  >
+                    查看 MR →
+                  </a>
+                </div>
+              </Card>
+            </div>
+          )}
+
           {/* 问题选项 */}
           {message.metadata?.questionOptions &&
             renderQuestionOptions(message.metadata.questionOptions)}
