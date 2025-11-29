@@ -464,20 +464,105 @@ const ConversationView: React.FC<ConversationViewProps> = ({
       {/* Header */}
       {sessionId && session && (
         <div style={{
-          padding: '12px 24px',
-          borderBottom: '1px solid #e5e5e5'
+          padding: '16px 24px',
+          borderBottom: '1px solid #e5e5e5',
+          background: mode === ConversationMode.EDIT ? 'linear-gradient(135deg, #f5f7fa 0%, #e8eef5 100%)' : '#fff'
         }}>
-          <span style={{
-            fontSize: 14,
-            color: '#333',
-            fontWeight: 500,
-            display: 'block',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap'
-          }}>
-            {initialPrompt || '对话会话'}
-          </span>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <span style={{
+                fontSize: 14,
+                color: '#333',
+                fontWeight: 500,
+                display: 'block',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+                marginBottom: mode === ConversationMode.EDIT ? 8 : 0
+              }}>
+                {initialPrompt || '对话会话'}
+              </span>
+              
+              {mode === ConversationMode.EDIT && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                  {/* 项目名称 */}
+                  {session.context?.projectInfo?.workDir && (
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      padding: '4px 10px',
+                      background: 'rgba(255,255,255,0.8)',
+                      borderRadius: 6,
+                      fontSize: 12,
+                      color: '#666',
+                      border: '1px solid rgba(0,0,0,0.06)'
+                    }}>
+                      <span>📁</span>
+                      <span style={{ fontFamily: 'monospace', fontWeight: 500 }}>
+                        {session.context.projectInfo.workDir.split('/').pop() || session.context.projectInfo.workDir}
+                      </span>
+                    </div>
+                  )}
+                  
+                  {/* Git 分支 */}
+                  {(session.context?.gitBranch || session.context?.projectInfo?.gitBranch) && (
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      padding: '4px 10px',
+                      background: 'rgba(102, 126, 234, 0.1)',
+                      borderRadius: 6,
+                      fontSize: 12,
+                      color: '#667eea',
+                      fontWeight: 500,
+                      border: '1px solid rgba(102, 126, 234, 0.2)'
+                    }}>
+                      <span>🌿</span>
+                      <span style={{ fontFamily: 'monospace' }}>
+                        {session.context.gitBranch || session.context.projectInfo.gitBranch}
+                      </span>
+                    </div>
+                  )}
+                  
+                  {/* MR 链接 */}
+                  {session.context?.mrUrl && (
+                    <a
+                      href={session.context.mrUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 6,
+                        padding: '4px 10px',
+                        background: 'rgba(82, 196, 26, 0.1)',
+                        borderRadius: 6,
+                        fontSize: 12,
+                        color: '#52c41a',
+                        fontWeight: 500,
+                        border: '1px solid rgba(82, 196, 26, 0.2)',
+                        textDecoration: 'none',
+                        transition: 'all 0.2s'
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.background = 'rgba(82, 196, 26, 0.15)';
+                        e.currentTarget.style.transform = 'translateY(-1px)';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.background = 'rgba(82, 196, 26, 0.1)';
+                        e.currentTarget.style.transform = 'translateY(0)';
+                      }}
+                    >
+                      <span>🔗</span>
+                      <span>查看 MR</span>
+                    </a>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       )}
 
