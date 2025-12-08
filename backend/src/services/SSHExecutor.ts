@@ -88,13 +88,22 @@ export class SSHExecutor {
       });
 
       // 建立连接
-      this.client!.connect({
+      const connectConfig: any = {
         host: this.config!.host,
         port: this.config!.port,
         username: this.config!.username,
-        privateKey: this.config!.privateKey,
         readyTimeout: 10000,
-      });
+      };
+
+      if (this.config!.privateKey) {
+        connectConfig.privateKey = this.config!.privateKey;
+      }
+
+      if (this.config!.password) {
+        connectConfig.password = this.config!.password;
+      }
+
+      this.client!.connect(connectConfig);
     });
   }
 
@@ -130,10 +139,13 @@ export class SSHExecutor {
       throw new Error('SSH 未连接');
     }
 
+    // 添加环境加载前缀，确保用户环境可用
+    const envPrefix = 'export IFLOW_API_KEY=sk-4860b57c6cc225d3b00a128e1da81e14 && export PATH="/opt/homebrew/bin:$HOME/.local/share/fnm:$PATH" && eval "$(fnm env --use-on-cd 2>/dev/null || true)" && ';
+    
     // 如果指定了工作目录，添加 cd 命令
     const fullCommand = workDir 
-      ? `cd ${workDir} && ${command}`
-      : command;
+      ? `${envPrefix}cd ${workDir} && ${command}`
+      : `${envPrefix}${command}`;
 
     return new Promise((resolve, reject) => {
       this.client!.exec(fullCommand, (err, channel: ClientChannel) => {
@@ -218,10 +230,13 @@ export class SSHExecutor {
       throw new Error('SSH 未连接');
     }
 
+    // 添加环境加载前缀，确保用户环境可用
+    const envPrefix = 'export PATH="/opt/homebrew/bin:$HOME/.local/share/fnm:$PATH" && eval "$(fnm env --use-on-cd 2>/dev/null || true)" && ';
+    
     // 如果指定了工作目录，添加 cd 命令
     const fullCommand = workDir 
-      ? `cd ${workDir} && ${command}`
-      : command;
+      ? `${envPrefix}cd ${workDir} && ${command}`
+      : `${envPrefix}${command}`;
 
     return new Promise((resolve, reject) => {
       this.client!.exec(fullCommand, (err, channel: ClientChannel) => {

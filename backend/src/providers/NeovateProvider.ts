@@ -1,7 +1,7 @@
 import { SSHExecutor } from '../services/SSHExecutor';
 import { ICodeToolProvider, CodeToolResult, CodeChange, ChangeType } from '../types';
 import { createCodeChange, detectChangeType, parseFilePathFromDiff } from '../models/CodeChange';
-import { NeovateMessageParser, ConversationMessage } from '../utils/NeovateMessageParser';
+import { NeovateMessageParser } from '../utils/NeovateMessageParser';
 
 /**
  * neovate 工具提供者

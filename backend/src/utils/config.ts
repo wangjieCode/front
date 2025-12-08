@@ -11,29 +11,39 @@ export function loadSSHConfig(): SSHConfig {
   const port = process.env.SSH_PORT;
   const username = process.env.SSH_USERNAME;
   const privateKeyPath = process.env.SSH_PRIVATE_KEY_PATH;
+  const password = process.env.SSH_PASSWORD;
 
-  // 在本地模式下，SSH 配置是可选的
   if (process.env.RUN_MODE === 'local') {
     throw new Error('本地模式不需要 SSH 配置');
   }
 
-  if (!host || !port || !username || !privateKeyPath) {
+  if (!host || !port || !username) {
     throw new Error('SSH 配置不完整，请检查环境变量');
   }
 
-  let privateKey: string;
-  try {
-    privateKey = readFileSync(privateKeyPath, 'utf8');
-  } catch (error) {
-    throw new Error(`无法读取 SSH 私钥文件: ${privateKeyPath}`);
+  if (!privateKeyPath && !password) {
+    throw new Error('SSH 配置不完整，需要提供 SSH_PRIVATE_KEY_PATH 或 SSH_PASSWORD');
   }
 
-  return {
+  const config: SSHConfig = {
     host,
     port: parseInt(port, 10),
     username,
-    privateKey,
   };
+
+  if (privateKeyPath) {
+    try {
+      config.privateKey = readFileSync(privateKeyPath, 'utf8');
+    } catch (error) {
+      throw new Error(`无法读取 SSH 私钥文件: ${privateKeyPath}`);
+    }
+  }
+
+  if (password) {
+    config.password = password;
+  }
+
+  return config;
 }
 
 /**
@@ -54,8 +64,8 @@ export function validateSSHConfig(config: SSHConfig): void {
     throw new Error('SSH 用户名不能为空');
   }
 
-  if (!config.privateKey || config.privateKey.trim().length === 0) {
-    throw new Error('SSH 私钥不能为空');
+  if (!config.privateKey && !config.password) {
+    throw new Error('SSH 认证信息不能为空，需要提供私钥或密码');
   }
 }
 

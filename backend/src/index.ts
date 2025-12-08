@@ -72,23 +72,63 @@ async function initializeServices() {
   } else {
     // 远程模式：使用 SSHExecutor
     const sshConfig = loadSSHConfig();
+    console.log('🔌 SSH 配置:');
+    console.log('  host:', sshConfig.host);
+    console.log('  port:', sshConfig.port);
+    console.log('  username:', sshConfig.username);
+    console.log('  认证方式:', sshConfig.privateKey ? '私钥' : '密码');
+    
     executor = new SSHExecutor();
 
-    // 连接 SSH
-    executor.connect(sshConfig).then(() => {
+    // 连接 SSH（等待连接完成）
+    try {
+      console.log('🔌 正在连接 SSH...');
+      await executor.connect(sshConfig);
       console.log('✅ SSH 连接已建立');
-    }).catch((error: Error) => {
-      console.error('❌ SSH 连接失败:', error.message);
-    });
+      
+      // 测试 SSH 连接
+      console.log('🧪 测试 SSH 连接...');
+      const testResult = await executor.testConnection();
+      if (testResult) {
+        console.log('✅ SSH 连接测试成功');
+      } else {
+        console.warn('⚠️  SSH 连接测试失败');
+      }
+      
+      // 测试基本命令
+      console.log('🧪 测试基本命令执行...');
+      const echoResult = await executor.executeCommand('echo "Hello from SSH"');
+      console.log('  exitCode:', echoResult.exitCode);
+      console.log('  stdout:', echoResult.stdout);
+      
+      // 检查 shell 类型
+      const shellResult = await executor.executeCommand('echo $SHELL');
+      console.log('🐚 远程 Shell:', shellResult.stdout.trim());
+      
+      // 检查 PATH
+      const pathResult = await executor.executeCommand('echo $PATH');
+      console.log('📍 远程 PATH:', pathResult.stdout.trim());
+      
+      // 检查 Node.js 版本
+      const nodeResult = await executor.executeCommand('node -v');
+      console.log('📦 Node.js 版本:', nodeResult.exitCode === 0 ? nodeResult.stdout.trim() : '未安装或不在 PATH 中');
+      
+      // 检查 fnm
+      const fnmResult = await executor.executeCommand('which fnm');
+      console.log('🔧 fnm 路径:', fnmResult.exitCode === 0 ? fnmResult.stdout.trim() : '未找到');
+      
+    } catch (error) {
+      console.error('❌ SSH 连接失败:', error instanceof Error ? error.message : error);
+      throw error;
+    }
   }
 
   const codeToolService = new CodeToolService(executor);
 
   // 获取工具信息并记录
-  codeToolService.getToolInfo(workDir).then((info: { name: string; version: string; available: boolean }) => {
-    console.log(`🔧 代码工具: ${info.name} (${info.version})`);
-    console.log(`✅ 工具可用性: ${info.available ? '可用' : '不可用'}`);
-  });
+  const info = await codeToolService.getToolInfo(workDir);
+  console.log(`🔧 代码工具: ${info.name} (${info.version})`);
+  console.log(`✅ 工具可用性: ${info.available ? '可用' : '不可用'}`);
 
   // 创建对话服务实例
   const { ConversationManager } = require('./services/ConversationManager');
@@ -121,7 +161,8 @@ async function initializeServices() {
   console.log('✅ 对话服务已初始化 (存储: Drizzle/Supabase)');
 
   // 加载历史会话
-  conversationManager.listSessions().then((sessions: any[]) => {
+  try {
+    const sessions = await conversationManager.listSessions();
     console.log(`📚 已加载 ${sessions.length} 个历史对话会话`);
     if (sessions.length > 0) {
       console.log('   最近的会话:');
@@ -132,9 +173,9 @@ async function initializeServices() {
           console.log(`   - ${session.id} (${session.status}) - ${new Date(session.updatedAt).toLocaleString('zh-CN')}`);
         });
     }
-  }).catch((error: Error) => {
-    console.error('❌ 加载历史会话失败:', error.message);
-  });
+  } catch (error) {
+    console.error('❌ 加载历史会话失败:', error instanceof Error ? error.message : error);
+  }
   } catch (error) {
     console.warn('⚠️  服务初始化失败（可能缺少配置）:', error instanceof Error ? error.message : error);
     console.warn('⚠️  系统将以只读模式运行（仅支持查询任务）');
@@ -167,6 +208,10 @@ async function startServer() {
   if (conversationManager && messageRouter && conversationAIService) {
     app.use('/api/conversations', createConversationRoutes(conversationManager, messageRouter, conversationAIService));
   }
+
+  // Docker 管理路由
+  const dockerRoutes = require('./api/dockerRoutes').default;
+  app.use('/api/docker', dockerRoutes);
 
   // 404 处理
   app.use(notFoundHandler);
