@@ -1,0 +1,82 @@
+services:
+  # ==========================================
+  # 1. 基座应用
+  # ==========================================
+  basement:
+    image: smp-basement-nginx:latest
+    container_name: smp-basement
+    ports:
+      - "8080:80"
+    restart: unless-stopped
+
+  # ==========================================
+  # 2. 子应用
+  # ==========================================
+  sub-app:
+    build:
+      context: .
+      dockerfile_inline: |
+        # === 阶段 1: Builder (安装依赖) ===
+        # 基础镜像使用官方的 node:20-slim
+        FROM docker.m.daocloud.io/library/node:20-slim AS builder
+        WORKDIR /app
+
+        # 安装编译依赖
+        RUN apt-get update && apt-get install -y --no-install-recommends \
+          build-essential pkg-config libcairo-dev libjpeg-dev libpango1.0-dev libgif-dev python3 \
+          && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+        # 配置 PNPM 
+        RUN corepack enable
+        # 建议：PNPM 仍使用国内镜像加速 NPM 包下载，这是必要的优化。
+        RUN pnpm config set registry https://registry.npmmirror.com/
+        RUN pnpm config set store-dir /root/.pnpm-store
+
+        # 只复制依赖相关文件（保证缓存命中）
+        COPY package.json pnpm-lock.yaml ./
+        COPY patch ./patch 
+        COPY .npmrc ./.npmrc
+        # 使用缓存安装依赖
+        RUN --mount=type=cache,id=pnpm,target=/root/.pnpm-store \
+          pnpm install --frozen-lockfile
+
+        # === 阶段 2: Runner (轻量运行环境) ===
+        FROM docker.m.daocloud.io/library/node:20-slim
+        WORKDIR /app
+
+        # 🎯 关键修正 2: 移除对 APT 源的强制替换
+        # 保持使用 Debian 官方源。
+        # RUN sed -i 's/deb.debian.org/mirrors.tuna.tsinghua.edu.cn/g' /etc/apt/sources.list.d/debian.sources # <--- 移除此行
+
+        # 安装运行时依赖
+        RUN apt-get update && apt-get install -y --no-install-recommends \
+          libcairo2 libjpeg62-turbo libpango1.0-0 libgif7 python3 \
+          && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+        RUN corepack enable
+
+        # 复制编译好的依赖
+        COPY --from=builder /app/node_modules ./node_modules
+
+        # 复制配置文件和源代码
+        COPY package.json pnpm-lock.yaml ./
+        COPY smp.config.ts ./smp.config.ts
+        COPY .npmrc ./.npmrc
+        # ⚠️ 确保您也复制了项目源代码！
+        COPY . .
+        
+        EXPOSE 8083
+        CMD ["pnpm", "run", "serve"]
+
+    container_name: smp-sub-app
+    ports:
+      - "8083:8083"
+    volumes:
+      # 为了开发环境的热重载，这是正确的配置：
+      - .:/app
+      # 通过匿名卷覆盖 /app/node_modules，确保在开发模式下使用容器内 pnpm 安装的依赖
+      - /app/node_modules
+    environment:
+      - CHOKIDAR_USEPOLLING=true
+    # 覆盖 Dockerfile 中的 CMD，用于开发环境调试
+    command: pnpm run serve -- --host 0.0.0.0 --client-web-socket-url ws://localhost:8083/ws

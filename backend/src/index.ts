@@ -30,6 +30,7 @@ let conversationManager: any;
 let messageRouter: any;
 let conversationAIService: any;
 let conversationStorage: DrizzleConversationStorage | null = null;
+let executor: any;
 
 const runMode = process.env.RUN_MODE || 'local';
 console.log(`🔧 运行模式: ${runMode === 'local' ? '本机模式' : '远程模式'}`);
@@ -52,8 +53,6 @@ async function initializeServices() {
   const gitlabConfig = loadGitLabConfig();
   const workDir = getGitWorkDir();
   const defaultBranch = getGitDefaultBranch();
-
-  let executor: any;
 
   if (runMode === 'local') {
     // 本机模式：使用 LocalExecutor
@@ -117,6 +116,14 @@ async function initializeServices() {
       const fnmResult = await executor.executeCommand('which fnm');
       console.log('🔧 fnm 路径:', fnmResult.exitCode === 0 ? fnmResult.stdout.trim() : '未找到');
       
+      // 检查 docker
+      const dockerResult = await executor.executeCommand('which docker');
+      console.log('🐳 docker 路径:', dockerResult.exitCode === 0 ? dockerResult.stdout.trim() : '未找到');
+      
+      // 检查 docker-compose
+      const dockerComposeResult = await executor.executeCommand('which docker-compose');
+      console.log('🐳 docker-compose 路径:', dockerComposeResult.exitCode === 0 ? dockerComposeResult.stdout.trim() : '未找到');
+      
     } catch (error) {
       console.error('❌ SSH 连接失败:', error instanceof Error ? error.message : error);
       throw error;
@@ -129,6 +136,8 @@ async function initializeServices() {
   const info = await codeToolService.getToolInfo(workDir);
   console.log(`🔧 代码工具: ${info.name} (${info.version})`);
   console.log(`✅ 工具可用性: ${info.available ? '可用' : '不可用'}`);
+
+
 
   // 创建对话服务实例
   const { ConversationManager } = require('./services/ConversationManager');
@@ -212,6 +221,12 @@ async function startServer() {
   // Docker 管理路由
   const dockerRoutes = require('./api/dockerRoutes').default;
   app.use('/api/docker', dockerRoutes);
+
+  // Docker Compose 管理路由
+  const { createDockerComposeRoutes } = require('./api/dockerComposeRoutes');
+  const { DockerComposeService } = require('./services/DockerComposeService');
+  const dockerComposeService = new DockerComposeService(executor);
+  app.use('/api/docker-compose', createDockerComposeRoutes(dockerComposeService));
 
   // 404 处理
   app.use(notFoundHandler);

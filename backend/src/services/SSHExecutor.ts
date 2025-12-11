@@ -139,16 +139,21 @@ export class SSHExecutor {
       throw new Error('SSH 未连接');
     }
 
-    // 添加环境加载前缀，确保用户环境可用
-    const envPrefix = 'export IFLOW_API_KEY=sk-4860b57c6cc225d3b00a128e1da81e14 && export PATH="/opt/homebrew/bin:$HOME/.local/share/fnm:$PATH" && eval "$(fnm env --use-on-cd 2>/dev/null || true)" && ';
+    // 使用登录 shell 执行命令，自动加载用户环境
+    // -l: 登录 shell，会加载 .zshrc/.bashrc 等配置
+    // -c: 执行命令
+    let fullCommand: string;
+    if (workDir) {
+      fullCommand = `cd ${workDir} && ${command}`;
+    } else {
+      fullCommand = command;
+    }
     
-    // 如果指定了工作目录，添加 cd 命令
-    const fullCommand = workDir 
-      ? `${envPrefix}cd ${workDir} && ${command}`
-      : `${envPrefix}${command}`;
+    // 包装在登录 shell 中执行
+    const shellCommand = `$SHELL -l -c '${fullCommand.replace(/'/g, "'\\''")}'`;
 
     return new Promise((resolve, reject) => {
-      this.client!.exec(fullCommand, (err, channel: ClientChannel) => {
+      this.client!.exec(shellCommand, (err, channel: ClientChannel) => {
         if (err) {
           reject(err);
           return;
@@ -230,16 +235,19 @@ export class SSHExecutor {
       throw new Error('SSH 未连接');
     }
 
-    // 添加环境加载前缀，确保用户环境可用
-    const envPrefix = 'export PATH="/opt/homebrew/bin:$HOME/.local/share/fnm:$PATH" && eval "$(fnm env --use-on-cd 2>/dev/null || true)" && ';
+    // 使用登录 shell 执行命令，自动加载用户环境
+    let fullCommand: string;
+    if (workDir) {
+      fullCommand = `cd ${workDir} && ${command}`;
+    } else {
+      fullCommand = command;
+    }
     
-    // 如果指定了工作目录，添加 cd 命令
-    const fullCommand = workDir 
-      ? `${envPrefix}cd ${workDir} && ${command}`
-      : `${envPrefix}${command}`;
+    // 包装在登录 shell 中执行
+    const shellCommand = `$SHELL -l -c '${fullCommand.replace(/'/g, "'\\''")}'`;
 
     return new Promise((resolve, reject) => {
-      this.client!.exec(fullCommand, (err, channel: ClientChannel) => {
+      this.client!.exec(shellCommand, (err, channel: ClientChannel) => {
         if (err) {
           reject(err);
           return;
