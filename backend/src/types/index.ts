@@ -292,10 +292,14 @@ export interface ConversationBranch {
 export interface PreviewInfo {
   url: string;                // 预览 URL
   containerId: string;        // 容器 ID
+  imageId?: string;           // 镇像 ID
+  imageName?: string;         // 镇像名称
   branchName: string;         // Git 分支名
   deployedAt: Date;           // 部署时间
   status: PreviewStatus;      // 预览状态
   ports?: PortMapping[];      // 端口映射信息
+  isRunning?: boolean;        // 容器是否运行中
+  accessUrl?: string;         // 实际访问地址（可能与 url 不同）
 }
 
 /**
@@ -427,8 +431,12 @@ export interface PreviewStatusResponse {
   status: PreviewStatus;       // 预览状态
   url?: string;                // 预览 URL
   containerId?: string;        // 容器 ID
+  imageId?: string;            // 镇像 ID
+  imageName?: string;          // 镇像名称
   branchName?: string;         // Git 分支名
   deployedAt?: Date;           // 部署时间
+  isRunning?: boolean;         // 是否运行中
+  accessUrl?: string;          // 访问地址
   healthCheck?: HealthCheckResult; // 健康检查结果
 }
 

@@ -42,6 +42,7 @@ export const conversationContexts = pgTable(
     mode: varchar('mode', { length: 50 }).notNull().default('edit'), // 对话模式
     contextGitBranch: varchar('context_git_branch', { length: 255 }), // 编辑模式下创建的 Git 分支
     mrUrl: text('mr_url'), // 编辑模式下创建的 MR URL
+    previewInfo: jsonb('preview_info'), // 预览部署信息（包含镇像 ID、容器 ID、运行状态等）
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },

@@ -57,6 +57,7 @@ export class GitLabMCPService {
       // 检查 MR 是否已存在
       const existingMR = await this.findExistingMR(params.sourceBranch, params.targetBranch);
       if (existingMR) {
+        console.log(`[GitLabMCPService] ℹ️  MR 已存在（远程查询）: ${existingMR.webUrl}`);
         return existingMR;
       }
 

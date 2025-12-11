@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Spin, Typography, Button, Input, message } from 'antd';
-import { ThunderboltOutlined, SendOutlined, RocketOutlined, CheckOutlined, WarningOutlined, StopOutlined } from '@ant-design/icons';
+import { Spin, Typography, Button, Input, message, Modal, Descriptions, Tag } from 'antd';
+import { ThunderboltOutlined, SendOutlined, RocketOutlined, CheckOutlined, WarningOutlined, StopOutlined, GitlabOutlined, ClockCircleOutlined, LinkOutlined } from '@ant-design/icons';
 import ModeSelector from './ModeSelector';
 import {
   ConversationSession,
@@ -41,6 +41,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
   const [loading, setLoading] = useState(false);
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [sending, setSending] = useState(false);
+  const [creatingMR, setCreatingMR] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // New conversation state
@@ -49,6 +50,8 @@ const ConversationView: React.FC<ConversationViewProps> = ({
   // 预览相关状态
   const [isDeploying, setIsDeploying] = useState(false);
   const [previewStatus, setPreviewStatus] = useState<PreviewStatus | null>(null);
+  const [deploymentInfo, setDeploymentInfo] = useState<any>(null);
+  const [showDeploymentModal, setShowDeploymentModal] = useState(false);
 
   const examplePrompts = [
     '修改一下文案',
@@ -271,12 +274,26 @@ const ConversationView: React.FC<ConversationViewProps> = ({
       
       if (result.success && result.previewUrl) {
         setPreviewStatus(PreviewStatus.RUNNING);
-        message.success({ content: '部署成功！', key: 'preview', duration: 2 });
+        setDeploymentInfo(result.deploymentInfo);
+        
+        // 显示部署成功信息
+        if (result.deploymentInfo) {
+          message.success({ 
+            content: `部署成功！耗时 ${result.deploymentInfo.totalTime}s`, 
+            key: 'preview', 
+            duration: 3 
+          });
+          
+          // 自动显示部署详情
+          setShowDeploymentModal(true);
+        } else {
+          message.success({ content: '部署成功！', key: 'preview', duration: 2 });
+        }
         
         // 刷新会话信息
         await loadSession();
         
-        // 打开预览页面
+        // 延迟打开预览页面
         setTimeout(() => {
           window.open(result.previewUrl, '_blank');
         }, 500);
@@ -309,6 +326,26 @@ const ConversationView: React.FC<ConversationViewProps> = ({
       await loadSession();
     } catch (error) {
       message.error(`停止预览失败: ${error instanceof Error ? error.message : '未知错误'}`);
+    }
+  };
+
+  /**
+   * 创建 MR
+   */
+  const handleCreateMR = async () => {
+    if (!sessionId) return;
+    
+    setCreatingMR(true);
+    try {
+      const result = await conversationService.createMergeRequest(sessionId);
+      message.success('MR 已创建');
+      
+      // 重新加载会话以获取最新的 MR URL
+      await loadSession();
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '创建 MR 失败');
+    } finally {
+      setCreatingMR(false);
     }
   };
 
@@ -636,38 +673,58 @@ const ConversationView: React.FC<ConversationViewProps> = ({
                     </div>
                   )}
                   
-                  {/* MR 链接 */}
-                  {session.context?.mrUrl && (
-                    <a
-                      href={session.context.mrUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 6,
-                        padding: '4px 10px',
-                        background: 'rgba(82, 196, 26, 0.1)',
-                        borderRadius: 6,
-                        fontSize: 12,
-                        color: '#52c41a',
-                        fontWeight: 500,
-                        border: '1px solid rgba(82, 196, 26, 0.2)',
-                        textDecoration: 'none',
-                        transition: 'all 0.2s'
-                      }}
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.background = 'rgba(82, 196, 26, 0.15)';
-                        e.currentTarget.style.transform = 'translateY(-1px)';
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.background = 'rgba(82, 196, 26, 0.1)';
-                        e.currentTarget.style.transform = 'translateY(0)';
-                      }}
-                    >
-                      <span>🔗</span>
-                      <span>查看 MR</span>
-                    </a>
+                  {/* MR 链接或创建按钮 */}
+                  {session.context?.gitBranch && session.context.mode === 'edit' && (
+                    session.context?.mrUrl ? (
+                      <a
+                        href={session.context.mrUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 6,
+                          padding: '4px 10px',
+                          background: 'rgba(82, 196, 26, 0.1)',
+                          borderRadius: 6,
+                          fontSize: 12,
+                          color: '#52c41a',
+                          fontWeight: 500,
+                          border: '1px solid rgba(82, 196, 26, 0.2)',
+                          textDecoration: 'none',
+                          transition: 'all 0.2s'
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.background = 'rgba(82, 196, 26, 0.15)';
+                          e.currentTarget.style.transform = 'translateY(-1px)';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.background = 'rgba(82, 196, 26, 0.1)';
+                          e.currentTarget.style.transform = 'translateY(0)';
+                        }}
+                      >
+                        <span>🔗</span>
+                        <span>查看 MR</span>
+                      </a>
+                    ) : (
+                      <Button
+                        size="small"
+                        icon={<GitlabOutlined />}
+                        onClick={handleCreateMR}
+                        loading={creatingMR}
+                        style={{
+                          fontSize: 12,
+                          height: 26,
+                          padding: '0 10px',
+                          borderRadius: 6,
+                          fontWeight: 500,
+                          color: '#fc6d26',
+                          borderColor: '#fc6d26',
+                        }}
+                      >
+                        创建 MR
+                      </Button>
+                    )
                   )}
                   
                   {/* 预览按钮 */}
@@ -695,22 +752,40 @@ const ConversationView: React.FC<ConversationViewProps> = ({
                   
                   {/* 停止预览按钮 */}
                   {session.context?.previewInfo?.status === PreviewStatus.RUNNING && (
-                    <Button
-                      size="small"
-                      icon={<StopOutlined />}
-                      onClick={handleStopPreview}
-                      style={{
-                        fontSize: 12,
-                        height: 26,
-                        padding: '0 10px',
-                        borderRadius: 6,
-                        fontWeight: 500,
-                        color: '#ff4d4f',
-                        borderColor: '#ff4d4f',
-                      }}
-                    >
-                      停止
-                    </Button>
+                    <>
+                      <Button
+                        size="small"
+                        icon={<ClockCircleOutlined />}
+                        onClick={() => setShowDeploymentModal(true)}
+                        style={{
+                          fontSize: 12,
+                          height: 26,
+                          padding: '0 10px',
+                          borderRadius: 6,
+                          fontWeight: 500,
+                          color: '#1890ff',
+                          borderColor: '#1890ff',
+                        }}
+                      >
+                        部署详情
+                      </Button>
+                      <Button
+                        size="small"
+                        icon={<StopOutlined />}
+                        onClick={handleStopPreview}
+                        style={{
+                          fontSize: 12,
+                          height: 26,
+                          padding: '0 10px',
+                          borderRadius: 6,
+                          fontWeight: 500,
+                          color: '#ff4d4f',
+                          borderColor: '#ff4d4f',
+                        }}
+                      >
+                        停止
+                      </Button>
+                    </>
                   )}
                 </div>
               )}
@@ -733,6 +808,150 @@ const ConversationView: React.FC<ConversationViewProps> = ({
           sessionId ? renderChatContent() : renderLandingContent()
         )}
       </div>
+
+      {/* 部署详情 Modal */}
+      <Modal
+        title={
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <CheckOutlined style={{ color: '#52c41a', fontSize: 18 }} />
+            <span>部署详情</span>
+          </div>
+        }
+        open={showDeploymentModal}
+        onCancel={() => setShowDeploymentModal(false)}
+        footer={[
+          <Button key="close" onClick={() => setShowDeploymentModal(false)}>
+            关闭
+          </Button>,
+          session?.context?.previewInfo?.url && (
+            <Button 
+              key="open" 
+              type="primary" 
+              icon={<LinkOutlined />}
+              onClick={() => {
+                window.open(session.context.previewInfo!.url, '_blank');
+                setShowDeploymentModal(false);
+              }}
+            >
+              打开预览
+            </Button>
+          )
+        ]}
+        width={600}
+      >
+        {(deploymentInfo || session?.context?.previewInfo) && (
+          <Descriptions bordered column={2} size="small">
+            <Descriptions.Item label="部署状态" span={2}>
+              <Tag color="success" icon={<CheckOutlined />}>
+                运行中
+              </Tag>
+            </Descriptions.Item>
+            
+            {deploymentInfo && (
+              <>
+                <Descriptions.Item label="总耗时" span={2}>
+                  <span style={{ fontSize: 16, fontWeight: 600, color: '#1890ff' }}>
+                    <ClockCircleOutlined /> {deploymentInfo.totalTime}s
+                  </span>
+                </Descriptions.Item>
+                
+                <Descriptions.Item label="构建耗时">
+                  <Tag color="blue">{deploymentInfo.buildTime}s</Tag>
+                </Descriptions.Item>
+                
+                <Descriptions.Item label="启动耗时">
+                  <Tag color="cyan">{deploymentInfo.startTime}s</Tag>
+                </Descriptions.Item>
+              </>
+            )}
+            
+            <Descriptions.Item label="预览地址" span={2}>
+              <a 
+                href={session?.context?.previewInfo?.url} 
+                target="_blank" 
+                rel="noopener noreferrer"
+                style={{ wordBreak: 'break-all' }}
+              >
+                {session?.context?.previewInfo?.url}
+              </a>
+            </Descriptions.Item>
+            
+            <Descriptions.Item label="容器 ID" span={2}>
+              <code style={{ 
+                fontSize: 11, 
+                background: '#f5f5f5', 
+                padding: '2px 6px', 
+                borderRadius: 3,
+                wordBreak: 'break-all'
+              }}>
+                {session?.context?.previewInfo?.containerId?.substring(0, 12)}
+              </code>
+            </Descriptions.Item>
+            
+            {(session?.context?.previewInfo?.imageId || session?.context?.previewInfo?.imageName) && (
+              <>
+                {session?.context?.previewInfo?.imageName && (
+                  <Descriptions.Item label="镇像名称" span={2}>
+                    <Tag color="geekblue" icon={<CheckOutlined />}>
+                      {session.context.previewInfo.imageName}
+                    </Tag>
+                  </Descriptions.Item>
+                )}
+                
+                {session?.context?.previewInfo?.imageId && (
+                  <Descriptions.Item label="镇像 ID" span={2}>
+                    <code style={{ 
+                      fontSize: 11, 
+                      background: '#f5f5f5', 
+                      padding: '2px 6px', 
+                      borderRadius: 3,
+                      wordBreak: 'break-all'
+                    }}>
+                      {session.context.previewInfo.imageId.substring(0, 12)}
+                    </code>
+                  </Descriptions.Item>
+                )}
+              </>
+            )}
+            
+            {(deploymentInfo?.ports || session?.context?.previewInfo?.ports) && (
+              <Descriptions.Item label="端口映射" span={2}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {(deploymentInfo?.ports || session?.context?.previewInfo?.ports)?.map((port: any, index: number) => (
+                    <div 
+                      key={index}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 12,
+                        padding: '8px 12px',
+                        background: '#f0f5ff',
+                        borderRadius: 6,
+                        border: '1px solid #d6e4ff'
+                      }}
+                    >
+                      <Tag color="purple" style={{ margin: 0, minWidth: 100 }}>
+                        {port.service}
+                      </Tag>
+                      <span style={{ fontFamily: 'monospace', fontSize: 13 }}>
+                        {port.host} → {port.container}
+                      </span>
+                      <a 
+                        href={`http://${session?.context?.previewInfo?.url?.split('//')[1]?.split(':')[0]}:${port.host}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{ marginLeft: 'auto', fontSize: 12 }}
+                      >
+                        访问 <LinkOutlined />
+                      </a>
+                    </div>
+                  ))}
+                </div>
+              </Descriptions.Item>
+            )}
+          </Descriptions>
+        )}
+      </Modal>
     </div>
   );
 };

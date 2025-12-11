@@ -286,6 +286,23 @@ class ConversationService {
   }
 
   /**
+   * 为会话创建 Merge Request
+   */
+  async createMergeRequest(sessionId: string): Promise<{ mrUrl: string }> {
+    const response = await fetch(`${this.baseUrl}/api/conversations/${sessionId}/merge-request`, {
+      method: 'POST',
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ error: '创建 MR 失败' }));
+      throw new Error(error.error || '创建 MR 失败');
+    }
+
+    const result = await response.json();
+    return result.data;
+  }
+
+  /**
    * 开始轮询会话状态
    */
   startPolling(

@@ -146,10 +146,14 @@ export interface PortMapping {
 export interface PreviewInfo {
   url: string;
   containerId: string;
+  imageId?: string;
+  imageName?: string;
   branchName: string;
   deployedAt: string;
   status: PreviewStatus;
   ports?: PortMapping[];
+  isRunning?: boolean;
+  accessUrl?: string;
 }
 
 export interface DeploymentInfo {

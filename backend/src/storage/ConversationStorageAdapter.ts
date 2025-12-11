@@ -79,6 +79,7 @@ export class ConversationStorageAdapter implements IConversationStorage {
       mode: session.context.mode || 'edit',
       contextGitBranch: session.context.gitBranch || null,
       mrUrl: session.context.mrUrl || null,
+      previewInfo: session.context.previewInfo || null,
     });
   }
 
@@ -130,6 +131,7 @@ export class ConversationStorageAdapter implements IConversationStorage {
       mode: (dbContext.mode as ConversationMode) || ConversationMode.EDIT,
       gitBranch: dbContext.contextGitBranch || undefined,
       mrUrl: dbContext.mrUrl || undefined,
+      previewInfo: dbContext.previewInfo || undefined,
     };
 
     // 获取当前分支的消息历史
@@ -289,6 +291,10 @@ export class ConversationStorageAdapter implements IConversationStorage {
       taskDescription: context.taskDescription,
       currentBranchId: context.currentBranchId,
       variables: context.variables,
+      mode: context.mode || 'edit',
+      contextGitBranch: context.gitBranch || null,
+      mrUrl: context.mrUrl || null,
+      previewInfo: context.previewInfo || null,
     });
 
     // 保存所有分支
@@ -344,6 +350,7 @@ export class ConversationStorageAdapter implements IConversationStorage {
       mode: (dbContext.mode as ConversationMode) || ConversationMode.EDIT,
       gitBranch: dbContext.contextGitBranch || undefined,
       mrUrl: dbContext.mrUrl || undefined,
+      previewInfo: dbContext.previewInfo || undefined,
     };
 
     // 获取当前分支的消息历史

@@ -210,6 +210,29 @@ export class ProjectPreviewService {
         workDir
       );
       const containerId = containerIdResult.stdout.trim();
+      console.log(`[ProjectPreviewService] 容器 ID: ${containerId}`);
+
+      // 10.5 获取镇像信息
+      let imageId = '';
+      let imageName = '';
+      try {
+        const imageInfoResult = await this.executor.executeCommand(
+          `docker inspect --format='{{.Image}}' ${containerId}`,
+          workDir
+        );
+        imageId = imageInfoResult.stdout.trim();
+        
+        const imageNameResult = await this.executor.executeCommand(
+          `docker inspect --format='{{.Config.Image}}' ${containerId}`,
+          workDir
+        );
+        imageName = imageNameResult.stdout.trim();
+        
+        console.log(`[ProjectPreviewService] 镇像 ID: ${imageId}`);
+        console.log(`[ProjectPreviewService] 镇像名称: ${imageName}`);
+      } catch (error) {
+        console.warn(`[ProjectPreviewService] 获取镇像信息失败:`, error);
+      }
 
       // 11. 等待健康检查
       console.log(`[ProjectPreviewService] 进行健康检查...`);
@@ -235,9 +258,13 @@ export class ProjectPreviewService {
       await this.updatePreviewStatus(sessionId, {
         url: previewUrl,
         containerId,
+        imageId,
+        imageName,
         branchName: gitBranch,
         deployedAt: new Date(),
         status: PreviewStatus.RUNNING,
+        isRunning: healthCheck.healthy,
+        accessUrl: previewUrl,
         ports,
       });
 
@@ -279,12 +306,29 @@ export class ProjectPreviewService {
           previewInfo.ports || []
         );
 
+        // 更新运行状态
+        const isRunning = healthCheck.healthy;
+        const currentStatus = isRunning ? PreviewStatus.RUNNING : PreviewStatus.STOPPED;
+        
+        // 如果状态发生变化，更新到 context
+        if (previewInfo.status !== currentStatus || previewInfo.isRunning !== isRunning) {
+          await this.updatePreviewStatus(sessionId, {
+            ...previewInfo,
+            status: currentStatus,
+            isRunning,
+          });
+        }
+
         return {
-          status: healthCheck.healthy ? PreviewStatus.RUNNING : PreviewStatus.STOPPED,
+          status: currentStatus,
           url: previewInfo.url,
           containerId: previewInfo.containerId,
+          imageId: previewInfo.imageId,
+          imageName: previewInfo.imageName,
           branchName: previewInfo.branchName,
           deployedAt: previewInfo.deployedAt,
+          isRunning,
+          accessUrl: previewInfo.accessUrl || previewInfo.url,
           healthCheck,
         };
       }
@@ -292,8 +336,12 @@ export class ProjectPreviewService {
       return {
         status: previewInfo.status,
         url: previewInfo.url,
+        imageId: previewInfo.imageId,
+        imageName: previewInfo.imageName,
         branchName: previewInfo.branchName,
         deployedAt: previewInfo.deployedAt,
+        isRunning: previewInfo.isRunning,
+        accessUrl: previewInfo.accessUrl,
       };
     } catch (error) {
       console.error(`[ProjectPreviewService] 获取预览状态失败:`, error);
@@ -445,9 +493,13 @@ export class ProjectPreviewService {
     previewInfo: {
       url: string;
       containerId: string;
+      imageId?: string;
+      imageName?: string;
       branchName: string;
       deployedAt: Date;
       status: PreviewStatus;
+      isRunning?: boolean;
+      accessUrl?: string;
       ports?: PortMapping[];
     }
   ): Promise<void> {

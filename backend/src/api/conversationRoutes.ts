@@ -479,5 +479,44 @@ export function createConversationRoutes(
     }
   });
 
+  /**
+   * POST /api/conversations/:sessionId/merge-request
+   * 为会话创建 Merge Request（编辑模式）
+   */
+  router.post('/:sessionId/merge-request', async (req: Request, res: Response) => {
+    try {
+      const { sessionId } = req.params;
+
+      const session = await conversationManager.getSession(sessionId);
+      if (!session) {
+        return res.status(404).json({
+          success: false,
+          error: '会话不存在',
+        });
+      }
+
+      const result = await conversationManager.createMergeRequest(sessionId);
+
+      if (!result.success) {
+        return res.status(400).json({
+          success: false,
+          error: result.error,
+        });
+      }
+
+      res.json({
+        success: true,
+        data: {
+          mrUrl: result.mrUrl,
+        },
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : '创建 MR 失败',
+      });
+    }
+  });
+
   return router;
 }

@@ -92,20 +92,19 @@ export class ConversationManager {
 
     // 根据模式处理 Git 操作
     if (mode === ConversationMode.EDIT) {
-      if (!this.gitService || !this.gitlabService) {
+      if (!this.gitService) {
         throw new Error('编辑模式需要 Git 服务，但服务未初始化');
       }
       
-      // 编辑模式：创建新分支和 MR
+      // 编辑模式：只创建分支，MR 由用户手动创建
       const gitResult = await this.handleEditModeSetup(sessionId, initialPrompt);
       if (!gitResult.success) {
         throw new Error(`Git 操作失败: ${gitResult.error}`);
       }
       
       context.gitBranch = gitResult.branchName;
-      context.mrUrl = gitResult.mrUrl;
-      console.log(`[ConversationManager] ✅ Git 分支和 MR 已创建: ${gitResult.branchName}`);
-      console.log(`[ConversationManager] ✅ MR URL: ${gitResult.mrUrl}`);
+      // mrUrl 初始为空，待用户手动创建
+      console.log(`[ConversationManager] ✅ Git 分支已创建: ${gitResult.branchName}`);
     } else if (mode === ConversationMode.READONLY) {
       if (!this.gitService) {
         throw new Error('只读模式需要 Git 服务，但服务未初始化');
@@ -137,13 +136,13 @@ export class ConversationManager {
   }
 
   /**
-   * 处理编辑模式的 Git 设置
+   * 处理编辑模式的 Git 设置（只创建分支，不创建 MR）
    */
   private async handleEditModeSetup(
     sessionId: string,
     taskDescription: string
   ): Promise<{ success: boolean; branchName?: string; mrUrl?: string; error?: string }> {
-    if (!this.gitService || !this.gitlabService) {
+    if (!this.gitService) {
       return { success: false, error: 'Git 服务未初始化' };
     }
 
@@ -175,20 +174,12 @@ export class ConversationManager {
         };
       }
 
-      // 创建 MR
-      console.log(`[ConversationManager] 创建 MR`);
-      const targetBranch = process.env.GIT_DEFAULT_BRANCH || 'main';
-      const mrResult = await this.gitlabService.createMRForTask(
-        sessionId,
-        taskDescription,
-        branchName,
-        targetBranch
-      );
+      console.log(`[ConversationManager] ✅ Git 分支已创建并推送: ${branchName}`);
+      console.log(`[ConversationManager] ℹ️  MR 将由用户手动创建`);
 
       return {
         success: true,
         branchName,
-        mrUrl: mrResult.webUrl,
       };
     } catch (error) {
       return {
@@ -661,5 +652,79 @@ export class ConversationManager {
       branchCount: session.context.branches.length,
       status: session.status,
     };
+  }
+
+  /**
+   * 为会话创建 Merge Request
+   * 编辑模式下，由用户手动触发
+   */
+  async createMergeRequest(sessionId: string): Promise<{ success: boolean; mrUrl?: string; error?: string }> {
+    if (!this.gitlabService) {
+      return { success: false, error: 'GitLab 服务未初始化' };
+    }
+
+    const session = await this.getSession(sessionId);
+    if (!session) {
+      return { success: false, error: '会话不存在' };
+    }
+
+    // 验证是编辑模式
+    if (session.context.mode !== ConversationMode.EDIT) {
+      return { success: false, error: '只有编辑模式才能创建 MR' };
+    }
+
+    // 验证是否有分支
+    if (!session.context.gitBranch) {
+      return { success: false, error: '会话没有关联的 Git 分支' };
+    }
+
+    // 检查 context 中是否已经保存了 MR URL
+    if (session.context.mrUrl) {
+      console.log(`[ConversationManager] ✅ MR 已存在（从 context）: ${session.context.mrUrl}`);
+      return { success: true, mrUrl: session.context.mrUrl };
+    }
+
+    try {
+      console.log(`[ConversationManager] 为会话 ${sessionId} 创建 MR`);
+      const targetBranch = process.env.GIT_DEFAULT_BRANCH || 'main';
+      
+      // 先检查 GitLab 上是否已存在 MR
+      console.log(`[ConversationManager] 检查是否已存在 MR: ${session.context.gitBranch} -> ${targetBranch}`);
+      const existingMR = await this.gitlabService.findExistingMR(
+        session.context.gitBranch,
+        targetBranch
+      );
+
+      let mrUrl: string;
+      if (existingMR) {
+        console.log(`[ConversationManager] ✅ MR 已存在（从 GitLab）: ${existingMR.webUrl}`);
+        mrUrl = existingMR.webUrl;
+      } else {
+        // 创建新的 MR
+        console.log(`[ConversationManager] 创建新 MR`);
+        const mrResult = await this.gitlabService.createMRForTask(
+          sessionId,
+          session.context.taskDescription,
+          session.context.gitBranch,
+          targetBranch
+        );
+        mrUrl = mrResult.webUrl;
+        console.log(`[ConversationManager] ✅ MR 已创建: ${mrUrl}`);
+      }
+
+      // 更新 context 中的 MR URL
+      session.context.mrUrl = mrUrl;
+      await this.storage.saveContext(sessionId, session.context);
+
+      return {
+        success: true,
+        mrUrl,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
   }
 }

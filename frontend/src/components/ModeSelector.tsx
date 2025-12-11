@@ -16,7 +16,7 @@ const ModeSelector: React.FC<ModeSelectorProps> = ({ value, onChange, disabled =
   const options = [
     {
       label: (
-        <Tooltip title="AI 可以修改代码，创建 Git 分支和 MR">
+        <Tooltip title="AI 可以修改代码，创建 Git 分支，用户手动创建 MR">
           <span>
             <EditOutlined style={{ marginRight: 6 }} />
             编辑模式
