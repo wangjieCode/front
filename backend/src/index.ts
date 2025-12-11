@@ -31,6 +31,10 @@ let messageRouter: any;
 let conversationAIService: any;
 let conversationStorage: DrizzleConversationStorage | null = null;
 let executor: any;
+let userAuthService: any;
+let projectManagementService: any;
+let workspaceManagementService: any;
+let scheduledTasksService: any;
 
 const runMode = process.env.RUN_MODE || 'local';
 console.log(`🔧 运行模式: ${runMode === 'local' ? '本机模式' : '远程模式'}`);
@@ -167,6 +171,23 @@ async function initializeServices() {
   conversationAIService = new ConversationAIService(neovateAIService, databaseUrl, gitService, gitlabService);
   messageRouter = new MessageRouter(conversationManager, conversationAIService);
 
+  // 初始化用户认证和项目管理服务
+  const { UserAuthService } = require('./services/UserAuthService');
+  const { ProjectManagementService } = require('./services/ProjectManagementService');
+  const { WorkspaceManagementService } = require('./services/WorkspaceManagementService');
+  const { ScheduledTasksService } = require('./services/ScheduledTasksService');
+  
+  userAuthService = new UserAuthService(databaseUrl);
+  projectManagementService = new ProjectManagementService(databaseUrl);
+  workspaceManagementService = new WorkspaceManagementService(databaseUrl);
+  console.log('✅ 用户认证、项目管理和工作空间管理服务已初始化');
+  
+  // 初始化定时任务服务
+  scheduledTasksService = new ScheduledTasksService(workspaceManagementService);
+  // 启动定时任务
+  scheduledTasksService.startAll();
+  console.log('✅ 定时任务服务已启动');
+
   console.log('✅ 对话服务已初始化 (存储: Drizzle/Supabase)');
 
   // 加载历史会话
@@ -213,6 +234,27 @@ async function startServer() {
   await initializeServices();
 
   // 2. 注册 API 路由
+  // 认证路由
+  if (userAuthService) {
+    const { createAuthRoutes } = require('./api/authRoutes');
+    app.use('/api/auth', createAuthRoutes(userAuthService));
+    console.log('✅ 认证 API 已注册: /api/auth');
+  }
+
+  // 项目管理路由
+  if (projectManagementService && userAuthService) {
+    const { createProjectRoutes } = require('./api/projectRoutes');
+    app.use('/api/projects', createProjectRoutes(projectManagementService, userAuthService));
+    console.log('✅ 项目管理 API 已注册: /api/projects');
+  }
+
+  // 工作空间管理路由
+  if (workspaceManagementService && userAuthService) {
+    const { createWorkspaceRoutes } = require('./api/workspaceRoutes');
+    app.use('/api/workspaces', createWorkspaceRoutes(workspaceManagementService, userAuthService));
+    console.log('✅ 工作空间管理 API 已注册: /api/workspaces');
+  }
+
   // 对话路由（在服务初始化后注册）
   if (conversationManager && messageRouter && conversationAIService) {
     app.use('/api/conversations', createConversationRoutes(conversationManager, messageRouter, conversationAIService));
@@ -249,6 +291,9 @@ async function startServer() {
     if (conversationManager && messageRouter && conversationAIService) {
       console.log(`💬 对话 API 端点: http://localhost:${PORT}/api/conversations`);
     }
+    console.log(`🔐 认证 API 端点: http://localhost:${PORT}/api/auth`);
+    console.log(`📁 项目 API 端点: http://localhost:${PORT}/api/projects`);
+    console.log(`💼 工作空间 API 端点: http://localhost:${PORT}/api/workspaces`);
   });
 }
 
@@ -265,11 +310,19 @@ import { streamingManager } from './streaming/StreamingResponseManager';
 process.on('SIGTERM', async () => {
   console.log('收到 SIGTERM 信号，正在关闭服务器...');
   
+  // 停止定时任务
+  if (scheduledTasksService) scheduledTasksService.stopAll();
+  
   // 关闭所有 SSE 连接
   await streamingManager.closeAll();
   
   // 关闭数据库连接
   await closeDatabase();
+  
+  // 关闭认证和项目服务
+  if (userAuthService) await userAuthService.close();
+  if (projectManagementService) await projectManagementService.close();
+  if (workspaceManagementService) await workspaceManagementService.close();
   
   server.close(() => {
     console.log('服务器已关闭');
@@ -280,11 +333,19 @@ process.on('SIGTERM', async () => {
 process.on('SIGINT', async () => {
   console.log('\n收到 SIGINT 信号，正在关闭服务器...');
   
+  // 停止定时任务
+  if (scheduledTasksService) scheduledTasksService.stopAll();
+  
   // 关闭所有 SSE 连接
   await streamingManager.closeAll();
   
   // 关闭数据库连接
   await closeDatabase();
+  
+  // 关闭认证和项目服务
+  if (userAuthService) await userAuthService.close();
+  if (projectManagementService) await projectManagementService.close();
+  if (workspaceManagementService) await workspaceManagementService.close();
   
   server.close(() => {
     console.log('服务器已关闭');
