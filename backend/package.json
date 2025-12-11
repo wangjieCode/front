@@ -12,6 +12,7 @@
     "check-config": "tsx scripts/check-config.ts",
     "verify": "tsx scripts/verify-backend.ts",
     "test:api": "bash scripts/test-api.sh",
+    "test:preview": "tsx scripts/test-preview.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push",

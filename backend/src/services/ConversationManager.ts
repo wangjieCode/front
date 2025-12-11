@@ -155,7 +155,7 @@ export class ConversationManager {
       // 创建并切换到新分支
       const createResult = await this.gitService.createBranch(
         branchName,
-        process.env.GIT_DEFAULT_BRANCH || 'master'
+        process.env.GIT_DEFAULT_BRANCH || 'main'
       );
 
       if (!createResult.success) {
@@ -165,9 +165,19 @@ export class ConversationManager {
         };
       }
 
+      // 推送分支到远程
+      console.log(`[ConversationManager] 推送分支到远程: ${branchName}`);
+      const pushResult = await this.gitService.push(branchName);
+      if (!pushResult.success) {
+        return {
+          success: false,
+          error: `推送分支失败: ${pushResult.error}`,
+        };
+      }
+
       // 创建 MR
       console.log(`[ConversationManager] 创建 MR`);
-      const targetBranch = process.env.GIT_DEFAULT_BRANCH || 'master';
+      const targetBranch = process.env.GIT_DEFAULT_BRANCH || 'main';
       const mrResult = await this.gitlabService.createMRForTask(
         sessionId,
         taskDescription,
@@ -210,7 +220,7 @@ export class ConversationManager {
 
       // 切换到主分支
       const checkoutResult = await this.gitService.checkoutBranch(
-        process.env.GIT_DEFAULT_BRANCH || 'master'
+        process.env.GIT_DEFAULT_BRANCH || 'main'
       );
 
       if (!checkoutResult.success) {

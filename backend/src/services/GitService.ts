@@ -261,6 +261,25 @@ export class GitService {
    */
   async push(branchName: string, remote: string = 'origin', force: boolean = false): Promise<GitOperationResult> {
     try {
+      // 在推送前配置 Git 认证（使用 GitLab Token）
+      const gitlabToken = process.env.GITLAB_TOKEN;
+      if (gitlabToken) {
+        // 配置远程 URL 使用 Token 认证
+        const gitlabUrl = process.env.GITLAB_URL || 'https://git.dtminds.cn';
+        const projectPath = process.env.GITLAB_PROJECT_PATH || 'front-end/dtmall-admin';
+        const baseUrl = gitlabUrl.replace(/https?:\/\//, '').replace(/\/$/, '');
+        
+        // 设置远程 URL：https://oauth2:<token>@domain/path.git
+        const authUrl = `https://oauth2:${gitlabToken}@${baseUrl}/${projectPath}.git`;
+        
+        await this.sshExecutor.executeCommand(
+          `git remote set-url ${remote} ${authUrl}`,
+          this.workDir
+        );
+        
+        console.log(`[GitService] 已配置 Git 远程认证`);
+      }
+      
       const forceFlag = force ? '-f' : '';
       const result = await this.sshExecutor.executeCommand(
         `git push ${forceFlag} ${remote} ${branchName}`,
@@ -363,17 +382,31 @@ export class GitService {
   }
 
   /**
-   * 检查分支是否存在
+   * 检查分支是否存在（本地或远程）
    * @param branchName 分支名称
+   * @param checkRemote 是否检查远程分支（默认为 false）
    * @returns 如果存在返回 true
    */
-  async branchExists(branchName: string): Promise<boolean> {
+  async branchExists(branchName: string, checkRemote: boolean = false): Promise<boolean> {
     try {
-      const result = await this.sshExecutor.executeCommand(
-        `git branch --list ${branchName}`,
-        this.workDir
-      );
-      return result.stdout.trim().length > 0;
+      if (checkRemote) {
+        // 检查远程分支
+        // 使用简单的格式，然后检查输出中是否包含分支名
+        const result = await this.sshExecutor.executeCommand(
+          `git ls-remote --heads origin`,
+          this.workDir
+        );
+        // 检查输出中是否包含该分支
+        return result.stdout.includes(`refs/heads/${branchName}`);
+      } else {
+        // 检查本地分支
+        const result = await this.sshExecutor.executeCommand(
+          `git branch --list ${branchName}`,
+          this.workDir
+        );
+        console.log(`[GitService] 检查本地分支: ${branchName}, result: ${JSON.stringify(result)}`);
+        return result.stdout.trim().length > 0;
+      }
     } catch (error) {
       return false;
     }
@@ -405,7 +438,7 @@ export class GitService {
    */
   async createBranchForConversation(
     sessionId: string,
-    baseBranch: string = 'master'
+    baseBranch: string = 'main'
   ): Promise<string> {
     try {
       // 生成分支名称：conversation-{sessionId前8位}-{时间戳}

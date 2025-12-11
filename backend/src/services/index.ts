@@ -10,3 +10,4 @@ export * from './GitService';
 export * from './NeovateAIService';
 export * from './CodeToolService';
 export * from './GitLabMCPService';
+export * from './ProjectPreviewService';

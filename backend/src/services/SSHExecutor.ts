@@ -149,8 +149,8 @@ export class SSHExecutor {
       fullCommand = command;
     }
     
-    // 包装在登录 shell 中执行
-    const shellCommand = `$SHELL -l -c '${fullCommand.replace(/'/g, "'\\''")}'`;
+    // 包装在登录 shell 中执行，显式加载 ~/.zshrc 并初始化 fnm 环境
+    const shellCommand = `$SHELL -l -c 'source ~/.zshrc 2>/dev/null || true; eval "$(fnm env --use-on-cd)" 2>/dev/null || true; ${fullCommand.replace(/'/g, "'\\''")}'`;
 
     return new Promise((resolve, reject) => {
       this.client!.exec(shellCommand, (err, channel: ClientChannel) => {
@@ -243,8 +243,8 @@ export class SSHExecutor {
       fullCommand = command;
     }
     
-    // 包装在登录 shell 中执行
-    const shellCommand = `$SHELL -l -c '${fullCommand.replace(/'/g, "'\\''")}'`;
+    // 包装在登录 shell 中执行，显式加载 ~/.zshrc 并初始化 fnm 环境
+    const shellCommand = `$SHELL -l -c 'source ~/.zshrc 2>/dev/null || true; eval "$(fnm env --use-on-cd)" 2>/dev/null || true; ${fullCommand.replace(/'/g, "'\\''")}'`;
 
     return new Promise((resolve, reject) => {
       this.client!.exec(shellCommand, (err, channel: ClientChannel) => {

@@ -55,7 +55,7 @@ const App: React.FC = () => {
         taskId: `task-${Date.now()}`,
         initialPrompt: promptText,
         projectInfo: {
-          workDir: '/workspace/dtmall-admin',
+          workDir: '/Users/admin/desktop/front-workspace/dtmall-admin',
           gitBranch: 'master',
         },
         mode: conversationMode,

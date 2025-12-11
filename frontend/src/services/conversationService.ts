@@ -3,6 +3,8 @@ import {
   ConversationMessage,
   ConversationStatus,
   ConversationBranch,
+  PreviewResult,
+  PreviewStatusResponse,
 } from '../types/conversation';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
@@ -418,6 +420,62 @@ class ConversationService {
     for (const sessionId of this.pollingTimers.keys()) {
       this.stopPolling(sessionId);
     }
+  }
+
+  // ==================== 预览相关 API ====================
+
+  /**
+   * 创建预览部署
+   */
+  async createPreview(
+    sessionId: string,
+    forceRebuild: boolean = false
+  ): Promise<PreviewResult> {
+    const response = await fetch(`${this.baseUrl}/api/conversations/${sessionId}/preview`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ forceRebuild }),
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ error: '创建预览失败' }));
+      throw new Error(error.error || '创建预览失败');
+    }
+
+    const result = await response.json();
+    return result.data;
+  }
+
+  /**
+   * 获取预览状态
+   */
+  async getPreviewStatus(sessionId: string): Promise<PreviewStatusResponse> {
+    const response = await fetch(`${this.baseUrl}/api/conversations/${sessionId}/preview/status`);
+
+    if (!response.ok) {
+      throw new Error('获取预览状态失败');
+    }
+
+    const result = await response.json();
+    return result.data;
+  }
+
+  /**
+   * 停止预览
+   */
+  async stopPreview(sessionId: string): Promise<{ success: boolean; message: string }> {
+    const response = await fetch(`${this.baseUrl}/api/conversations/${sessionId}/preview`, {
+      method: 'DELETE',
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ error: '停止预览失败' }));
+      throw new Error(error.error || '停止预览失败');
+    }
+
+    return await response.json();
   }
 }
 

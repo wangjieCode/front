@@ -1,14 +1,16 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Spin, Typography, Button, Input } from 'antd';
-import { ThunderboltOutlined, SendOutlined } from '@ant-design/icons';
+import { Spin, Typography, Button, Input, message } from 'antd';
+import { ThunderboltOutlined, SendOutlined, RocketOutlined, CheckOutlined, WarningOutlined, StopOutlined } from '@ant-design/icons';
 import ModeSelector from './ModeSelector';
 import {
   ConversationSession,
   ConversationMessage,
   ConversationMode,
+  PreviewStatus,
 } from '../types/conversation';
 import MessageInput from './MessageInput';
 import MessageList from './MessageList';
+import { conversationService } from '../services/conversationService';
 
 interface ConversationViewProps {
   sessionId?: string;
@@ -43,6 +45,10 @@ const ConversationView: React.FC<ConversationViewProps> = ({
 
   // New conversation state
   const [prompt, setPrompt] = useState('');
+  
+  // 预览相关状态
+  const [isDeploying, setIsDeploying] = useState(false);
+  const [previewStatus, setPreviewStatus] = useState<PreviewStatus | null>(null);
 
   const examplePrompts = [
     '修改一下文案',
@@ -243,6 +249,110 @@ const ConversationView: React.FC<ConversationViewProps> = ({
     // 可以在这里添加消息点击处理逻辑
   };
 
+  /**
+   * 处理预览点击
+   */
+  const handlePreview = async () => {
+    if (!sessionId) return;
+
+    // 如果已经有预览，直接打开
+    if (session?.context?.previewInfo?.status === PreviewStatus.RUNNING && session?.context?.previewInfo?.url) {
+      window.open(session.context.previewInfo.url, '_blank');
+      return;
+    }
+
+    // 开始部署
+    setIsDeploying(true);
+    setPreviewStatus(PreviewStatus.BUILDING);
+    message.loading({ content: '正在部署...', key: 'preview', duration: 0 });
+
+    try {
+      const result = await conversationService.createPreview(sessionId, false);
+      
+      if (result.success && result.previewUrl) {
+        setPreviewStatus(PreviewStatus.RUNNING);
+        message.success({ content: '部署成功！', key: 'preview', duration: 2 });
+        
+        // 刷新会话信息
+        await loadSession();
+        
+        // 打开预览页面
+        setTimeout(() => {
+          window.open(result.previewUrl, '_blank');
+        }, 500);
+      } else {
+        setPreviewStatus(PreviewStatus.ERROR);
+        message.error({ content: `部署失败: ${result.error}`, key: 'preview', duration: 3 });
+      }
+    } catch (error) {
+      setPreviewStatus(PreviewStatus.ERROR);
+      message.error({ 
+        content: `部署失败: ${error instanceof Error ? error.message : '未知错误'}`, 
+        key: 'preview', 
+        duration: 3 
+      });
+    } finally {
+      setIsDeploying(false);
+    }
+  };
+
+  /**
+   * 处理停止预览
+   */
+  const handleStopPreview = async () => {
+    if (!sessionId) return;
+
+    try {
+      await conversationService.stopPreview(sessionId);
+      message.success('预览已停止');
+      setPreviewStatus(PreviewStatus.STOPPED);
+      await loadSession();
+    } catch (error) {
+      message.error(`停止预览失败: ${error instanceof Error ? error.message : '未知错误'}`);
+    }
+  };
+
+  /**
+   * 获取预览按钮文案和样式
+   */
+  const getPreviewButtonProps = () => {
+    const currentStatus = session?.context?.previewInfo?.status || previewStatus;
+    
+    if (isDeploying || currentStatus === PreviewStatus.BUILDING) {
+      return {
+        icon: <Spin size="small" />,
+        text: '部署中...',
+        disabled: true,
+        style: { background: '#d9d9d9', borderColor: '#d9d9d9' },
+      };
+    }
+    
+    if (currentStatus === PreviewStatus.RUNNING) {
+      return {
+        icon: <CheckOutlined />,
+        text: '查看预览',
+        disabled: false,
+        style: { background: '#52c41a', borderColor: '#52c41a', color: '#fff' },
+      };
+    }
+    
+    if (currentStatus === PreviewStatus.ERROR) {
+      return {
+        icon: <WarningOutlined />,
+        text: '重新部署',
+        disabled: false,
+        style: { background: '#fa8c16', borderColor: '#fa8c16', color: '#fff' },
+      };
+    }
+    
+    return {
+      icon: <RocketOutlined />,
+      text: '预览项目',
+      disabled: false,
+      style: { background: '#1890ff', borderColor: '#1890ff', color: '#fff' },
+    };
+  };
+
   const renderLandingContent = () => (
     <div style={{
       maxWidth: 800,
@@ -282,7 +392,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 13, color: '#666', marginBottom: 4 }}>代码仓库</div>
             <div style={{ fontSize: 14, fontWeight: 500, color: '#333', fontFamily: 'monospace' }}>
-              /workspace/dtmall-admin
+              /dtmall-admin
             </div>
           </div>
           <div style={{
@@ -558,6 +668,49 @@ const ConversationView: React.FC<ConversationViewProps> = ({
                       <span>🔗</span>
                       <span>查看 MR</span>
                     </a>
+                  )}
+                  
+                  {/* 预览按钮 */}
+                  {session.context?.gitBranch && (() => {
+                    const buttonProps = getPreviewButtonProps();
+                    return (
+                      <Button
+                        size="small"
+                        icon={buttonProps.icon}
+                        onClick={handlePreview}
+                        disabled={buttonProps.disabled}
+                        style={{
+                          fontSize: 12,
+                          height: 26,
+                          padding: '0 10px',
+                          borderRadius: 6,
+                          fontWeight: 500,
+                          ...buttonProps.style,
+                        }}
+                      >
+                        {buttonProps.text}
+                      </Button>
+                    );
+                  })()}
+                  
+                  {/* 停止预览按钮 */}
+                  {session.context?.previewInfo?.status === PreviewStatus.RUNNING && (
+                    <Button
+                      size="small"
+                      icon={<StopOutlined />}
+                      onClick={handleStopPreview}
+                      style={{
+                        fontSize: 12,
+                        height: 26,
+                        padding: '0 10px',
+                        borderRadius: 6,
+                        fontWeight: 500,
+                        color: '#ff4d4f',
+                        borderColor: '#ff4d4f',
+                      }}
+                    >
+                      停止
+                    </Button>
                   )}
                 </div>
               )}

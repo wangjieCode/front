@@ -16,8 +16,8 @@ async function testSessionContext() {
       taskId: 'test-session-' + Date.now(),
       initialPrompt: '你好，我想了解这个项目',
       projectInfo: {
-        workDir: '/Users/gangqiang/Desktop/front-intern/backend/workspace/dtmall-admin',
-        gitBranch: 'master',
+        workDir: process.env.GIT_WORK_DIR || './workspace',
+        gitBranch: process.env.GIT_DEFAULT_BRANCH || 'main',
       },
     }),
   });

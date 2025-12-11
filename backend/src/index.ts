@@ -216,6 +216,12 @@ async function startServer() {
   // 对话路由（在服务初始化后注册）
   if (conversationManager && messageRouter && conversationAIService) {
     app.use('/api/conversations', createConversationRoutes(conversationManager, messageRouter, conversationAIService));
+    
+    // 预览路由
+    const { createPreviewRoutes } = require('./api/previewRoutes');
+    const { ProjectPreviewService } = require('./services/ProjectPreviewService');
+    const previewService = new ProjectPreviewService(conversationManager, executor, process.env.SSH_HOST);
+    app.use('/api/conversations', createPreviewRoutes(previewService));
   }
 
   // Docker 管理路由

@@ -197,7 +197,8 @@ export enum OperationType {
   CREATE_FILE = 'create_file',       // 创建文件
   DELETE_FILE = 'delete_file',       // 删除文件
   CREATE_BRANCH = 'create_branch',   // 创建分支
-  CREATE_MR = 'create_mr'            // 创建 MR
+  CREATE_MR = 'create_mr',           // 创建 MR
+  PREVIEW_PROJECT = 'preview_project' // 预览项目
 }
 
 /**
@@ -286,6 +287,37 @@ export interface ConversationBranch {
 }
 
 /**
+ * 预览信息接口
+ */
+export interface PreviewInfo {
+  url: string;                // 预览 URL
+  containerId: string;        // 容器 ID
+  branchName: string;         // Git 分支名
+  deployedAt: Date;           // 部署时间
+  status: PreviewStatus;      // 预览状态
+  ports?: PortMapping[];      // 端口映射信息
+}
+
+/**
+ * 预览状态枚举
+ */
+export enum PreviewStatus {
+  BUILDING = 'building',      // 构建中
+  RUNNING = 'running',        // 运行中
+  STOPPED = 'stopped',        // 已停止
+  ERROR = 'error'             // 错误
+}
+
+/**
+ * 端口映射接口
+ */
+export interface PortMapping {
+  host: number;               // 主机端口
+  container: number;          // 容器端口
+  service: string;            // 服务名称
+}
+
+/**
  * 对话上下文接口
  */
 export interface ConversationContext {
@@ -298,6 +330,7 @@ export interface ConversationContext {
   mode: ConversationMode;     // 对话模式
   gitBranch?: string;         // 编辑模式下创建的 Git 分支
   mrUrl?: string;             // 编辑模式下创建的 MR URL
+  previewInfo?: PreviewInfo;  // 预览信息
 }
 
 /**
@@ -353,4 +386,57 @@ export interface NeovateSessionInfo {
   workDir: string;             // 工作目录
   createdAt: Date;             // 创建时间
   lastUsedAt: Date;            // 最后使用时间
+}
+
+// ==================== 预览相关类型定义 ====================
+
+/**
+ * 部署信息接口
+ */
+export interface DeploymentInfo {
+  buildTime: number;           // 构建耗时（秒）
+  startTime: number;           // 启动耗时（秒）
+  totalTime: number;           // 总耗时（秒）
+  ports: PortMapping[];        // 端口映射信息
+}
+
+/**
+ * 预览结果接口
+ */
+export interface PreviewResult {
+  success: boolean;            // 是否成功
+  previewUrl?: string;         // 预览 URL
+  containerId?: string;        // 容器 ID
+  deploymentInfo?: DeploymentInfo; // 部署信息
+  error?: string;              // 错误信息
+}
+
+/**
+ * 健康检查结果接口
+ */
+export interface HealthCheckResult {
+  healthy: boolean;            // 是否健康
+  lastCheck: Date;             // 最后检查时间
+  details?: string;            // 详细信息
+}
+
+/**
+ * 预览状态响应接口
+ */
+export interface PreviewStatusResponse {
+  status: PreviewStatus;       // 预览状态
+  url?: string;                // 预览 URL
+  containerId?: string;        // 容器 ID
+  branchName?: string;         // Git 分支名
+  deployedAt?: Date;           // 部署时间
+  healthCheck?: HealthCheckResult; // 健康检查结果
+}
+
+/**
+ * 操作结果接口
+ */
+export interface OperationResult {
+  success: boolean;            // 是否成功
+  message: string;             // 消息
+  error?: string;              // 错误信息
 }

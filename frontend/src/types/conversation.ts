@@ -13,6 +13,7 @@ export enum OperationType {
   DELETE_FILE = 'delete_file',
   CREATE_BRANCH = 'create_branch',
   CREATE_MR = 'create_mr',
+  PREVIEW_PROJECT = 'preview_project',
 }
 
 export enum ConversationStatus {
@@ -95,6 +96,7 @@ export interface ConversationContext {
   mode: ConversationMode;
   gitBranch?: string;
   mrUrl?: string;
+  previewInfo?: PreviewInfo;
 }
 
 export interface ConversationSession {
@@ -124,4 +126,58 @@ export interface MergeRequestInfo {
   sourceBranch: string;
   targetBranch: string;
   title: string;
+}
+
+// ==================== 预览相关类型定义 ====================
+
+export enum PreviewStatus {
+  BUILDING = 'building',
+  RUNNING = 'running',
+  STOPPED = 'stopped',
+  ERROR = 'error',
+}
+
+export interface PortMapping {
+  host: number;
+  container: number;
+  service: string;
+}
+
+export interface PreviewInfo {
+  url: string;
+  containerId: string;
+  branchName: string;
+  deployedAt: string;
+  status: PreviewStatus;
+  ports?: PortMapping[];
+}
+
+export interface DeploymentInfo {
+  buildTime: number;
+  startTime: number;
+  totalTime: number;
+  ports: PortMapping[];
+}
+
+export interface PreviewResult {
+  success: boolean;
+  previewUrl?: string;
+  containerId?: string;
+  deploymentInfo?: DeploymentInfo;
+  error?: string;
+}
+
+export interface HealthCheckResult {
+  healthy: boolean;
+  lastCheck: string;
+  details?: string;
+}
+
+export interface PreviewStatusResponse {
+  status: PreviewStatus;
+  url?: string;
+  containerId?: string;
+  branchName?: string;
+  deployedAt?: string;
+  healthCheck?: HealthCheckResult;
 }
