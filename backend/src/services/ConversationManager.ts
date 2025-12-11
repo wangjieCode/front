@@ -16,6 +16,11 @@ import { IConversationStorage } from '../storage/ConversationStorageAdapter';
 import { ModeValidator } from './ModeValidator';
 import { GitService } from './GitService';
 import { GitLabMCPService } from './GitLabMCPService';
+import { GitWorktreeService } from './GitWorktreeService';
+import { ProjectService } from './ProjectService';
+import { DatabaseManager } from '../db/DatabaseManager';
+import { conversations } from '../db/schema';
+import { eq } from 'drizzle-orm';
 
 /**
  * 对话管理器类
@@ -27,6 +32,8 @@ export class ConversationManager {
   private modeValidator: ModeValidator;
   private gitService?: GitService;
   private gitlabService?: GitLabMCPService;
+  private worktreeService: GitWorktreeService;
+  private projectService: ProjectService;
 
   constructor(
     storage: IConversationStorage,
@@ -37,6 +44,8 @@ export class ConversationManager {
     this.modeValidator = new ModeValidator();
     this.gitService = gitService;
     this.gitlabService = gitlabService;
+    this.worktreeService = new GitWorktreeService();
+    this.projectService = new ProjectService();
   }
 
   /**
@@ -63,11 +72,66 @@ export class ConversationManager {
     taskId: string,
     initialPrompt: string,
     projectInfo: ProjectInfo,
-    mode: ConversationMode = ConversationMode.EDIT
+    mode: ConversationMode = ConversationMode.EDIT,
+    userId?: string,
+    projectId?: string
   ): Promise<ConversationSession> {
     const sessionId = uuidv4();
     const mainBranchId = uuidv4(); // 使用 UUID 作为分支 ID
     const now = new Date();
+
+    // 如果提供了 userId 和 projectId，获取项目信息并创建 Worktree
+    let worktreePath: string | undefined;
+    let username: string | undefined;
+    if (userId && projectId) {
+      try {
+        // 获取用户信息
+        const db = DatabaseManager.getInstance().getDb();
+        const users = await db.query.users.findFirst({
+          where: (users, { eq }) => eq(users.id, userId),
+        });
+        username = users?.username;
+
+        // 获取项目信息
+        const project = await this.projectService.getProjectById(projectId);
+        if (!project) {
+          throw new Error(`项目不存在: ${projectId}`);
+        }
+
+        // 生成 Worktree 路径和分支名
+        if (username) {
+          worktreePath = GitWorktreeService.generateWorktreePath(
+            project.worktreeBaseDir,
+            username,
+            sessionId
+          );
+          const branchName = GitWorktreeService.generateBranchName(username, sessionId);
+
+          // 创建 Worktree
+          console.log(`[ConversationManager] 为用户 ${username} 创建 Worktree: ${worktreePath}`);
+          const worktreeResult = await this.worktreeService.createWorktree(
+            project.repoDir,
+            worktreePath,
+            branchName,
+            project.gitDefaultBranch
+          );
+
+          if (!worktreeResult.success) {
+            console.error(`[ConversationManager] Worktree 创建失败: ${worktreeResult.message}`);
+            throw new Error(`Worktree 创建失败: ${worktreeResult.message}`);
+          }
+
+          // 更新 projectInfo 的 workDir 为 Worktree 路径
+          projectInfo.workDir = worktreePath;
+          console.log(`[ConversationManager] ✅ Worktree 已创建: ${worktreePath}`);
+        }
+      } catch (error) {
+        console.error('[ConversationManager] 创建 Worktree 失败:', error);
+        // 如果 Worktree 创建失败，可以选择继续使用原 workDir 或抛出错误
+        // 这里选择抛出错误以确保多用户隔离
+        throw error;
+      }
+    }
 
     // 创建主分支
     const mainBranch: ConversationBranch = {
@@ -131,6 +195,25 @@ export class ConversationManager {
 
     // 保存会话（会自动保存上下文和分支）
     await this.storage.saveSession(session);
+
+    // 如果有 userId、projectId 和 worktreePath，更新数据库记录
+    if (userId && projectId) {
+      try {
+        const db = DatabaseManager.getInstance().getDb();
+        await db.update(conversations)
+          .set({
+            userId,
+            projectId,
+            worktreePath,
+            updatedAt: now,
+          })
+          .where(eq(conversations.id, sessionId));
+        console.log(`[ConversationManager] ✅ 对话关联信息已保存: user=${username}, project=${projectId}`);
+      } catch (error) {
+        console.error('[ConversationManager] 保存对话关联信息失败:', error);
+        // 不抛出错误，因为会话已创建
+      }
+    }
 
     return session;
   }
@@ -626,6 +709,38 @@ export class ConversationManager {
     await this.acquireLock(sessionId);
 
     try {
+      // 获取会话信息，检查是否有 Worktree 需要清理
+      const session = await this.getSession(sessionId);
+      if (session) {
+        const db = DatabaseManager.getInstance().getDb();
+        const convRecord = await db.query.conversations.findFirst({
+          where: (conversations, { eq }) => eq(conversations.id, sessionId),
+        });
+
+        if (convRecord?.worktreePath && convRecord?.projectId) {
+          try {
+            // 获取项目信息以获取 repoDir
+            const project = await this.projectService.getProjectById(convRecord.projectId);
+            if (project) {
+              console.log(`[ConversationManager] 清理 Worktree: ${convRecord.worktreePath}`);
+              const removeResult = await this.worktreeService.removeWorktree(
+                project.repoDir,
+                convRecord.worktreePath,
+                true
+              );
+              if (removeResult.success) {
+                console.log(`[ConversationManager] ✅ Worktree 已清理`);
+              } else {
+                console.error(`[ConversationManager] Worktree 清理失败: ${removeResult.message}`);
+              }
+            }
+          } catch (error) {
+            console.error('[ConversationManager] 清理 Worktree 时出错:', error);
+            // 继续删除会话，即使 Worktree 清理失败
+          }
+        }
+      }
+
       await this.storage.deleteSession(sessionId);
     } finally {
       this.releaseLock(sessionId);

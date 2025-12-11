@@ -1,6 +1,55 @@
 import { pgTable, uuid, varchar, text, boolean, timestamp, jsonb, index } from 'drizzle-orm/pg-core';
 
 /**
+ * users 表
+ * 存储用户基础信息
+ */
+export const users = pgTable(
+  'users',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    username: varchar('username', { length: 100 }).notNull().unique(),
+    displayName: varchar('display_name', { length: 200 }),
+    avatarUrl: text('avatar_url'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    lastLoginAt: timestamp('last_login_at', { withTimezone: true }),
+    isActive: boolean('is_active').notNull().default(true),
+  },
+  (table) => ({
+    usernameIdx: index('idx_users_username').on(table.username),
+    createdAtIdx: index('idx_users_created_at').on(table.createdAt),
+    lastLoginAtIdx: index('idx_users_last_login_at').on(table.lastLoginAt),
+  })
+);
+
+/**
+ * projects 表
+ * 存储项目配置信息（不含敏感数据）
+ */
+export const projects = pgTable(
+  'projects',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    projectKey: varchar('project_key', { length: 100 }).notNull().unique(),
+    projectName: varchar('project_name', { length: 200 }).notNull(),
+    description: text('description'),
+    repoDir: text('repo_dir').notNull(),
+    worktreeBaseDir: text('worktree_base_dir').notNull(),
+    gitDefaultBranch: varchar('git_default_branch', { length: 100 }).notNull().default('main'),
+    dockerHost: varchar('docker_host', { length: 255 }),
+    isActive: boolean('is_active').notNull().default(true),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+    createdBy: uuid('created_by'),
+  },
+  (table) => ({
+    projectKeyIdx: index('idx_projects_project_key').on(table.projectKey),
+    isActiveIdx: index('idx_projects_is_active').on(table.isActive),
+    createdAtIdx: index('idx_projects_created_at').on(table.createdAt),
+  })
+);
+
+/**
  * conversations 表
  * 存储对话会话的基本信息
  */
@@ -11,6 +60,9 @@ export const conversations = pgTable(
     sessionId: varchar('session_id', { length: 255 }).notNull().unique(),
     taskId: varchar('task_id', { length: 255 }).notNull(),
     status: varchar('status', { length: 50 }).notNull(),
+    userId: uuid('user_id').notNull(), // 新增：关联用户
+    projectId: uuid('project_id').notNull(), // 新增：关联项目
+    worktreePath: text('worktree_path'), // 新增：Worktree 路径
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
     completedAt: timestamp('completed_at', { withTimezone: true }),
@@ -21,6 +73,9 @@ export const conversations = pgTable(
     taskIdIdx: index('idx_conversations_task_id').on(table.taskId),
     statusIdx: index('idx_conversations_status').on(table.status),
     createdAtIdx: index('idx_conversations_created_at').on(table.createdAt),
+    userIdIdx: index('idx_conversations_user_id').on(table.userId), // 新增索引
+    projectIdIdx: index('idx_conversations_project_id').on(table.projectId), // 新增索引
+    userCreatedAtIdx: index('idx_conversations_user_created_at').on(table.userId, table.createdAt), // 新增复合索引
   })
 );
 
@@ -150,6 +205,12 @@ export const messageMetadata = pgTable(
 );
 
 // 导出类型
+export type User = typeof users.$inferSelect;
+export type NewUser = typeof users.$inferInsert;
+
+export type Project = typeof projects.$inferSelect;
+export type NewProject = typeof projects.$inferInsert;
+
 export type Conversation = typeof conversations.$inferSelect;
 export type NewConversation = typeof conversations.$inferInsert;
 

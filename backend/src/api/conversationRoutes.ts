@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { ConversationManager } from '../services/ConversationManager';
 import { MessageRouter } from '../services/MessageRouter';
 import { ConversationAIService } from '../services/ConversationAIService';
+import { optionalAuthMiddleware } from './middleware/authMiddleware';
 
 /**
  * 解析 AI 响应内容，提取可读文本
@@ -77,9 +78,9 @@ export function createConversationRoutes(
    * POST /api/conversations
    * 创建新的对话会话
    */
-  router.post('/', async (req: Request, res: Response) => {
+  router.post('/', optionalAuthMiddleware, async (req: Request, res: Response) => {
     try {
-      const { taskId, initialPrompt, taskDescription, projectInfo, mode } = req.body;
+      const { taskId, initialPrompt, taskDescription, projectInfo, mode, projectId } = req.body;
 
       // 兼容 initialPrompt 和 taskDescription 两种参数名
       const prompt = initialPrompt || taskDescription;
@@ -106,11 +107,17 @@ export function createConversationRoutes(
         });
       }
 
+      // 从认证中间件获取用户信息（可选）
+      const userId = req.user?.userId;
+
+      // 如果提供了 userId 和 projectId，则使用多用户模式创建会话
       const session = await conversationManager.createSession(
         taskId,
         prompt,
         projectInfo,
-        mode
+        mode,
+        userId,
+        projectId
       );
 
       // 只创建会话，不自动生成响应

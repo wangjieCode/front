@@ -1,7 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { Layout, Button, message, Space, Card, List, Modal, Input } from 'antd';
-import { PlusOutlined, MessageOutlined } from '@ant-design/icons';
+import { PlusOutlined, MessageOutlined, LogoutOutlined, ProjectOutlined } from '@ant-design/icons';
+import { useNavigate } from 'react-router-dom';
 import ConversationView from '../components/ConversationView';
+import { authService } from '../services/authService';
+import { projectService } from '../services/projectService';
 
 const { Content, Sider } = Layout;
 
@@ -14,7 +17,7 @@ interface ConversationSession {
 
 /**
  * 对话测试页面
- * 用于测试多轮对话功能
+ * 用于测试多轮对话功能，支持用户和项目
  */
 const ConversationTestPage: React.FC = () => {
   const [sessions, setSessions] = useState<ConversationSession[]>([]);
@@ -22,6 +25,18 @@ const ConversationTestPage: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [isModalVisible, setIsModalVisible] = useState(false);
   const [taskDescription, setTaskDescription] = useState('');
+  const navigate = useNavigate();
+
+  // 获取当前用户和项目
+  const user = authService.getUser();
+  const project = projectService.getSelectedProject();
+
+  // 如果没有选择项目，跳转到项目选择页面
+  useEffect(() => {
+    if (!project) {
+      navigate('/select-project');
+    }
+  }, [project, navigate]);
 
   // 加载会话列表
   const loadSessions = async () => {
@@ -48,20 +63,28 @@ const ConversationTestPage: React.FC = () => {
       return;
     }
 
+    if (!user || !project) {
+      message.error('用户或项目信息不存在');
+      return;
+    }
+
     setLoading(true);
     try {
       const response = await fetch('/api/conversations', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authService.getToken()}`,
         },
         body: JSON.stringify({
           taskId: 'test-task-' + Date.now(),
           taskDescription: taskDescription.trim(),
           projectInfo: {
-            workDir: '/workspace',
-            gitBranch: 'main',
+            workDir: project.repoDir, // 将在后端被 Worktree 路径覆盖
+            gitBranch: project.gitDefaultBranch,
           },
+          projectId: project.id, // 传递项目 ID
+          mode: 'edit',
         }),
       });
 
@@ -88,6 +111,18 @@ const ConversationTestPage: React.FC = () => {
     setCurrentSessionId(sessionId);
   };
 
+  // 切换项目
+  const handleChangeProject = () => {
+    navigate('/select-project');
+  };
+
+  // 退出登录
+  const handleLogout = () => {
+    authService.logout();
+    projectService.clearSelectedProject();
+    navigate('/login');
+  };
+
   return (
     <Layout style={{ minHeight: '100vh' }}>
       <Sider
@@ -100,6 +135,25 @@ const ConversationTestPage: React.FC = () => {
         }}
       >
         <div style={{ padding: 16 }}>
+          <div style={{ marginBottom: 16 }}>
+            <Card size="small">
+              <div style={{ marginBottom: 8 }}>
+                <strong>当前用户：</strong>{user?.displayName || user?.username}
+              </div>
+              <div style={{ marginBottom: 8 }}>
+                <strong><ProjectOutlined /> 项目：</strong>{project?.projectName}
+              </div>
+              <Space>
+                <Button size="small" onClick={handleChangeProject}>
+                  切换项目
+                </Button>
+                <Button size="small" icon={<LogoutOutlined />} onClick={handleLogout}>
+                  退出
+                </Button>
+              </Space>
+            </Card>
+          </div>
+
           <Button
             type="primary"
             block
@@ -183,4 +237,5 @@ const ConversationTestPage: React.FC = () => {
   );
 };
 
+export { ConversationTestPage };
 export default ConversationTestPage;

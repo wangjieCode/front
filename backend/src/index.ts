@@ -212,7 +212,27 @@ async function startServer() {
   // 1. 先初始化服务
   await initializeServices();
 
+  // 1.5. 同步环境变量中的项目到数据库
+  try {
+    const { ProjectService } = require('./services/ProjectService');
+    const projectService = new ProjectService();
+    await projectService.syncProjectsFromEnv();
+    console.log('✅ 项目配置已同步');
+  } catch (error) {
+    console.warn('⚠️  项目配置同步失败:', error instanceof Error ? error.message : error);
+  }
+
   // 2. 注册 API 路由
+  // 用户认证路由
+  const authRoutes = require('./api/authRoutes').default;
+  app.use('/api/auth', authRoutes);
+  console.log('✅ 用户认证路由已注册');
+
+  // 项目管理路由
+  const projectRoutes = require('./api/projectRoutes').default;
+  app.use('/api/projects', projectRoutes);
+  console.log('✅ 项目管理路由已注册');
+
   // 对话路由（在服务初始化后注册）
   if (conversationManager && messageRouter && conversationAIService) {
     app.use('/api/conversations', createConversationRoutes(conversationManager, messageRouter, conversationAIService));
