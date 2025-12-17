@@ -8,8 +8,20 @@ import {
   MessageRole,
   MessageMetadata,
   ProjectInfo,
+  ConversationMode,
+  OperationType,
+  ValidationResult,
+  ICommandExecutor,
 } from '../types';
-import { IConversationStorage } from '../storage/ConversationStorage';
+import { IConversationStorage } from '../storage/ConversationStorageAdapter';
+import { ModeValidator } from './ModeValidator';
+import { GitService } from './GitService';
+import { GitLabMCPService } from './GitLabMCPService';
+import { GitWorktreeService } from './GitWorktreeService';
+import { ProjectService } from './ProjectService';
+import { DatabaseManager } from '../db/DatabaseManager';
+import { conversations } from '../db/schema';
+import { eq } from 'drizzle-orm';
 
 /**
  * 对话管理器类
@@ -18,9 +30,26 @@ import { IConversationStorage } from '../storage/ConversationStorage';
 export class ConversationManager {
   private storage: IConversationStorage;
   private locks: Map<string, boolean> = new Map();
+  private modeValidator: ModeValidator;
+  private gitService?: GitService;
+  private gitlabService?: GitLabMCPService;
+  private worktreeService: GitWorktreeService;
+  private projectService: ProjectService;
+  private executor: ICommandExecutor;
 
-  constructor(storage: IConversationStorage) {
+  constructor(
+    storage: IConversationStorage,
+    executor: ICommandExecutor,
+    gitService?: GitService,
+    gitlabService?: GitLabMCPService
+  ) {
     this.storage = storage;
+    this.executor = executor;
+    this.modeValidator = new ModeValidator();
+    this.gitService = gitService;
+    this.gitlabService = gitlabService;
+    this.worktreeService = new GitWorktreeService(executor);
+    this.projectService = new ProjectService();
   }
 
   /**
@@ -46,14 +75,71 @@ export class ConversationManager {
   async createSession(
     taskId: string,
     initialPrompt: string,
-    projectInfo: ProjectInfo
+    projectInfo: ProjectInfo,
+    mode: ConversationMode = ConversationMode.EDIT,
+    userId?: string,
+    projectId?: string
   ): Promise<ConversationSession> {
     const sessionId = uuidv4();
+    const mainBranchId = uuidv4();
     const now = new Date();
+
+    // 如果提供了 userId 和 projectId，获取项目信息并设置 Worktree
+    let worktreePath: string | undefined;
+    let username: string | undefined;
+    if (userId && projectId) {
+      try {
+        const db = DatabaseManager.getInstance().getDb();
+        const users = await db.query.users.findFirst({
+          where: (users, { eq }) => eq(users.id, userId),
+        });
+        username = users?.username;
+
+        const project = await this.projectService.getProjectById(projectId);
+        if (!project) {
+          throw new Error(`项目不存在: ${projectId}`);
+        }
+
+        if (username) {
+          worktreePath = GitWorktreeService.generateWorktreePath(
+            project.worktreeBaseDir,
+            username
+          );
+
+          const worktreeExists = await this.worktreeService.worktreeExists(worktreePath);
+
+          if (!worktreeExists) {
+            console.log(`[ConversationManager] 为用户 ${username} 创建 Worktree: ${worktreePath}`);
+            
+            const initialBranch = `${username}-worktree`;
+            const worktreeResult = await this.worktreeService.createWorktree(
+              project.repoDir,
+              worktreePath,
+              initialBranch,
+              project.gitDefaultBranch
+            );
+
+            if (!worktreeResult.success) {
+              console.error(`[ConversationManager] Worktree 创建失败: ${worktreeResult.message}`);
+              throw new Error(`Worktree 创建失败: ${worktreeResult.message}`);
+            }
+
+            console.log(`[ConversationManager] ✅ Worktree 已创建: ${worktreePath}`);
+          } else {
+            console.log(`[ConversationManager] ✅ 使用已存在的 Worktree: ${worktreePath}`);
+          }
+
+          projectInfo.workDir = worktreePath;
+        }
+      } catch (error) {
+        console.error('[ConversationManager] 设置 Worktree 失败:', error);
+        throw error;
+      }
+    }
 
     // 创建主分支
     const mainBranch: ConversationBranch = {
-      id: 'main',
+      id: mainBranchId,
       name: '主分支',
       parentMessageId: '',
       messageIds: [],
@@ -66,10 +152,40 @@ export class ConversationManager {
       projectInfo,
       taskDescription: initialPrompt,
       messageHistory: [],
-      currentBranchId: 'main',
+      currentBranchId: mainBranchId,
       branches: [mainBranch],
       variables: {},
+      mode,
     };
+
+    // 根据模式处理 Git 操作
+    if (mode === ConversationMode.EDIT) {
+      if (!this.gitService) {
+        throw new Error('编辑模式需要 Git 服务，但服务未初始化');
+      }
+      
+      const gitResult = await this.handleEditModeSetup(sessionId, initialPrompt, username);
+      if (!gitResult.success) {
+        throw new Error(`Git 操作失败: ${gitResult.error}`);
+      }
+      
+      context.gitBranch = gitResult.branchName;
+      console.log(`[ConversationManager] ✅ 对话分支已创建: ${gitResult.branchName}`);
+    } else if (mode === ConversationMode.READONLY) {
+      if (!this.gitService) {
+        throw new Error('只读模式需要 Git 服务，但服务未初始化');
+      }
+      
+      const project = userId && projectId ? await this.projectService.getProjectById(projectId) : null;
+      const defaultBranch = project?.gitDefaultBranch || process.env.GIT_DEFAULT_BRANCH || 'main';
+      
+      const gitResult = await this.handleReadonlyModeSetup(defaultBranch);
+      if (!gitResult.success) {
+        throw new Error(`Git 操作失败: ${gitResult.error}`);
+      }
+      
+      console.log(`[ConversationManager] ✅ 已切换到主分支: ${defaultBranch}`);
+    }
 
     // 创建会话
     const session: ConversationSession = {
@@ -86,7 +202,98 @@ export class ConversationManager {
     await this.storage.saveContext(sessionId, context);
     await this.storage.saveBranch(sessionId, mainBranch);
 
+    // 如果有 userId、projectId 和 worktreePath，更新数据库记录
+    if (userId && projectId) {
+      try {
+        const db = DatabaseManager.getInstance().getDb();
+        await db.update(conversations)
+          .set({
+            userId,
+            projectId,
+            worktreePath,
+          })
+          .where(eq(conversations.sessionId, sessionId));
+      } catch (error) {
+        console.error('[ConversationManager] 更新对话记录失败:', error);
+      }
+    }
+
     return session;
+  }
+
+  /**
+   * 处理编辑模式的 Git 设置（在 Worktree 中为每个对话创建独立分支）
+   */
+  private async handleEditModeSetup(
+    sessionId: string,
+    taskDescription: string,
+    username?: string
+  ): Promise<{ success: boolean; branchName?: string; mrUrl?: string; error?: string }> {
+    if (!this.gitService) {
+      return { success: false, error: 'Git 服务未初始化' };
+    }
+
+    try {
+      const branchName = GitWorktreeService.generateBranchName(
+        username || 'user',
+        sessionId
+      );
+      console.log(`[ConversationManager] 编辑模式：创建对话分支 ${branchName}`);
+
+      const createResult = await this.gitService.createBranch(
+        branchName,
+        process.env.GIT_DEFAULT_BRANCH || 'main'
+      );
+
+      if (!createResult.success) {
+        return {
+          success: false,
+          error: `创建分支失败: ${createResult.error}`,
+        };
+      }
+
+      console.log(`[ConversationManager] ✅ 对话分支已创建: ${branchName}`);
+
+      return {
+        success: true,
+        branchName,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  /**
+   * 处理只读模式的 Git 设置（切换到主分支）
+   */
+  private async handleReadonlyModeSetup(defaultBranch?: string): Promise<{ success: boolean; error?: string }> {
+    if (!this.gitService) {
+      return { success: false, error: 'Git 服务未初始化' };
+    }
+
+    try {
+      const targetBranch = defaultBranch || process.env.GIT_DEFAULT_BRANCH || 'main';
+      console.log(`[ConversationManager] 只读模式：切换到主分支 ${targetBranch}`);
+
+      const checkoutResult = await this.gitService.checkoutBranch(targetBranch);
+
+      if (!checkoutResult.success) {
+        return {
+          success: false,
+          error: `切换分支失败: ${checkoutResult.error}`,
+        };
+      }
+
+      return { success: true };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
   }
 
   /**
@@ -462,14 +669,83 @@ export class ConversationManager {
 
   /**
    * 删除会话
+   * 注意：不删除 Worktree（因为是用户共享的），只删除对话分支
    */
   async deleteSession(sessionId: string): Promise<void> {
     await this.acquireLock(sessionId);
 
     try {
+      const session = await this.getSession(sessionId);
+      if (session && session.context.gitBranch) {
+        try {
+          if (this.gitService) {
+            console.log(`[ConversationManager] 删除对话分支: ${session.context.gitBranch}`);
+          }
+        } catch (error) {
+          console.error('[ConversationManager] 删除分支时出错:', error);
+        }
+      }
+
       await this.storage.deleteSession(sessionId);
+      console.log(`[ConversationManager] ✅ 会话已删除: ${sessionId}`);
     } finally {
       this.releaseLock(sessionId);
+    }
+  }
+
+  /**
+   * 清理用户的 Worktree
+   * 用于删除用户或清理不活跃用户时调用
+   * @param userId 用户 ID
+   * @param projectId 项目 ID
+   */
+  async cleanupUserWorktree(userId: string, projectId: string): Promise<boolean> {
+    try {
+      const db = DatabaseManager.getInstance().getDb();
+      
+      const user = await db.query.users.findFirst({
+        where: (users, { eq }) => eq(users.id, userId),
+      });
+      
+      if (!user) {
+        console.error(`[ConversationManager] 用户不存在: ${userId}`);
+        return false;
+      }
+
+      const project = await this.projectService.getProjectById(projectId);
+      if (!project) {
+        console.error(`[ConversationManager] 项目不存在: ${projectId}`);
+        return false;
+      }
+
+      const worktreePath = GitWorktreeService.generateWorktreePath(
+        project.worktreeBaseDir,
+        user.username
+      );
+
+      const exists = await this.worktreeService.worktreeExists(worktreePath);
+      if (!exists) {
+        console.log(`[ConversationManager] Worktree 不存在: ${worktreePath}`);
+        return true;
+      }
+
+      console.log(`[ConversationManager] 清理用户 Worktree: ${worktreePath}`);
+      const removeResult = await this.worktreeService.removeWorktree(
+        project.repoDir,
+        worktreePath,
+        true
+      );
+
+      if (removeResult.success) {
+        console.log(`[ConversationManager] ✅ 用户 Worktree 已清理`);
+        return true;
+      } else {
+        console.error(`[ConversationManager] Worktree 清理失败: ${removeResult.message}`);
+        return false;
+      }
+    } catch (error) {
+      console.error('[ConversationManager] 清理用户 Worktree 时出错:', error);
+      return false;
     }
   }
 

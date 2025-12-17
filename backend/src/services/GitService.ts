@@ -40,7 +40,26 @@ export class GitService {
    */
   async createBranch(branchName: string, baseBranch?: string): Promise<GitOperationResult> {
     try {
-      // 如果指定了基础分支，先切换到基础分支
+      let stashed = false;
+
+      const statusResult = await this.sshExecutor.executeCommand(
+        `git status --porcelain`,
+        this.workDir
+      );
+
+      if (statusResult.stdout.trim()) {
+        console.log('[GitService] 检测到未提交的更改，先执行 stash');
+        const stashResult = await this.sshExecutor.executeCommand(
+          `git stash push -m "Auto stash before creating branch ${branchName}"`,
+          this.workDir
+        );
+
+        if (stashResult.exitCode === 0) {
+          stashed = true;
+          console.log('[GitService] ✅ 更改已暂存');
+        }
+      }
+
       if (baseBranch) {
         const checkoutResult = await this.sshExecutor.executeCommand(
           `git checkout ${baseBranch}`,
@@ -48,6 +67,9 @@ export class GitService {
         );
         
         if (checkoutResult.exitCode !== 0) {
+          if (stashed) {
+            await this.sshExecutor.executeCommand(`git stash pop`, this.workDir);
+          }
           return {
             success: false,
             message: `切换到基础分支失败: ${baseBranch}`,
@@ -56,19 +78,27 @@ export class GitService {
         }
       }
 
-      // 创建并切换到新分支
       const result = await this.sshExecutor.executeCommand(
         `git checkout -b ${branchName}`,
         this.workDir
       );
 
       if (result.exitCode === 0) {
+        if (stashed) {
+          console.log('[GitService] 恢复暂存的更改');
+          await this.sshExecutor.executeCommand(`git stash pop`, this.workDir);
+        }
+
         return {
           success: true,
           message: `成功创建分支: ${branchName}`,
           output: result.stdout,
         };
       } else {
+        if (stashed) {
+          await this.sshExecutor.executeCommand(`git stash pop`, this.workDir);
+        }
+
         return {
           success: false,
           message: `创建分支失败: ${branchName}`,
@@ -91,6 +121,23 @@ export class GitService {
    */
   async checkoutBranch(branchName: string): Promise<GitOperationResult> {
     try {
+      const statusResult = await this.sshExecutor.executeCommand(
+        `git status --porcelain`,
+        this.workDir
+      );
+
+      if (statusResult.stdout.trim()) {
+        console.log('[GitService] 检测到未提交的更改，先执行 stash');
+        const stashResult = await this.sshExecutor.executeCommand(
+          `git stash push -m "Auto stash before checkout ${branchName}"`,
+          this.workDir
+        );
+
+        if (stashResult.exitCode === 0) {
+          console.log('[GitService] ✅ 更改已暂存');
+        }
+      }
+
       const result = await this.sshExecutor.executeCommand(
         `git checkout ${branchName}`,
         this.workDir

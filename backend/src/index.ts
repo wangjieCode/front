@@ -98,12 +98,26 @@ try {
   const { MessageRouter } = require('./services/MessageRouter');
   const { ConversationAIService } = require('./services/ConversationAIService');
   const { NeovateAIService } = require('./services/NeovateAIService');
-  const { FileSystemConversationStorage } = require('./storage/ConversationStorage');
+  const { ConversationStorageAdapter } = require('./storage/ConversationStorageAdapter');
+  const { GitService } = require('./services/GitService');
+  const { GitLabMCPService } = require('./services/GitLabMCPService');
 
-  const conversationStorage = new FileSystemConversationStorage();
-  conversationManager = new ConversationManager(conversationStorage);
-  const neovateAIService = new NeovateAIService(executor, workDir);
-  conversationAIService = new ConversationAIService(neovateAIService);
+  // 使用 Drizzle 存储
+  if (!conversationStorage) {
+    throw new Error('数据库未初始化，无法启动对话服务');
+  }
+  
+  const storageAdapter = new ConversationStorageAdapter(conversationStorage);
+  const gitService = new GitService(executor, workDir);
+  const gitlabService = new GitLabMCPService({
+    url: process.env.GITLAB_URL || '',
+    token: process.env.GITLAB_TOKEN || '',
+    projectId: process.env.GITLAB_PROJECT_ID || '',
+  });
+  conversationManager = new ConversationManager(storageAdapter, executor, gitService, gitlabService);
+  const databaseUrl = process.env.DATABASE_URL || '';
+  const neovateAIService = new NeovateAIService(executor, workDir, databaseUrl);
+  conversationAIService = new ConversationAIService(neovateAIService, databaseUrl, gitService, gitlabService);
   messageRouter = new MessageRouter(conversationManager, conversationAIService);
 
   console.log('✅ 对话服务已初始化');

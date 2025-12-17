@@ -14,12 +14,8 @@ body {
 
 .task-list-item:hover {
   background-color: #fafafa !important;
-  transform: translateY(-2px);
-}
-
-.task-list-item.selected {
-  background-color: #e6f7ff !important;
-  border-right: 3px solid #1890ff;
+  transform: translateX(4px);
+  border-left-color: #1890ff !important;
 }
 
 /* 滚动条样式优化 */
@@ -33,60 +29,15 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(0, 0, 0, 0.2);
+  background: rgba(0, 0, 0, 0.1);
   border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(0, 0, 0, 0.3);
+  background: rgba(0, 0, 0, 0.2);
 }
 
-/* Animations */
-@keyframes fadeIn {
-  from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-@keyframes slideInRight {
-  from { opacity: 0; transform: translateX(20px); }
-  to { opacity: 1; transform: translateX(0); }
-}
-
-/* Glassmorphism Card */
-.glass-card {
-  background: rgba(255, 255, 255, 0.8) !important;
-  backdrop-filter: blur(10px);
-  border: 1px solid rgba(255, 255, 255, 0.3);
-  box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.07);
-}
-
-/* Chat Bubble Styles */
-.chat-bubble-user {
-  background: linear-gradient(135deg, #1890ff 0%, #096dd9 100%);
-  color: white;
-  border-radius: 16px 16px 0 16px;
-  box-shadow: 0 4px 12px rgba(24, 144, 255, 0.2);
-}
-
-.chat-bubble-ai {
-  background: white;
-  border-radius: 16px 16px 16px 0;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
-  border: 1px solid rgba(0, 0, 0, 0.05);
-}
-
-/* Input Area Focus */
-.main-input-area textarea:focus {
-  box-shadow: none !important;
-}
-
-.main-input-wrapper {
-  transition: all 0.3s ease;
-  border: 1px solid transparent;
-}
-
-.main-input-wrapper:focus-within {
-  background: white;
-  box-shadow: 0 0 0 2px rgba(24, 144, 255, 0.2);
-  border-color: #40a9ff;
+/* 对话列表项悬停效果 */
+.conversation-item-hover:hover {
+  background-color: rgba(0, 0, 0, 0.04) !important;
 }
