@@ -213,6 +213,10 @@ async function startServer() {
   await initializeServices();
 
   // 2. 注册 API 路由
+  // 认证路由
+  const { createAuthRoutes } = require('./api/authRoutes');
+  app.use('/api/auth', createAuthRoutes());
+
   // 对话路由（在服务初始化后注册）
   if (conversationManager && messageRouter && conversationAIService) {
     app.use('/api/conversations', createConversationRoutes(conversationManager, messageRouter, conversationAIService));

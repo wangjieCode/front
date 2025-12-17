@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { ConversationManager } from '../services/ConversationManager';
 import { MessageRouter } from '../services/MessageRouter';
 import { ConversationAIService } from '../services/ConversationAIService';
+import { requireAuth, AuthRequest } from './authMiddleware';
 
 /**
  * 解析 AI 响应内容，提取可读文本
@@ -77,7 +78,7 @@ export function createConversationRoutes(
    * POST /api/conversations
    * 创建新的对话会话
    */
-  router.post('/', async (req: Request, res: Response) => {
+  router.post('/', requireAuth, async (req: AuthRequest, res: Response) => {
     try {
       const { taskId, initialPrompt, taskDescription, projectInfo, mode } = req.body;
 
@@ -110,7 +111,8 @@ export function createConversationRoutes(
         taskId,
         prompt,
         projectInfo,
-        mode
+        mode,
+        req.userId
       );
 
       // 只创建会话，不自动生成响应

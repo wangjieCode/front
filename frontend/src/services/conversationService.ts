@@ -59,14 +59,28 @@ class ConversationService {
   }
 
   /**
+   * 获取认证 headers
+   */
+  private getAuthHeaders(): Record<string, string> {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+    
+    const userId = localStorage.getItem('user_id');
+    if (userId) {
+      headers['x-user-id'] = userId;
+    }
+    
+    return headers;
+  }
+
+  /**
    * 创建新的对话会话
    */
   async createSession(taskId: string, initialPrompt: string): Promise<ConversationSession> {
     const response = await fetch(`${this.baseUrl}/api/conversations`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: this.getAuthHeaders(),
       body: JSON.stringify({ taskId, initialPrompt }),
     });
 
@@ -126,9 +140,7 @@ class ConversationService {
   }): Promise<{ success: boolean; data: ConversationSession }> {
     const response = await fetch(`${this.baseUrl}/api/conversations`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: this.getAuthHeaders(),
       body: JSON.stringify(params),
     });
 
@@ -151,9 +163,7 @@ class ConversationService {
   ): Promise<{ userMessage: ConversationMessage; aiMessage?: ConversationMessage }> {
     const response = await fetch(`${this.baseUrl}/api/conversations/${sessionId}/messages`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: this.getAuthHeaders(),
       body: JSON.stringify({ content, branchId }),
     });
 
@@ -236,9 +246,7 @@ class ConversationService {
   ): Promise<ConversationBranch> {
     const response = await fetch(`${this.baseUrl}/api/conversations/${sessionId}/branches`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: this.getAuthHeaders(),
       body: JSON.stringify({ fromMessageId, branchName }),
     });
 
@@ -291,6 +299,7 @@ class ConversationService {
   async createMergeRequest(sessionId: string): Promise<{ mrUrl: string }> {
     const response = await fetch(`${this.baseUrl}/api/conversations/${sessionId}/merge-request`, {
       method: 'POST',
+      headers: this.getAuthHeaders(),
     });
 
     if (!response.ok) {
@@ -450,9 +459,7 @@ class ConversationService {
   ): Promise<PreviewResult> {
     const response = await fetch(`${this.baseUrl}/api/conversations/${sessionId}/preview`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: this.getAuthHeaders(),
       body: JSON.stringify({ forceRebuild }),
     });
 

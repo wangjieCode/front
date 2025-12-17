@@ -63,7 +63,8 @@ export class ConversationManager {
     taskId: string,
     initialPrompt: string,
     projectInfo: ProjectInfo,
-    mode: ConversationMode = ConversationMode.EDIT
+    mode: ConversationMode = ConversationMode.EDIT,
+    userId?: string
   ): Promise<ConversationSession> {
     const sessionId = uuidv4();
     const mainBranchId = uuidv4(); // 使用 UUID 作为分支 ID
@@ -123,6 +124,7 @@ export class ConversationManager {
     const session: ConversationSession = {
       id: sessionId,
       taskId,
+      userId,
       status: ConversationStatus.PLANNING,
       context,
       createdAt: now,

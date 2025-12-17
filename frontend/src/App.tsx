@@ -1,15 +1,19 @@
 import React, { useState, useEffect } from 'react';
-import { Layout, Typography, Button, message, List, Spin, Popconfirm } from 'antd';
+import { Layout, Typography, Button, message, List, Spin, Popconfirm, Dropdown } from 'antd';
 import {
   PlusOutlined,
   MessageOutlined,
   EditOutlined,
   EyeOutlined,
   DeleteOutlined,
+  UserOutlined,
+  LogoutOutlined,
 } from '@ant-design/icons';
 import ConversationView from './components/ConversationView';
+import LoginModal from './components/LoginModal';
 import { conversationService } from './services/conversationService';
 import { ConversationMode } from './types/conversation';
+import { authUtils } from './utils/auth';
 import './App.css';
 
 const { Content } = Layout;
@@ -21,6 +25,9 @@ const App: React.FC = () => {
   const [currentConversation, setCurrentConversation] = useState<any | null>(null);
   const [hoveredConvId, setHoveredConvId] = useState<string | null>(null);
   const [mode, setMode] = useState<ConversationMode>(ConversationMode.EDIT);
+  const [showLoginModal, setShowLoginModal] = useState(false);
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [currentUser, setCurrentUser] = useState<{ userId: string; username: string } | null>(null);
 
   // 加载对话列表
   const loadConversations = async () => {
@@ -38,8 +45,13 @@ const App: React.FC = () => {
     }
   };
 
-  // 组件挂载时加载对话列表
+  // 组件挂载时检查登录状态和加载对话列表
   useEffect(() => {
+    const userInfo = authUtils.getUserInfo();
+    if (userInfo) {
+      setIsLoggedIn(true);
+      setCurrentUser(userInfo);
+    }
     loadConversations();
   }, []);
 
@@ -47,6 +59,11 @@ const App: React.FC = () => {
   const handleSubmit = async (promptText: string, conversationMode: ConversationMode) => {
     if (!promptText.trim()) {
       message.warning('请输入你的需求');
+      return;
+    }
+
+    if (!authUtils.isLoggedIn()) {
+      setShowLoginModal(true);
       return;
     }
 
@@ -83,15 +100,34 @@ const App: React.FC = () => {
     setMode(ConversationMode.EDIT); // 重置为默认模式
   };
 
+  // 登录成功
+  const handleLoginSuccess = (userId: string, username: string) => {
+    authUtils.setUserInfo(userId, username);
+    setIsLoggedIn(true);
+    setCurrentUser({ userId, username });
+    setShowLoginModal(false);
+    message.success(`欢迎回来，${username}！`);
+  };
 
+  // 退出登录
+  const handleLogout = () => {
+    authUtils.clearUserInfo();
+    setIsLoggedIn(false);
+    setCurrentUser(null);
+    message.success('已退出登录');
+  };
+
+  // 取消登录
+  const handleLoginCancel = () => {
+    setShowLoginModal(false);
+  };
 
   return (
-    <Layout style={{ minHeight: '100vh' }}>
+    <Layout style={{ minHeight: '100vh', background: '#f5f5f5' }}>
       <Layout.Sider
         width={300}
-        theme="light"
+        className="app-sidebar"
         style={{
-          borderRight: '1px solid #f0f0f0',
           overflow: 'auto',
           height: '100vh',
           position: 'fixed',
@@ -101,36 +137,59 @@ const App: React.FC = () => {
           zIndex: 10,
         }}
       >
-        <div style={{ padding: '24px 16px', borderBottom: '1px solid #f0f0f0' }}>
+        <div className="sidebar-header">
           <div
             style={{
               display: 'flex',
               alignItems: 'center',
-              marginBottom: 24,
-              cursor: 'pointer',
+              justifyContent: 'space-between',
+              marginBottom: 16,
             }}
-            onClick={handleNewConversation}
           >
-            <img
-              src="/ai-avatar.png"
-              alt="AI"
-              style={{
-                width: 40,
-                height: 40,
-                marginRight: 12,
-                borderRadius: '50%'
-              }}
-            />
-            <Title level={4} style={{ margin: 0, fontSize: 18 }}>
-              前端小秘
-            </Title>
+            <div className="brand-logo" onClick={handleNewConversation}>
+              <img
+                src="/ai-avatar.png"
+                alt="AI"
+                style={{
+                  width: 40,
+                  height: 40,
+                  borderRadius: '50%'
+                }}
+              />
+              <Title level={4} className="brand-title">
+                前端小秘
+              </Title>
+            </div>
+            {isLoggedIn && currentUser && (
+              <Dropdown
+                menu={{
+                  items: [
+                    {
+                      key: 'logout',
+                      icon: <LogoutOutlined />,
+                      label: '退出登录',
+                      onClick: handleLogout,
+                    },
+                  ],
+                }}
+                placement="bottomRight"
+              >
+                <Button
+                  className="user-info-btn"
+                  icon={<UserOutlined />}
+                  size="small"
+                >
+                  {currentUser.username}
+                </Button>
+              </Dropdown>
+            )}
           </div>
           <Button
             type="primary"
             block
             icon={<PlusOutlined />}
             onClick={handleNewConversation}
-            style={{ borderRadius: 8 }}
+            className="btn-primary"
           >
             新对话
           </Button>
@@ -151,15 +210,12 @@ const App: React.FC = () => {
                 return (
                   <List.Item
                     key={conv.id}
+                    className={`conversation-item ${currentConversation?.id === conv.id ? 'active' : ''}`}
                     onMouseEnter={() => setHoveredConvId(conv.id)}
                     onMouseLeave={() => setHoveredConvId(null)}
                     style={{
                       cursor: 'pointer',
                       padding: '12px',
-                      borderRadius: 8,
-                      marginBottom: 8,
-                      background: currentConversation?.id === conv.id ? '#e6f7ff' : '#fff',
-                      border: '1px solid #f0f0f0',
                       display: 'flex',
                       alignItems: 'center',
                       gap: 8,
@@ -179,8 +235,8 @@ const App: React.FC = () => {
                                 bottom: -4,
                                 right: -4,
                                 fontSize: 10,
-                                color: modeColor,
-                                background: '#fff',
+                                color: mode === ConversationMode.EDIT ? '#7c5cff' : '#8c8c8c',
+                                background: '#ffffff',
                                 borderRadius: '50%',
                                 padding: 2
                               }}
@@ -249,8 +305,8 @@ const App: React.FC = () => {
         </div>
       </Layout.Sider>
 
-      <Layout style={{ marginLeft: 300, background: '#fff', height: '100vh', overflow: 'hidden' }}>
-        <Content style={{ height: '100%', overflow: 'hidden' }}>
+      <Layout style={{ marginLeft: 300, background: '#f5f5f5', height: '100vh', overflow: 'hidden' }}>
+        <Content className="main-content" style={{ height: '100%', overflow: 'hidden' }}>
           <ConversationView
             sessionId={currentConversation?.id}
             initialPrompt={currentConversation?.initialPrompt}
@@ -264,6 +320,12 @@ const App: React.FC = () => {
           />
         </Content>
       </Layout>
+
+      <LoginModal
+        visible={showLoginModal}
+        onSuccess={handleLoginSuccess}
+        onCancel={handleLoginCancel}
+      />
     </Layout>
   );
 };

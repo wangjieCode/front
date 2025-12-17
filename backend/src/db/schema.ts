@@ -1,6 +1,23 @@
 import { pgTable, uuid, varchar, text, boolean, timestamp, jsonb, index } from 'drizzle-orm/pg-core';
 
 /**
+ * users 表
+ * 存储用户信息
+ */
+export const users = pgTable(
+  'users',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    username: varchar('username', { length: 50 }).notNull().unique(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    lastLoginAt: timestamp('last_login_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    usernameIdx: index('idx_users_username').on(table.username),
+  })
+);
+
+/**
  * conversations 表
  * 存储对话会话的基本信息
  */
@@ -10,6 +27,7 @@ export const conversations = pgTable(
     id: uuid('id').primaryKey().defaultRandom(),
     sessionId: varchar('session_id', { length: 255 }).notNull().unique(),
     taskId: varchar('task_id', { length: 255 }).notNull(),
+    userId: uuid('user_id').notNull(),
     status: varchar('status', { length: 50 }).notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
@@ -19,6 +37,7 @@ export const conversations = pgTable(
   (table) => ({
     sessionIdIdx: index('idx_conversations_session_id').on(table.sessionId),
     taskIdIdx: index('idx_conversations_task_id').on(table.taskId),
+    userIdIdx: index('idx_conversations_user_id').on(table.userId),
     statusIdx: index('idx_conversations_status').on(table.status),
     createdAtIdx: index('idx_conversations_created_at').on(table.createdAt),
   })
@@ -167,3 +186,6 @@ export type NewMessageMetadata = typeof messageMetadata.$inferInsert;
 
 export type NeovateSession = typeof neovateSessions.$inferSelect;
 export type NewNeovateSession = typeof neovateSessions.$inferInsert;
+
+export type User = typeof users.$inferSelect;
+export type NewUser = typeof users.$inferInsert;
