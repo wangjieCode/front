@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>登录测试</title>
+</head>
+<body>
+    <h1>登录 API 测试</h1>
+    <input type="text" id="username" placeholder="用户名" value="testuser">
+    <button onclick="testLogin()">测试登录</button>
+    <div id="result"></div>
+
+    <script>
+        async function testLogin() {
+            const username = document.getElementById('username').value;
+            const resultDiv = document.getElementById('result');
+            
+            try {
+                console.log('发送登录请求...');
+                const response = await fetch('http://localhost:3001/api/auth/login', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ username })
+                });
+                
+                console.log('响应状态:', response.status);
+                const data = await response.json();
+                console.log('响应数据:', data);
+                
+                if (data.success) {
+                    resultDiv.innerHTML = `
+                        <h3>✅ 登录成功</h3>
+                        <p>用户ID: ${data.data.userId}</p>
+                        <p>用户名: ${data.data.username}</p>
+                        <p>Token: ${data.data.token.substring(0, 50)}...</p>
+                    `;
+                } else {
+                    resultDiv.innerHTML = `<h3>❌ 登录失败</h3><p>${data.error || '未知错误'}</p>`;
+                }
+            } catch (error) {
+                console.error('请求错误:', error);
+                resultDiv.innerHTML = `<h3>❌ 请求失败</h3><p>${error.message}</p>`;
+            }
+        }
+    </script>
+</body>
+</html>

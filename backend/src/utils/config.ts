@@ -64,9 +64,17 @@ export function validateSSHConfig(config: SSHConfig): void {
  * @returns Git 工作目录路径
  */
 export function getGitWorkDir(): string {
-  const workDir = process.env.GIT_WORK_DIR;
+  const runMode = process.env.RUN_MODE || 'local';
+  
+  let workDir: string | undefined;
+  if (runMode === 'local') {
+    workDir = process.env.LOCAL_GIT_WORK_DIR;
+  } else {
+    workDir = process.env.REMOTE_GIT_WORK_DIR;
+  }
+  
   if (!workDir) {
-    throw new Error('GIT_WORK_DIR 环境变量未设置');
+    throw new Error(`${runMode === 'local' ? 'LOCAL_GIT_WORK_DIR' : 'REMOTE_GIT_WORK_DIR'} 环境变量未设置`);
   }
   return workDir;
 }
@@ -76,7 +84,13 @@ export function getGitWorkDir(): string {
  * @returns 默认分支名称
  */
 export function getGitDefaultBranch(): string {
-  return process.env.GIT_DEFAULT_BRANCH || 'main';
+  const runMode = process.env.RUN_MODE || 'local';
+  
+  if (runMode === 'local') {
+    return process.env.LOCAL_GIT_DEFAULT_BRANCH || 'main';
+  } else {
+    return process.env.REMOTE_GIT_DEFAULT_BRANCH || 'main';
+  }
 }
 
 /**

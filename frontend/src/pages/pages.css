@@ -1,0 +1,165 @@
+/* Login and Project Pages Enhanced Styles */
+
+/* Input hover and focus effects for LoginPage */
+input:hover {
+    border-color: #cbd5e1 !important;
+}
+
+input:focus {
+    border-color: #667eea !important;
+    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1) !important;
+    transform: translateY(-1px);
+}
+
+input:disabled {
+    background: #f8fafc !important;
+    cursor: not-allowed;
+    opacity: 0.6;
+}
+
+/* Button hover and active effects */
+button[type="submit"]:hover:not(:disabled) {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(102, 126, 234, 0.5) !important;
+}
+
+button[type="submit"]:active:not(:disabled) {
+    transform: translateY(0);
+}
+
+button[type="submit"]:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    transform: none !important;
+}
+
+/* Logout button hover effect */
+button:not([type="submit"]):hover {
+    background: rgba(255, 255, 255, 1) !important;
+    border-color: #cbd5e1 !important;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+/* Project card hover effects */
+div[style*="projectCard"]:hover {
+    transform: translateY(-4px) !important;
+    border-color: rgba(102, 126, 234, 0.4) !important;
+    box-shadow: 0 12px 28px rgba(102, 126, 234, 0.15) !important;
+    background: rgba(255, 255, 255, 0.9) !important;
+}
+
+div[style*="projectCard"]::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 4px;
+    background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+    border-radius: 16px 16px 0 0;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+}
+
+div[style*="projectCard"]:hover::before {
+    opacity: 1;
+}
+
+/* Retry button hover effect */
+button[style*="retryButton"]:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 16px rgba(220, 38, 38, 0.4) !important;
+}
+
+/* Smooth entrance animation for project cards */
+div[style*="projectCard"] {
+    animation: fadeInUp 0.4s ease-out backwards;
+}
+
+div[style*="projectCard"]:nth-child(1) {
+    animation-delay: 0.05s;
+}
+
+div[style*="projectCard"]:nth-child(2) {
+    animation-delay: 0.1s;
+}
+
+div[style*="projectCard"]:nth-child(3) {
+    animation-delay: 0.15s;
+}
+
+div[style*="projectCard"]:nth-child(4) {
+    animation-delay: 0.2s;
+}
+
+div[style*="projectCard"]:nth-child(5) {
+    animation-delay: 0.25s;
+}
+
+div[style*="projectCard"]:nth-child(6) {
+    animation-delay: 0.3s;
+}
+
+/* Enhance info box appearance */
+div[style*="info"] {
+    transition: all 0.3s ease;
+}
+
+div[style*="info"]:hover {
+    transform: translateX(4px);
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.1);
+}
+
+/* Add floating background elements for visual interest */
+div[style*="container"]::before,
+div[style*="container"]::after {
+    content: '';
+    position: absolute;
+    border-radius: 50%;
+    opacity: 0.1;
+    animation: float 20s infinite ease-in-out;
+}
+
+div[style*="container"]::before {
+    width: 400px;
+    height: 400px;
+    background: radial-gradient(circle, rgba(255, 255, 255, 0.8) 0%, transparent 70%);
+    top: -200px;
+    left: -200px;
+    animation-delay: 0s;
+}
+
+div[style*="container"]::after {
+    width: 300px;
+    height: 300px;
+    background: radial-gradient(circle, rgba(255, 255, 255, 0.6) 0%, transparent 70%);
+    bottom: -150px;
+    right: -150px;
+    animation-delay: 10s;
+}
+
+@keyframes float {
+
+    0%,
+    100% {
+        transform: translate(0, 0) scale(1);
+    }
+
+    25% {
+        transform: translate(30px, -30px) scale(1.1);
+    }
+
+    50% {
+        transform: translate(-20px, 20px) scale(0.9);
+    }
+
+    75% {
+        transform: translate(20px, 30px) scale(1.05);
+    }
+}
+
+/* Loading spinner enhancement */
+div[style*="spinner"] {
+    box-shadow: 0 0 20px rgba(102, 126, 234, 0.3);
+}
