@@ -2,6 +2,7 @@ import express, { Express } from 'express';
 import dotenv from 'dotenv';
 import { createServer } from 'http';
 import { SSHExecutor, GitService, CodeToolService, GitLabMCPService } from './services';
+import { WorktreeManager } from './services/WorktreeManager';
 import { createConversationRoutes } from './api/conversationRoutes';
 import {
   errorHandler,
@@ -161,7 +162,13 @@ async function initializeServices() {
     token: process.env.GITLAB_TOKEN || '',
     projectId: process.env.GITLAB_PROJECT_ID || '',
   });
-  conversationManager = new ConversationManager(storageAdapter, gitService, gitlabService);
+  
+  // 创建 WorktreeManager
+  const worktreeBaseDir = process.env.WORKTREE_BASE_DIR || `${workDir}/../worktrees`;
+  const worktreeManager = new WorktreeManager(executor, workDir, worktreeBaseDir);
+  console.log(`📁 Worktree 基础目录: ${worktreeBaseDir}`);
+  
+  conversationManager = new ConversationManager(storageAdapter, gitService, gitlabService, worktreeManager);
   const databaseUrl = process.env.DATABASE_URL || '';
   const neovateAIService = new NeovateAIService(executor, workDir, databaseUrl);
   conversationAIService = new ConversationAIService(neovateAIService, databaseUrl, gitService, gitlabService);

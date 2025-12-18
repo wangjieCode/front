@@ -16,6 +16,7 @@ import { IConversationStorage } from '../storage/ConversationStorageAdapter';
 import { ModeValidator } from './ModeValidator';
 import { GitService } from './GitService';
 import { GitLabMCPService } from './GitLabMCPService';
+import { WorktreeManager } from './WorktreeManager';
 
 /**
  * 对话管理器类
@@ -27,16 +28,19 @@ export class ConversationManager {
   private modeValidator: ModeValidator;
   private gitService?: GitService;
   private gitlabService?: GitLabMCPService;
+  private worktreeManager?: WorktreeManager;
 
   constructor(
     storage: IConversationStorage,
     gitService?: GitService,
-    gitlabService?: GitLabMCPService
+    gitlabService?: GitLabMCPService,
+    worktreeManager?: WorktreeManager
   ) {
     this.storage = storage;
     this.modeValidator = new ModeValidator();
     this.gitService = gitService;
     this.gitlabService = gitlabService;
+    this.worktreeManager = worktreeManager;
   }
 
   /**
@@ -93,28 +97,45 @@ export class ConversationManager {
 
     // 根据模式处理 Git 操作
     if (mode === ConversationMode.EDIT) {
-      if (!this.gitService) {
-        throw new Error('编辑模式需要 Git 服务，但服务未初始化');
+      if (!this.worktreeManager) {
+        throw new Error('编辑模式需要 Worktree 管理器，但服务未初始化');
       }
       
-      // 编辑模式：只创建分支，MR 由用户手动创建
-      const gitResult = await this.handleEditModeSetup(sessionId, initialPrompt);
+      if (!userId) {
+        throw new Error('编辑模式需要用户 ID');
+      }
+      
+      // 编辑模式：在用户 worktree 中创建对话分支
+      const gitResult = await this.handleEditModeSetup(sessionId, initialPrompt, userId);
       if (!gitResult.success) {
         throw new Error(`Git 操作失败: ${gitResult.error}`);
       }
       
       context.gitBranch = gitResult.branchName;
+      // 保存 worktree 路径到上下文
+      if (gitResult.worktreePath) {
+        projectInfo.workDir = gitResult.worktreePath;
+      }
       // mrUrl 初始为空，待用户手动创建
       console.log(`[ConversationManager] ✅ Git 分支已创建: ${gitResult.branchName}`);
     } else if (mode === ConversationMode.READONLY) {
-      if (!this.gitService) {
-        throw new Error('只读模式需要 Git 服务，但服务未初始化');
+      if (!this.worktreeManager) {
+        throw new Error('只读模式需要 Worktree 管理器，但服务未初始化');
       }
       
-      // 只读模式：丢弃变更，切换到主分支
-      const gitResult = await this.handleReadonlyModeSetup();
+      if (!userId) {
+        throw new Error('只读模式需要用户 ID');
+      }
+      
+      // 只读模式：切换用户 worktree 到主分支
+      const gitResult = await this.handleReadonlyModeSetup(userId);
       if (!gitResult.success) {
         throw new Error(`Git 操作失败: ${gitResult.error}`);
+      }
+      
+      // 保存 worktree 路径到上下文
+      if (gitResult.worktreePath) {
+        projectInfo.workDir = gitResult.worktreePath;
       }
       
       console.log(`[ConversationManager] ✅ 已切换到主分支`);

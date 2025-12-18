@@ -80,24 +80,25 @@ export function createConversationRoutes(
    */
   router.post('/', requireAuth, async (req: AuthRequest, res: Response) => {
     try {
-      const { taskId, initialPrompt, taskDescription, projectInfo, mode } = req.body;
+      const { initialPrompt, taskDescription, mode } = req.body;
 
       // 兼容 initialPrompt 和 taskDescription 两种参数名
       const prompt = initialPrompt || taskDescription;
 
-      if (!taskId || !prompt) {
+      if (!prompt) {
         return res.status(400).json({
           success: false,
-          error: '缺少必需参数: taskId 和 initialPrompt/taskDescription',
+          error: '缺少必需参数: initialPrompt/taskDescription',
         });
       }
 
-      if (!projectInfo || !projectInfo.workDir) {
-        return res.status(400).json({
-          success: false,
-          error: '缺少项目信息: projectInfo.workDir',
-        });
-      }
+      // 自动生成 taskId
+      const taskId = `task-${Date.now()}`;
+
+      // 使用环境变量的 workDir（worktree 会自动管理）
+      const projectInfo = {
+        workDir: process.env.LOCAL_GIT_WORK_DIR || process.env.REMOTE_GIT_WORK_DIR || process.env.GIT_WORK_DIR || '',
+      };
 
       // 验证 mode 参数（如果提供）
       if (mode && mode !== 'edit' && mode !== 'readonly') {

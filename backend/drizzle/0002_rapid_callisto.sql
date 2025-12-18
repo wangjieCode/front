@@ -1,0 +1,1 @@
+ALTER TABLE "conversation_contexts" ADD COLUMN "worktree_path" text;

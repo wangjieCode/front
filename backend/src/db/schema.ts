@@ -53,6 +53,7 @@ export const conversationContexts = pgTable(
     id: uuid('id').primaryKey().defaultRandom(),
     conversationId: uuid('conversation_id').notNull(),
     workDir: text('work_dir').notNull(),
+    worktreePath: text('worktree_path'), // 对话关联的 worktree 路径
     gitBranch: varchar('git_branch', { length: 255 }),
     relevantFiles: jsonb('relevant_files'),
     taskDescription: text('task_description').notNull(),
