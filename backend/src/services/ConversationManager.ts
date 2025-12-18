@@ -155,108 +155,165 @@ export class ConversationManager {
     // 保存会话（会自动保存上下文和分支）
     await this.storage.saveSession(session);
 
-    return session;
-  }
+        return session;
 
-  /**
-   * 处理编辑模式的 Git 设置（只创建分支，不创建 MR）
-   */
-  private async handleEditModeSetup(
-    sessionId: string,
-    taskDescription: string
-  ): Promise<{ success: boolean; branchName?: string; mrUrl?: string; error?: string }> {
-    if (!this.gitService) {
-      return { success: false, error: 'Git 服务未初始化' };
-    }
-
-    try {
-      // 生成分支名称
-      const branchName = `feature/ai-${sessionId.substring(0, 8)}-${Date.now()}`;
-      console.log(`[ConversationManager] 创建新分支: ${branchName}`);
-
-      // 创建并切换到新分支
-      const createResult = await this.gitService.createBranch(
-        branchName,
-        process.env.GIT_DEFAULT_BRANCH || 'main'
-      );
-
-      if (!createResult.success) {
-        return {
-          success: false,
-          error: `创建分支失败: ${createResult.error}`,
-        };
       }
 
-      // 推送分支到远程
-      console.log(`[ConversationManager] 推送分支到远程: ${branchName}`);
-      const pushResult = await this.gitService.push(branchName);
-      if (!pushResult.success) {
-        return {
-          success: false,
-          error: `推送分支失败: ${pushResult.error}`,
-        };
+    
+
+      /**
+
+       * 处理编辑模式的 Git 设置（使用 WorktreeManager）
+
+       */
+
+      private async handleEditModeSetup(
+
+        sessionId: string,
+
+        taskDescription: string,
+
+        userId: string
+
+      ): Promise<{ success: boolean; branchName?: string; worktreePath?: string; error?: string }> {
+
+        if (!this.worktreeManager) {
+
+          return { success: false, error: 'Worktree 管理器未初始化' };
+
+        }
+
+    
+
+        try {
+
+          console.log(`[ConversationManager] 为用户 ${userId} 创建对话分支`);
+
+    
+
+          // 在用户的 worktree 中创建对话分支
+
+          const result = await this.worktreeManager.createConversationBranch(
+
+            userId,
+
+            sessionId,
+
+            process.env.GIT_DEFAULT_BRANCH || 'master'
+
+          );
+
+    
+
+          console.log(`[ConversationManager] ✅ Git 分支已创建: ${result.branchName}`);
+
+          console.log(`[ConversationManager] ✅ Worktree 路径: ${result.worktreePath}`);
+
+          console.log(`[ConversationManager] ℹ️  MR 将由用户手动创建`);
+
+    
+
+          return {
+
+            success: true,
+
+            branchName: result.branchName,
+
+            worktreePath: result.worktreePath,
+
+          };
+
+        } catch (error) {
+
+          return {
+
+            success: false,
+
+            error: error instanceof Error ? error.message : String(error),
+
+          };
+
+        }
+
       }
 
-      console.log(`[ConversationManager] ✅ Git 分支已创建并推送: ${branchName}`);
-      console.log(`[ConversationManager] ℹ️  MR 将由用户手动创建`);
+    
 
-      return {
-        success: true,
-        branchName,
-      };
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : String(error),
-      };
-    }
-  }
+      /**
 
-  /**
-   * 处理只读模式的 Git 设置
-   */
-  private async handleReadonlyModeSetup(): Promise<{ success: boolean; error?: string }> {
-    if (!this.gitService) {
-      return { success: false, error: 'Git 服务未初始化' };
-    }
+       * 处理只读模式的 Git 设置（使用 WorktreeManager）
 
-    try {
-      console.log(`[ConversationManager] 只读模式：丢弃变更并切换到主分支`);
+       */
 
-      // 丢弃所有变更
-      const resetResult = await this.gitService.resetHard();
-      if (!resetResult.success) {
-        return {
-          success: false,
-          error: `丢弃变更失败: ${resetResult.error}`,
-        };
+      private async handleReadonlyModeSetup(userId: string): Promise<{ success: boolean; worktreePath?: string; error?: string }> {
+
+        if (!this.worktreeManager) {
+
+          return { success: false, error: 'Worktree 管理器未初始化' };
+
+        }
+
+    
+
+        try {
+
+          console.log(`[ConversationManager] 只读模式：切换用户 ${userId} worktree 到主分支`);
+
+    
+
+          // 获取或创建用户 worktree
+
+          const worktreeInfo = await this.worktreeManager.getOrCreateWorktree(
+
+            userId,
+
+            process.env.GIT_DEFAULT_BRANCH || 'master'
+
+          );
+
+    
+
+          // 切换到主分支
+
+          await this.worktreeManager.switchToMainBranch(userId);
+
+    
+
+          console.log(`[ConversationManager] ✅ Worktree 路径: ${worktreeInfo.worktreePath}`);
+
+    
+
+          return { 
+
+            success: true,
+
+            worktreePath: worktreeInfo.worktreePath
+
+          };
+
+        } catch (error) {
+
+          return {
+
+            success: false,
+
+            error: error instanceof Error ? error.message : String(error),
+
+          };
+
+        }
+
       }
 
-      // 切换到主分支
-      const checkoutResult = await this.gitService.checkoutBranch(
-        process.env.GIT_DEFAULT_BRANCH || 'main'
-      );
+    
 
-      if (!checkoutResult.success) {
-        return {
-          success: false,
-          error: `切换分支失败: ${checkoutResult.error}`,
-        };
-      }
+      /**
 
-      return { success: true };
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : String(error),
-      };
-    }
-  }
+       * 获取对话会话
 
-  /**
-   * 获取对话会话
-   */
-  async getSession(sessionId: string): Promise<ConversationSession | null> {
+       */
+
+      async getSession(sessionId: string): Promise<ConversationSession | null> {
     return await this.storage.loadSession(sessionId);
   }
 

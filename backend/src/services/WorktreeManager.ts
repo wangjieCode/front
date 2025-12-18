@@ -16,6 +16,10 @@ export interface WorktreeInfo {
 /**
  * Worktree 管理器
  * 负责管理每个用户的独立 Git worktree
+ * 
+ * @param executor 命令执行器
+ * @param baseRepoPath 基础仓库路径（工作空间项目，如 dtmall-admin）
+ * @param worktreeBaseDir worktree 基础目录（存放所有用户 worktree）
  */
 export class WorktreeManager {
   private worktreeCache: Map<string, WorktreeInfo> = new Map();
@@ -24,7 +28,11 @@ export class WorktreeManager {
     private executor: ICommandExecutor,
     private baseRepoPath: string,
     private worktreeBaseDir: string
-  ) {}
+  ) {
+    console.log(`[WorktreeManager] 初始化`);
+    console.log(`[WorktreeManager] 基础仓库: ${baseRepoPath}`);
+    console.log(`[WorktreeManager] Worktree 目录: ${worktreeBaseDir}`);
+  }
 
   /**
    * 获取用户的 worktree 路径
@@ -70,14 +78,24 @@ export class WorktreeManager {
     try {
       console.log(`[WorktreeManager] 创建用户 worktree: ${userId}`);
       
-      // 创建 worktree（基于主分支）
+      // 创建 worktree（使用 --detach 创建分离的 HEAD，基于主分支）
       const result = await this.executor.executeCommand(
-        `git worktree add "${worktreePath}" ${baseBranch}`,
+        `git worktree add --detach "${worktreePath}" ${baseBranch}`,
         this.baseRepoPath
       );
 
       if (result.exitCode !== 0) {
         throw new Error(`创建 worktree 失败: ${result.stderr}`);
+      }
+
+      // 在 worktree 中切换到主分支
+      const checkoutResult = await this.executor.executeCommand(
+        `git checkout -B ${baseBranch}`,
+        worktreePath
+      );
+
+      if (checkoutResult.exitCode !== 0) {
+        console.warn(`[WorktreeManager] ⚠️  切换分支失败: ${checkoutResult.stderr}`);
       }
 
       const now = new Date();
@@ -188,16 +206,14 @@ export class WorktreeManager {
     );
     console.log(`[WorktreeManager] Stash 结果: ${stashResult.exitCode === 0 ? '成功' : '无需 stash'}`);
 
-    // 先切换到基础分支
-    const checkoutResult = await gitService.checkoutBranch(targetBaseBranch);
-    if (!checkoutResult.success) {
-      throw new Error(`切换到基础分支失败: ${checkoutResult.error}`);
-    }
+    // 在 worktree 中直接创建新分支（基于当前分支）
+    const createResult = await this.executor.executeCommand(
+      `git checkout -b ${branchName}`,
+      worktreeInfo.worktreePath
+    );
 
-    // 创建新分支
-    const createResult = await gitService.createBranch(branchName, targetBaseBranch);
-    if (!createResult.success) {
-      throw new Error(`创建分支失败: ${createResult.error}`);
+    if (createResult.exitCode !== 0) {
+      throw new Error(`创建分支失败: ${createResult.stderr}`);
     }
 
     // 推送分支到远程

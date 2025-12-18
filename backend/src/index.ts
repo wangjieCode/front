@@ -175,23 +175,6 @@ async function initializeServices() {
   messageRouter = new MessageRouter(conversationManager, conversationAIService);
 
   console.log('✅ 对话服务已初始化 (存储: Drizzle/Supabase)');
-
-  // 加载历史会话
-  try {
-    const sessions = await conversationManager.listSessions();
-    console.log(`📚 已加载 ${sessions.length} 个历史对话会话`);
-    if (sessions.length > 0) {
-      console.log('   最近的会话:');
-      sessions
-        .sort((a: any, b: any) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
-        .slice(0, 5)
-        .forEach((session: any) => {
-          console.log(`   - ${session.id} (${session.status}) - ${new Date(session.updatedAt).toLocaleString('zh-CN')}`);
-        });
-    }
-  } catch (error) {
-    console.error('❌ 加载历史会话失败:', error instanceof Error ? error.message : error);
-  }
   } catch (error) {
     console.warn('⚠️  服务初始化失败（可能缺少配置）:', error instanceof Error ? error.message : error);
     console.warn('⚠️  系统将以只读模式运行（仅支持查询任务）');

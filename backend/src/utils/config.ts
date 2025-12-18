@@ -102,7 +102,22 @@ export function getGitWorkDir(): string {
  * @returns 默认分支名称
  */
 export function getGitDefaultBranch(): string {
-  return process.env.GIT_DEFAULT_BRANCH || 'main';
+  const runMode = process.env.RUN_MODE || 'local';
+  
+  // 优先使用 GIT_DEFAULT_BRANCH
+  let defaultBranch = process.env.GIT_DEFAULT_BRANCH;
+  
+  // 如果没有，根据运行模式选择
+  if (!defaultBranch) {
+    if (runMode === 'local') {
+      defaultBranch = process.env.LOCAL_GIT_DEFAULT_BRANCH;
+    } else {
+      defaultBranch = process.env.REMOTE_GIT_DEFAULT_BRANCH;
+    }
+  }
+  
+  // 最终默认值
+  return defaultBranch || 'master';
 }
 
 /**
