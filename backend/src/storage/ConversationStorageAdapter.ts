@@ -143,6 +143,7 @@ export class ConversationStorageAdapter implements IConversationStorage {
     return {
       id: dbSession.id,
       taskId: dbSession.taskId,
+      userId: dbSession.userId,
       status: dbSession.status as ConversationStatus,
       context,
       createdAt: dbSession.createdAt,

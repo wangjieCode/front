@@ -2,6 +2,7 @@ import express, { Express } from 'express';
 import dotenv from 'dotenv';
 import { createServer } from 'http';
 import { SSHExecutor, GitService, CodeToolService, GitLabMCPService } from './services';
+import { WorktreeManager } from './services/WorktreeManager';
 import { createConversationRoutes } from './api/conversationRoutes';
 import {
   errorHandler,
@@ -161,30 +162,19 @@ async function initializeServices() {
     token: process.env.GITLAB_TOKEN || '',
     projectId: process.env.GITLAB_PROJECT_ID || '',
   });
-  conversationManager = new ConversationManager(storageAdapter, gitService, gitlabService);
+  
+  // 创建 WorktreeManager
+  const worktreeBaseDir = process.env.WORKTREE_BASE_DIR || `${workDir}/../worktrees`;
+  const worktreeManager = new WorktreeManager(executor, workDir, worktreeBaseDir);
+  console.log(`📁 Worktree 基础目录: ${worktreeBaseDir}`);
+  
+  conversationManager = new ConversationManager(storageAdapter, gitService, gitlabService, worktreeManager);
   const databaseUrl = process.env.DATABASE_URL || '';
   const neovateAIService = new NeovateAIService(executor, workDir, databaseUrl);
   conversationAIService = new ConversationAIService(neovateAIService, databaseUrl, gitService, gitlabService);
   messageRouter = new MessageRouter(conversationManager, conversationAIService);
 
   console.log('✅ 对话服务已初始化 (存储: Drizzle/Supabase)');
-
-  // 加载历史会话
-  try {
-    const sessions = await conversationManager.listSessions();
-    console.log(`📚 已加载 ${sessions.length} 个历史对话会话`);
-    if (sessions.length > 0) {
-      console.log('   最近的会话:');
-      sessions
-        .sort((a: any, b: any) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
-        .slice(0, 5)
-        .forEach((session: any) => {
-          console.log(`   - ${session.id} (${session.status}) - ${new Date(session.updatedAt).toLocaleString('zh-CN')}`);
-        });
-    }
-  } catch (error) {
-    console.error('❌ 加载历史会话失败:', error instanceof Error ? error.message : error);
-  }
   } catch (error) {
     console.warn('⚠️  服务初始化失败（可能缺少配置）:', error instanceof Error ? error.message : error);
     console.warn('⚠️  系统将以只读模式运行（仅支持查询任务）');
@@ -213,6 +203,10 @@ async function startServer() {
   await initializeServices();
 
   // 2. 注册 API 路由
+  // 认证路由
+  const { createAuthRoutes } = require('./api/authRoutes');
+  app.use('/api/auth', createAuthRoutes());
+
   // 对话路由（在服务初始化后注册）
   if (conversationManager && messageRouter && conversationAIService) {
     app.use('/api/conversations', createConversationRoutes(conversationManager, messageRouter, conversationAIService));

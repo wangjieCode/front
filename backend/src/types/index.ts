@@ -343,6 +343,7 @@ export interface ConversationContext {
 export interface ConversationSession {
   id: string;                 // 会话 ID
   taskId: string;             // 关联的任务 ID
+  userId?: string;            // 用户 ID
   status: ConversationStatus; // 会话状态
   context: ConversationContext; // 会话上下文
   createdAt: Date;            // 创建时间

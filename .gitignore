@@ -41,3 +41,5 @@ backend/workspace/*
 # 数据文件
 backend/data/
 backend/backend/data/
+
+front-workspace/
