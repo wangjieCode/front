@@ -74,10 +74,26 @@ export function validateSSHConfig(config: SSHConfig): void {
  * @returns Git 工作目录路径
  */
 export function getGitWorkDir(): string {
-  const workDir = process.env.GIT_WORK_DIR;
+  const runMode = process.env.RUN_MODE || 'local';
+  
+  // 优先使用 GIT_WORK_DIR（兼容旧配置）
+  let workDir = process.env.GIT_WORK_DIR;
+  
+  // 如果没有 GIT_WORK_DIR，根据运行模式选择
   if (!workDir) {
-    throw new Error('GIT_WORK_DIR 环境变量未设置');
+    if (runMode === 'local') {
+      workDir = process.env.LOCAL_GIT_WORK_DIR;
+    } else {
+      workDir = process.env.REMOTE_GIT_WORK_DIR;
+    }
   }
+  
+  if (!workDir) {
+    throw new Error(
+      `Git 工作目录未配置。请设置 ${runMode === 'local' ? 'LOCAL_GIT_WORK_DIR' : 'REMOTE_GIT_WORK_DIR'} 环境变量`
+    );
+  }
+  
   return workDir;
 }
 
@@ -86,7 +102,22 @@ export function getGitWorkDir(): string {
  * @returns 默认分支名称
  */
 export function getGitDefaultBranch(): string {
-  return process.env.GIT_DEFAULT_BRANCH || 'main';
+  const runMode = process.env.RUN_MODE || 'local';
+  
+  // 优先使用 GIT_DEFAULT_BRANCH
+  let defaultBranch = process.env.GIT_DEFAULT_BRANCH;
+  
+  // 如果没有，根据运行模式选择
+  if (!defaultBranch) {
+    if (runMode === 'local') {
+      defaultBranch = process.env.LOCAL_GIT_DEFAULT_BRANCH;
+    } else {
+      defaultBranch = process.env.REMOTE_GIT_DEFAULT_BRANCH;
+    }
+  }
+  
+  // 最终默认值
+  return defaultBranch || 'master';
 }
 
 /**

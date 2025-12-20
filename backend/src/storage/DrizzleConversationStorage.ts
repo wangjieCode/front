@@ -389,6 +389,21 @@ export class DrizzleConversationStorage {
   async saveContext(conversationId: string, context: any): Promise<void> {
     const db = this.getDb();
 
+    // 提取上下文字段
+    const contextData = {
+      workDir: context.projectInfo?.workDir || context.workDir,
+      worktreePath: context.projectInfo?.worktreePath || context.worktreePath,
+      gitBranch: context.projectInfo?.gitBranch || context.gitBranch,
+      relevantFiles: context.projectInfo?.relevantFiles || context.relevantFiles,
+      taskDescription: context.taskDescription,
+      currentBranchId: context.currentBranchId,
+      variables: context.variables || {},
+      mode: context.mode || 'edit',
+      contextGitBranch: context.gitBranch,
+      mrUrl: context.mrUrl,
+      previewInfo: context.previewInfo,
+    };
+
     // 检查是否已存在
     const existing = await db
       .select()
@@ -401,7 +416,7 @@ export class DrizzleConversationStorage {
       await db
         .update(conversationContexts)
         .set({
-          ...context,
+          ...contextData,
           updatedAt: new Date(),
         })
         .where(eq(conversationContexts.conversationId, conversationId));
@@ -409,7 +424,7 @@ export class DrizzleConversationStorage {
       // 插入新上下文
       await db.insert(conversationContexts).values({
         conversationId,
-        ...context,
+        ...contextData,
       });
     }
 
