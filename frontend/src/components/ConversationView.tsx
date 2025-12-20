@@ -70,20 +70,12 @@ const ConversationView: React.FC<ConversationViewProps> = ({
       // If initialSession is provided and matches the current sessionId, use it immediately
       if (initialSession && initialSession.id === sessionId) {
         setSession(initialSession);
-        // We still fetch messages, but we don't need to block the UI with a full spinner
-        // if we already have the session structure.
-        // However, if we are switching to a new session, we might want to show loading for messages?
-        // For a newly created session, messages are empty, so it's fine.
-        // For an existing session, we might want to show loading in the message area.
-
         // We only set global loading if we don't have a session to show
         if (!session || session.id !== sessionId) {
-          // If we are switching, we might want to clear old session data to avoid confusion
-          // But if initialSession is here, we use it.
+          setLoading(false);
         }
       } else {
         // If no initial session, or it doesn't match, we need to fetch.
-        // If we are switching sessions, we should probably show loading.
         setLoading(true);
         setSession(null);
       }
@@ -609,7 +601,16 @@ const ConversationView: React.FC<ConversationViewProps> = ({
       background: '#fff'
     }}>
       {/* Header */}
-      {sessionId && session && (
+      {sessionId && session && (() => {
+        console.log('[ConversationView] Header渲染检查:', {
+          sessionId,
+          gitBranch: session.context?.gitBranch,
+          mode: session.context?.mode,
+          mrUrl: session.context?.mrUrl,
+          previewInfo: !!session.context?.previewInfo
+        });
+        return true;
+      })() && (
         <div style={{
           padding: '16px 24px',
           borderBottom: '1px solid #e5e5e5',

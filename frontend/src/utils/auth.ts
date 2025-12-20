@@ -23,6 +23,14 @@ export const authUtils = {
     return { userId, username };
   },
 
+  getUserId(): string | null {
+    return localStorage.getItem(USER_ID_KEY);
+  },
+
+  getUsername(): string | null {
+    return localStorage.getItem(USERNAME_KEY);
+  },
+
   clearUserInfo(): void {
     localStorage.removeItem(USER_ID_KEY);
     localStorage.removeItem(USERNAME_KEY);

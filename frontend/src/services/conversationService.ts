@@ -7,7 +7,7 @@ import {
   PreviewStatusResponse,
 } from '../types/conversation';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+const API_BASE_URL = import.meta.env.VITE_API_URL || '';
 
 /**
  * 轮询配置
@@ -69,6 +69,11 @@ class ConversationService {
     const userId = localStorage.getItem('user_id');
     if (userId) {
       headers['x-user-id'] = userId;
+      
+      const username = localStorage.getItem('username');
+      if (username) {
+        headers['x-username'] = username;
+      }
     }
     
     return headers;

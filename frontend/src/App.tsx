@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Layout, Typography, Button, message, List, Spin, Popconfirm, Dropdown } from 'antd';
+import { v4 as uuidv4 } from 'uuid';
 import {
   PlusOutlined,
   MessageOutlined,
@@ -55,7 +56,7 @@ const App: React.FC = () => {
     loadConversations();
   }, []);
 
-  // 提交新对话
+// 提交新对话
   const handleSubmit = async (promptText: string, conversationMode: ConversationMode) => {
     if (!promptText.trim()) {
       message.warning('请输入你的需求');
