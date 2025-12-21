@@ -89,7 +89,7 @@ const AppContent: React.FC = () => {
 
     try {
       console.log('创建对话 - projectId:', projectId); // 调试日志
-      
+
       const response = await conversationService.createConversation({
         taskId: `task-${Date.now()}`,
         initialPrompt: promptText,
@@ -179,29 +179,7 @@ const AppContent: React.FC = () => {
                 前端小秘
               </Title>
             </Link>
-            {isLoggedIn && currentUser && (
-              <Dropdown
-                menu={{
-                  items: [
-                    {
-                      key: 'logout',
-                      icon: <LogoutOutlined />,
-                      label: '退出登录',
-                      onClick: handleLogout,
-                    },
-                  ],
-                }}
-                placement="bottomRight"
-              >
-                <Button
-                  className="user-info-btn"
-                  icon={<UserOutlined />}
-                  size="small"
-                >
-                  {currentUser.username}
-                </Button>
-              </Dropdown>
-            )}
+
           </div>
           <Button
             type="primary"
@@ -213,118 +191,172 @@ const AppContent: React.FC = () => {
             新对话
           </Button>
         </div>
-        
-        {currentPage === PageType.CONVERSATIONS && (
-          <div style={{ padding: '16px' }}>
-            {isConversationsLoading ? (
-              <div style={{ textAlign: 'center', padding: '20px' }}>
-                <Spin />
-              </div>
-            ) : (
-              <List
-                dataSource={conversations}
-                renderItem={(conv: any) => {
-                  const mode = conv.context?.mode || ConversationMode.EDIT;
-                  const ModeIcon = mode === ConversationMode.EDIT ? EditOutlined : EyeOutlined;
-                  const modeColor = mode === ConversationMode.EDIT ? '#1890ff' : '#8c8c8c';
 
-                  return (
-                    <List.Item
-                      key={conv.id}
-                      className={`conversation-item ${currentConversation?.id === conv.id ? 'active' : ''}`}
-                      onMouseEnter={() => setHoveredConvId(conv.id)}
-                      onMouseLeave={() => setHoveredConvId(null)}
-                      style={{
-                        cursor: 'pointer',
-                        padding: '12px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 8,
-                      }}
+        <div style={{ padding: '16px' }}>
+          {isConversationsLoading ? (
+            <div style={{ textAlign: 'center', padding: '20px' }}>
+              <Spin />
+            </div>
+          ) : (
+            <List
+              dataSource={conversations}
+              renderItem={(conv: any) => {
+                const mode = conv.context?.mode || ConversationMode.EDIT;
+                const projectName = conv.context?.projectInfo?.name || conv.context?.projectInfo?.workDir?.split('/').pop();
+
+                return (
+                  <List.Item
+                    key={conv.id}
+                    className={`conversation-item ${currentConversation?.id === conv.id ? 'active' : ''}`}
+                    onMouseEnter={() => setHoveredConvId(conv.id)}
+                    onMouseLeave={() => setHoveredConvId(null)}
+                    style={{
+                      cursor: 'pointer',
+                      padding: '12px 16px',
+                      display: 'flex',
+                      alignItems: 'flex-start',
+                      gap: 12,
+                      borderBottom: '1px solid #f0f0f0',
+                      background: currentConversation?.id === conv.id ? '#e6f7ff' : 'transparent',
+                      transition: 'all 0.2s',
+                    }}
+                  >
+                    <div
+                      style={{ flex: 1, minWidth: 0 }}
+                      onClick={() => handleConversationClick(conv)}
                     >
-                      <div 
-                        style={{ flex: 1, minWidth: 0 }}
-                        onClick={() => handleConversationClick(conv)}
-                      >
-                        <List.Item.Meta
-                          avatar={
-                            <div style={{ position: 'relative' }}>
-                              <MessageOutlined />
-                              <ModeIcon
-                                style={{
-                                  position: 'absolute',
-                                  bottom: -4,
-                                  right: -4,
-                                  fontSize: 10,
-                                  color: mode === ConversationMode.EDIT ? '#7c5cff' : '#8c8c8c',
-                                  background: '#ffffff',
-                                  borderRadius: '50%',
-                                  padding: 2
-                                }}
-                              />
+                      <div style={{ display: 'flex', gap: 12 }}>
+                        {/* Avatar */}
+                        <div style={{
+                          width: 32,
+                          height: 32,
+                          borderRadius: 8,
+                          background: mode === ConversationMode.EDIT ? 'rgba(124, 92, 255, 0.1)' : '#f5f5f5',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          color: mode === ConversationMode.EDIT ? '#7c5cff' : '#999',
+                          flexShrink: 0
+                        }}>
+                          <MessageOutlined style={{ fontSize: 16 }} />
+                        </div>
+
+                        {/* Content */}
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{
+                            fontWeight: 500,
+                            fontSize: 14,
+                            color: '#333',
+                            marginBottom: 4,
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap'
+                          }}>
+                            {conv.context?.taskDescription || '未命名对话'}
+                          </div>
+
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                              <span style={{
+                                fontSize: 10,
+                                padding: '1px 6px',
+                                borderRadius: 4,
+                                background: mode === ConversationMode.EDIT ? 'rgba(124, 92, 255, 0.1)' : '#f0f0f0',
+                                color: mode === ConversationMode.EDIT ? '#7c5cff' : '#666',
+                                border: mode === ConversationMode.EDIT ? '1px solid rgba(124, 92, 255, 0.2)' : '1px solid #d9d9d9',
+                                whiteSpace: 'nowrap'
+                              }}>
+                                {mode === ConversationMode.EDIT ? '编辑' : '只读'}
+                              </span>
+
+                              {projectName && (
+                                <span style={{
+                                  fontSize: 12,
+                                  color: '#666',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: 4,
+                                  minWidth: 0
+                                }}>
+                                  <FolderOutlined style={{ fontSize: 10, flexShrink: 0 }} />
+                                  <span style={{
+                                    overflow: 'hidden',
+                                    textOverflow: 'ellipsis',
+                                    whiteSpace: 'nowrap',
+                                    maxWidth: 90
+                                  }}>
+                                    {projectName}
+                                  </span>
+                                </span>
+                              )}
                             </div>
-                          }
-                          title={conv.context?.taskDescription || '未命名对话'}
-                          description={new Date(conv.createdAt).toLocaleString('zh-CN')}
-                        />
+
+                            <div style={{ fontSize: 11, color: '#999' }}>
+                              {new Date(conv.createdAt).toLocaleString('zh-CN', {
+                                month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit'
+                              })}
+                            </div>
+                          </div>
+                        </div>
                       </div>
-                      {hoveredConvId === conv.id && (
-                        <Popconfirm
-                          title="确认删除"
-                          description="确定要删除这个对话吗？"
-                          onConfirm={async (e) => {
-                            e?.stopPropagation();
-                            try {
-                              const response = await fetch(`/api/conversations/${conv.id}`, {
-                                method: 'DELETE',
-                              });
-                              const data = await response.json();
-                              
-                              if (data.success) {
-                                message.success('对话已删除');
-                                setConversations(prev => prev.filter(c => c.id !== conv.id));
-                                if (currentConversation?.id === conv.id) {
-                                  setCurrentConversation(null);
-                                }
-                              } else {
-                                message.error(data.error || '删除失败');
+                    </div>
+
+                    {hoveredConvId === conv.id && (
+                      <Popconfirm
+                        title="确认删除"
+                        description="确定要删除这个对话吗？"
+                        onConfirm={async (e) => {
+                          e?.stopPropagation();
+                          try {
+                            const response = await fetch(`/api/conversations/${conv.id}`, {
+                              method: 'DELETE',
+                            });
+                            const data = await response.json();
+
+                            if (data.success) {
+                              message.success('对话已删除');
+                              setConversations(prev => prev.filter(c => c.id !== conv.id));
+                              if (currentConversation?.id === conv.id) {
+                                setCurrentConversation(null);
                               }
-                            } catch (error) {
-                              console.error('删除对话失败:', error);
-                              message.error('删除失败');
+                            } else {
+                              message.error(data.error || '删除失败');
                             }
+                          } catch (error) {
+                            console.error('删除对话失败:', error);
+                            message.error('删除失败');
+                          }
+                        }}
+                        okText="删除"
+                        cancelText="取消"
+                        okButtonProps={{ danger: true }}
+                      >
+                        <Button
+                          type="text"
+                          danger
+                          size="small"
+                          icon={<DeleteOutlined />}
+                          onClick={(e) => e.stopPropagation()}
+                          style={{
+                            marginTop: 8,
+                            opacity: 0.6,
+                            transition: 'opacity 0.2s'
                           }}
-                          okText="删除"
-                          cancelText="取消"
-                          okButtonProps={{ danger: true }}
-                        >
-                          <Button
-                            type="text"
-                            danger
-                            size="small"
-                            icon={<DeleteOutlined />}
-                            onClick={(e) => e.stopPropagation()}
-                            style={{ 
-                              flexShrink: 0,
-                              opacity: 0.8,
-                              transition: 'opacity 0.2s'
-                            }}
-                            onMouseEnter={(e) => {
-                              e.currentTarget.style.opacity = '1';
-                            }}
-                            onMouseLeave={(e) => {
-                              e.currentTarget.style.opacity = '0.8';
-                            }}
-                          />
-                        </Popconfirm>
-                      )}
-                    </List.Item>
-                  );
-                }}
-              />
-            )}
-          </div>
-        )}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.opacity = '1';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.opacity = '0.6';
+                          }}
+                        />
+                      </Popconfirm>
+                    )}
+                  </List.Item>
+                );
+              }}
+            />
+          )}
+        </div>
       </Layout.Sider>
 
       <Layout style={{ marginLeft: 300, background: '#f5f5f5', height: '100vh', overflow: 'hidden' }}>
@@ -345,28 +377,84 @@ const AppContent: React.FC = () => {
               {currentPage === PageType.PROJECTS ? '管理您的Git项目和团队成员' : '与AI助手进行对话'}
             </Text>
           </div>
-          <Space>
-            <Link to="/">
-              <Button
-                type={currentPage === PageType.CONVERSATIONS ? 'default' : 'primary'}
-                icon={<MessageOutlined />}
-                className={currentPage === PageType.CONVERSATIONS ? '' : 'btn-primary'}
+          <Space size={16}>
+            <div style={{ background: '#f0f0f0', padding: '4px', borderRadius: '8px', display: 'flex' }}>
+              <Link to="/">
+                <Button
+                  type={currentPage === PageType.CONVERSATIONS ? 'text' : 'text'}
+                  icon={<MessageOutlined />}
+                  style={{
+                    background: currentPage === PageType.CONVERSATIONS ? '#fff' : 'transparent',
+                    boxShadow: currentPage === PageType.CONVERSATIONS ? '0 2px 8px rgba(0,0,0,0.1)' : 'none',
+                    borderRadius: '6px',
+                    color: currentPage === PageType.CONVERSATIONS ? '#1a1a1a' : '#666',
+                    height: 32,
+                    border: 'none'
+                  }}
+                >
+                  对话
+                </Button>
+              </Link>
+              <Link to="/projects">
+                <Button
+                  type={currentPage === PageType.PROJECTS ? 'text' : 'text'}
+                  icon={<FolderOutlined />}
+                  style={{
+                    background: currentPage === PageType.PROJECTS ? '#fff' : 'transparent',
+                    boxShadow: currentPage === PageType.PROJECTS ? '0 2px 8px rgba(0,0,0,0.1)' : 'none',
+                    borderRadius: '6px',
+                    color: currentPage === PageType.PROJECTS ? '#1a1a1a' : '#666',
+                    height: 32,
+                    border: 'none'
+                  }}
+                >
+                  项目
+                </Button>
+              </Link>
+            </div>
+
+            <div style={{ width: 1, height: 24, background: '#e0e0e0' }} />
+
+            {isLoggedIn && currentUser ? (
+              <Dropdown
+                menu={{
+                  items: [
+                    {
+                      key: 'logout',
+                      icon: <LogoutOutlined />,
+                      label: '退出登录',
+                      onClick: handleLogout,
+                    },
+                  ],
+                }}
+                placement="bottomRight"
               >
-                对话
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                  <div style={{
+                    width: 32,
+                    height: 32,
+                    background: '#7c5cff',
+                    borderRadius: '50%',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: '#fff',
+                    fontWeight: 600,
+                    fontSize: 14
+                  }}>
+                    {currentUser.username.charAt(0).toUpperCase()}
+                  </div>
+                  <Text strong style={{ color: '#333' }}>{currentUser.username}</Text>
+                </div>
+              </Dropdown>
+            ) : (
+              <Button type="primary" onClick={() => setShowLoginModal(true)}>
+                登录
               </Button>
-            </Link>
-            <Link to="/projects">
-              <Button
-                type={currentPage === PageType.PROJECTS ? 'default' : 'primary'}
-                icon={<FolderOutlined />}
-                className={currentPage === PageType.PROJECTS ? '' : 'btn-primary'}
-              >
-                项目
-              </Button>
-            </Link>
+            )}
           </Space>
         </div>
-        
+
         <Content className="main-content" style={{ height: 'calc(100% - 73px)', overflow: 'hidden' }}>
           <Routes>
             <Route path="/projects" element={<ProjectsPage />} />
