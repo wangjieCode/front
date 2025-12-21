@@ -415,7 +415,7 @@ export class DrizzleConversationStorage {
     const contextData = {
       workDir: context.projectInfo?.workDir || context.workDir,
       worktreePath: context.projectInfo?.worktreePath || context.worktreePath,
-      gitBranch: context.projectInfo?.gitBranch || context.gitBranch,
+      gitBranch: context.gitBranch || context.projectInfo?.gitBranch, // 优先使用 context.gitBranch
       relevantFiles: context.projectInfo?.relevantFiles || context.relevantFiles,
       taskDescription: context.taskDescription,
       currentBranchId: context.currentBranchId,
@@ -425,6 +425,11 @@ export class DrizzleConversationStorage {
       mrUrl: context.mrUrl,
       previewInfo: context.previewInfo,
     };
+    
+    console.log(`[DrizzleConversationStorage] saveContext - conversationId: ${conversationId}`);
+    console.log(`[DrizzleConversationStorage] saveContext - context.gitBranch: ${context.gitBranch}`);
+    console.log(`[DrizzleConversationStorage] saveContext - contextData.contextGitBranch: ${contextData.contextGitBranch}`);
+    console.log(`[DrizzleConversationStorage] saveContext - contextData.gitBranch: ${contextData.gitBranch}`);
 
     // 检查是否已存在
     const existing = await db
@@ -496,6 +501,11 @@ export class DrizzleConversationStorage {
       mrUrl: rawContext.mrUrl,
       previewInfo: rawContext.previewInfo,
     };
+    
+    console.log(`[DrizzleConversationStorage] loadContext - rawContext.contextGitBranch: ${rawContext.contextGitBranch}`);
+    console.log(`[DrizzleConversationStorage] loadContext - context.gitBranch: ${context.gitBranch}`);
+    console.log(`[DrizzleConversationStorage] loadContext - rawContext.mrUrl: ${rawContext.mrUrl}`);
+    console.log(`[DrizzleConversationStorage] loadContext - context.mrUrl: ${context.mrUrl}`);
     
     console.log(`[DrizzleConversationStorage] loadContext - conversationId: ${conversationId}`);
     console.log(`[DrizzleConversationStorage] rawContext.workDir: ${rawContext.workDir}`);
