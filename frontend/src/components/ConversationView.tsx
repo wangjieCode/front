@@ -123,6 +123,10 @@ const ConversationView: React.FC<ConversationViewProps> = ({
       const response = await fetch(`/api/conversations/${sessionId}`);
       const data = await response.json();
       if (data.success) {
+        console.log('[ConversationView] loadSession - 返回的session:', data.data);
+        console.log('[ConversationView] loadSession - context.mode:', data.data.context?.mode);
+        console.log('[ConversationView] loadSession - context.gitBranch:', data.data.context?.gitBranch);
+        console.log('[ConversationView] loadSession - context.mrUrl:', data.data.context?.mrUrl);
         setSession(data.data);
       }
     } catch (error) {
@@ -596,16 +600,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
       background: '#fff'
     }}>
       {/* Header */}
-      {sessionId && session && (() => {
-        console.log('[ConversationView] Header渲染检查:', {
-          sessionId,
-          gitBranch: session.context?.gitBranch,
-          mode: session.context?.mode,
-          mrUrl: session.context?.mrUrl,
-          previewInfo: !!session.context?.previewInfo
-        });
-        return true;
-      })() && (
+      {sessionId && session && (
         <div style={{
           padding: '16px 24px',
           borderBottom: '1px solid #e5e5e5',
@@ -670,7 +665,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
                   )}
                   
                   {/* MR 链接或创建按钮 */}
-                  {session.context?.gitBranch && session.context.mode === 'edit' && (
+                  {session.context?.mode === 'edit' && (
                     session.context?.mrUrl ? (
                       <a
                         href={session.context.mrUrl}
