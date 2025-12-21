@@ -131,6 +131,8 @@ export class ConversationManager {
       }
       // mrUrl 初始为空，待用户手动创建
       console.log(`[ConversationManager] ✅ Git 分支已创建: ${gitResult.branchName}`);
+      console.log(`[ConversationManager] context.gitBranch 设置为: ${context.gitBranch}`);
+      console.log(`[ConversationManager] context.mode 设置为: ${context.mode}`);
     } else if (mode === ConversationMode.READONLY) {
       if (!this.worktreeManager) {
         throw new Error('只读模式需要 Worktree 管理器，但服务未初始化');
