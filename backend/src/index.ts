@@ -207,6 +207,10 @@ async function startServer() {
   const { createAuthRoutes } = require('./api/authRoutes');
   app.use('/api/auth', createAuthRoutes());
 
+  // 项目管理路由
+  const { createProjectRoutes } = require('./api/projectRoutes');
+  app.use('/api/projects', createProjectRoutes(executor));
+
   // 对话路由（在服务初始化后注册）
   if (conversationManager && messageRouter && conversationAIService) {
     app.use('/api/conversations', createConversationRoutes(conversationManager, messageRouter, conversationAIService));

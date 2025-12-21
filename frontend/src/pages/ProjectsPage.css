@@ -1,0 +1,233 @@
+/* 项目管理页面样式 */
+.projects-page {
+  background: #f5f5f5;
+  min-height: 100vh;
+}
+
+.projects-content {
+  padding: 16px 24px 24px;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+
+
+/* 统计信息 */
+.stats-row {
+  margin-bottom: 24px;
+}
+
+.stats-row .ant-card {
+  text-align: center;
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+.stats-row .ant-statistic-title {
+  font-size: 14px;
+  color: #666;
+}
+
+.stats-row .ant-statistic-content {
+  font-size: 24px;
+  font-weight: 600;
+}
+
+/* 过滤卡片 */
+.filter-card {
+  margin-bottom: 24px;
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+/* 项目列表卡片 */
+.projects-list-card {
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+.projects-list-card .ant-card-body {
+  padding: 24px;
+}
+
+/* 加载状态 */
+.loading-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 0;
+  gap: 16px;
+}
+
+/* 项目卡片 */
+.project-card {
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  transition: all 0.3s ease;
+  height: 100%;
+}
+
+.project-card:hover {
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+  transform: translateY(-2px);
+}
+
+.project-card .ant-card-head {
+  border-bottom: none;
+  padding: 16px 24px 0;
+}
+
+.project-card .ant-card-body {
+  padding: 16px 24px;
+}
+
+.project-card .ant-card-actions {
+  border-top: 1px solid #f0f0f0;
+  background: #fafafa;
+}
+
+.project-card .ant-card-actions li {
+  margin: 12px 0;
+}
+
+/* 项目标题 */
+.project-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #1a1a1a;
+  margin: 0 !important;
+}
+
+/* 项目描述 */
+.project-description {
+  margin: 8px 0 16px;
+  min-height: 40px;
+}
+
+.project-description .ant-typography {
+  margin-bottom: 0 !important;
+  color: #666;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+/* 项目信息 */
+.project-info {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.info-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.info-icon {
+  color: #7c5cff;
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.info-text {
+  font-size: 13px;
+  color: #666;
+  flex: 1;
+}
+
+/* 主按钮样式 */
+.btn-primary {
+  background: linear-gradient(135deg, #7c5cff 0%, #6b4ce0 100%) !important;
+  border: none !important;
+  box-shadow: 0 2px 8px rgba(124, 92, 255, 0.3) !important;
+}
+
+.btn-primary:hover,
+.btn-primary:focus {
+  background: linear-gradient(135deg, #6b4ce0 0%, #5a3bc7 100%) !important;
+  box-shadow: 0 4px 12px rgba(124, 92, 255, 0.4) !important;
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+  .projects-content {
+    padding: 16px;
+  }
+  
+  .header-content {
+    flex-direction: column;
+    gap: 16px;
+    align-items: stretch;
+  }
+  
+  .stats-row .ant-col {
+    margin-bottom: 16px;
+  }
+  
+  .filter-card .ant-row {
+    flex-direction: column;
+    gap: 16px;
+  }
+  
+  .project-card .ant-card-actions {
+    flex-wrap: wrap;
+  }
+  
+  .project-card .ant-card-actions li {
+    flex: 1;
+    min-width: 0;
+  }
+}
+
+/* 动画效果 */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.project-card {
+  animation: fadeIn 0.3s ease-out;
+}
+
+/* 空状态样式 */
+.ant-empty {
+  padding: 60px 0;
+}
+
+.ant-empty-description {
+  color: #999;
+}
+
+/* 标签样式 */
+.ant-tag {
+  border-radius: 4px;
+  font-size: 12px;
+  padding: 2px 8px;
+  line-height: 1.2;
+}
+
+/* 搜索框样式 */
+.ant-input-search .ant-input {
+  border-radius: 8px 0 0 8px;
+}
+
+.ant-input-search .ant-input-search-button {
+  border-radius: 0 8px 8px 0;
+}
+
+/* 选择器样式 */
+.ant-select {
+  border-radius: 8px;
+}
+
+.ant-select-selector {
+  border-radius: 8px !important;
+}

@@ -11,3 +11,5 @@ export * from './NeovateAIService';
 export * from './CodeToolService';
 export * from './GitLabMCPService';
 export * from './ProjectPreviewService';
+export * from './ProjectService';
+export * from './RepositoryService';
