@@ -148,6 +148,7 @@ async function initializeServices() {
   const { ConversationStorageAdapter } = require('./storage/ConversationStorageAdapter');
   const { GitService } = require('./services/GitService');
   const { GitLabMCPService } = require('./services/GitLabMCPService');
+  const { ProjectService } = require('./services/ProjectService');
 
   // 使用 Drizzle 存储
   if (!conversationStorage) {
@@ -168,7 +169,10 @@ async function initializeServices() {
   const worktreeManager = new WorktreeManager(executor, workDir, worktreeBaseDir);
   console.log(`📁 Worktree 基础目录: ${worktreeBaseDir}`);
   
-  conversationManager = new ConversationManager(storageAdapter, gitService, gitlabService, worktreeManager);
+  // 创建 ProjectService
+  const projectService = new ProjectService(executor);
+  
+  conversationManager = new ConversationManager(storageAdapter, projectService, gitService, gitlabService, worktreeManager);
   const databaseUrl = process.env.DATABASE_URL || '';
   const neovateAIService = new NeovateAIService(executor, workDir, databaseUrl);
   conversationAIService = new ConversationAIService(neovateAIService, databaseUrl, gitService, gitlabService);
@@ -206,6 +210,10 @@ async function startServer() {
   // 认证路由
   const { createAuthRoutes } = require('./api/authRoutes');
   app.use('/api/auth', createAuthRoutes());
+
+  // 项目管理路由
+  const { createProjectRoutes } = require('./api/projectRoutes');
+  app.use('/api/projects', createProjectRoutes(executor));
 
   // 对话路由（在服务初始化后注册）
   if (conversationManager && messageRouter && conversationAIService) {

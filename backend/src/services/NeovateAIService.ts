@@ -46,21 +46,25 @@ export class NeovateAIService {
   async modifyCode(
     prompt: string,
     conversationId?: string,
-    existingSessionId?: string
+    existingSessionId?: string,
+    customWorkDir?: string
   ): Promise<NeovateAIResult> {
     try {
       console.log('[NeovateAIService] ========== 开始执行 ==========');
       console.log('[NeovateAIService] conversationId:', conversationId);
       console.log('[NeovateAIService] existingSessionId:', existingSessionId);
-      console.log('[NeovateAIService] workDir:', this.workDir);
       
-      // 构造 neovate 命令（支持会话恢复）
-      const command = this.buildCommand(prompt, existingSessionId);
+      // 使用自定义工作目录或默认工作目录
+      const workDir = customWorkDir || this.workDir;
+      console.log('[NeovateAIService] workDir:', workDir);
+      
+      // 构造 neovate 命令（支持会话恢复和工作目录）
+      const command = this.buildCommand(prompt, existingSessionId, workDir);
       
       console.log('[NeovateAIService] 执行命令:', command);
       
       // 执行命令
-      const result = await this.sshExecutor.executeCommand(command, this.workDir);
+      const result = await this.sshExecutor.executeCommand(command, workDir);
       
       // 检查执行是否成功
       if (result.exitCode !== 0) {
@@ -128,7 +132,7 @@ export class NeovateAIService {
       }
 
       // 解析输出，提取代码变更
-      const changes = await this.parseOutput(result.stdout);
+      const changes = await this.parseOutput(result.stdout, workDir);
 
       return {
         success: true,
@@ -151,9 +155,10 @@ export class NeovateAIService {
    * 构造 neovate 命令
    * @param prompt 用户提示词
    * @param sessionId 会话 ID（可选，用于恢复会话）
+   * @param customWorkDir 自定义工作目录（可选，用于覆盖默认工作目录）
    * @returns 完整的命令字符串
    */
-  private buildCommand(prompt: string, sessionId?: string): string {
+  private buildCommand(prompt: string, sessionId?: string, customWorkDir?: string): string {
     // 转义提示词中的特殊字符
     const escapedPrompt = prompt
       .replace(/\\/g, '\\\\')  // 转义反斜杠
@@ -161,13 +166,17 @@ export class NeovateAIService {
       .replace(/`/g, '\\`')     // 转义反引号
       .replace(/\$/g, '\\$');   // 转义美元符号
 
+    // 使用自定义工作目录或默认绝对路径
+    const workDir = customWorkDir ? require('path').resolve(customWorkDir) : this.absoluteWorkDir;
+    console.log(`[NeovateAIService] buildCommand 使用工作目录: ${workDir}`);
+
     // 构造 neovate 命令
     // -q: 非交互模式
     // --cwd: 指定工作目录（使用绝对路径）
     // --output-format stream-json: 使用流式 JSON 输出格式（每行一个 JSON 对象）
     // --approval-mode yolo: 自动批准所有操作
     // --resume: 恢复会话（如果提供了 sessionId）
-    let command = `neovate -q --cwd "${this.absoluteWorkDir}" --output-format stream-json --approval-mode yolo`;
+    let command = `neovate -q --cwd "${workDir}" --output-format stream-json --approval-mode yolo`;
     
     // 如果提供了 sessionId，添加 --resume 参数
     if (sessionId) {
@@ -182,9 +191,10 @@ export class NeovateAIService {
   /**
    * 解析 qodercli 的输出
    * @param rawOutput 原始输出
+   * @param workDir 工作目录
    * @returns 代码变更数组
    */
-  private async parseOutput(rawOutput: string): Promise<CodeChange[]> {
+  private async parseOutput(rawOutput: string, workDir?: string): Promise<CodeChange[]> {
     const changes: CodeChange[] = [];
 
     try {
@@ -224,14 +234,14 @@ export class NeovateAIService {
         }
 
         // 尝试获取该文件的 diff
-        const diff = await this.getFileDiff(filePath);
+        const diff = await this.getFileDiff(filePath, workDir);
         
         changes.push(createCodeChange(filePath, changeType, diff));
       }
 
       // 方法 3: 如果没有找到明确的文件变更标记，尝试通过 git diff 获取
       if (changes.length === 0) {
-        const diffOutput = await this.getAllDiff();
+        const diffOutput = await this.getAllDiff(workDir);
         if (diffOutput) {
           const parsedChanges = this.parseDiffOutput(diffOutput);
           changes.push(...parsedChanges);
@@ -250,13 +260,15 @@ export class NeovateAIService {
   /**
    * 获取指定文件的 diff
    * @param filePath 文件路径
+   * @param workDir 工作目录（可选，默认使用 this.workDir）
    * @returns diff 内容
    */
-  private async getFileDiff(filePath: string): Promise<string> {
+  private async getFileDiff(filePath: string, workDir?: string): Promise<string> {
     try {
+      const targetWorkDir = workDir || this.workDir;
       const result = await this.sshExecutor.executeCommand(
         `git diff HEAD -- "${filePath}"`,
-        this.workDir
+        targetWorkDir
       );
       return result.stdout || '';
     } catch (error) {
@@ -266,13 +278,15 @@ export class NeovateAIService {
 
   /**
    * 获取所有文件的 diff
+   * @param workDir 工作目录（可选，默认使用 this.workDir）
    * @returns diff 内容
    */
-  private async getAllDiff(): Promise<string> {
+  private async getAllDiff(workDir?: string): Promise<string> {
     try {
+      const targetWorkDir = workDir || this.workDir;
       const result = await this.sshExecutor.executeCommand(
         'git diff HEAD',
-        this.workDir
+        targetWorkDir
       );
       return result.stdout || '';
     } catch (error) {

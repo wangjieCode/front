@@ -140,7 +140,7 @@ class ConversationService {
   async createConversation(params: {
     taskId: string;
     initialPrompt: string;
-    projectInfo: { workDir: string; gitBranch?: string };
+    projectId: string;
     mode?: string; // 对话模式：'edit' 或 'readonly'
   }): Promise<{ success: boolean; data: ConversationSession }> {
     const response = await fetch(`${this.baseUrl}/api/conversations`, {

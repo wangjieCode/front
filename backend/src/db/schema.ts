@@ -188,5 +188,62 @@ export type NewMessageMetadata = typeof messageMetadata.$inferInsert;
 export type NeovateSession = typeof neovateSessions.$inferSelect;
 export type NewNeovateSession = typeof neovateSessions.$inferInsert;
 
+/**
+ * projects 表
+ * 存储项目信息
+ */
+export const projects = pgTable(
+  'projects',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    name: varchar('name', { length: 255 }).notNull(),
+    description: text('description'),
+    repoDir: text('repo_dir').notNull(),
+    gitBranch: varchar('git_branch', { length: 100 }).notNull().default('main'),
+    isActive: boolean('is_active').notNull().default(true),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+    createdBy: uuid('created_by'),
+    gitRepositoryUrl: varchar('git_repository_url', { length: 500 }).notNull(),
+    gitlabProjectId: varchar('gitlab_project_id', { length: 100 }),
+    gitlabUrl: varchar('gitlab_url', { length: 500 }),
+    workDirectory: varchar('work_directory', { length: 500 }).notNull(),
+    ownerId: uuid('owner_id').notNull(),
+  },
+  (table) => ({
+    ownerIdIdx: index('idx_projects_owner_id').on(table.ownerId),
+    nameIdx: index('idx_projects_name').on(table.name),
+    isActiveIdx: index('idx_projects_is_active').on(table.isActive),
+    createdAtIdx: index('idx_projects_created_at').on(table.createdAt),
+  })
+);
+
+/**
+ * project_members 表
+ * 存储项目成员信息
+ */
+export const projectMembers = pgTable(
+  'project_members',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    projectId: uuid('project_id').notNull(),
+    userId: uuid('user_id').notNull(),
+    role: varchar('role', { length: 50 }).notNull().default('member'), // owner, admin, member
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    projectIdIdx: index('idx_project_members_project_id').on(table.projectId),
+    userIdIdx: index('idx_project_members_user_id').on(table.userId),
+    projectUserUnique: index('unique_project_members_project_user').on(table.projectId, table.userId),
+  })
+);
+
+// 导出类型
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
+
+export type Project = typeof projects.$inferSelect;
+export type NewProject = typeof projects.$inferInsert;
+
+export type ProjectMember = typeof projectMembers.$inferSelect;
+export type NewProjectMember = typeof projectMembers.$inferInsert;

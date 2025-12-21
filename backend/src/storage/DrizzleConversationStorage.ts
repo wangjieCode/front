@@ -110,11 +110,14 @@ export class DrizzleConversationStorage {
    * 通过 ID 加载会话
    */
   async loadSession(sessionId: string): Promise<Conversation | null> {
-    // 检查缓存
-    const cached = this.getCached<Conversation>(`session:${sessionId}`);
-    if (cached) {
-      return cached;
-    }
+    console.log(`[DrizzleConversationStorage] loadSession - sessionId: ${sessionId}`);
+    
+    // 暂时禁用缓存以确保context正确加载
+    // const cached = this.getCached<Conversation>(`session:${sessionId}`);
+    // if (cached) {
+    //   console.log(`[DrizzleConversationStorage] loadSession - 返回缓存结果`);
+    //   return cached;
+    // }
 
     const db = this.getDb();
     
@@ -124,14 +127,33 @@ export class DrizzleConversationStorage {
       .where(eq(conversations.id, sessionId))
       .limit(1);
 
-    const session = result[0] || null;
+    const rawSession = result[0] || null;
     
-    // 缓存结果
-    if (session) {
-      this.setCache(`session:${sessionId}`, session);
+    if (rawSession) {
+      console.log(`[DrizzleConversationStorage] loadSession - 找到session，加载context`);
+      // 加载关联的上下文
+      const context = await this.loadContext(sessionId);
+      if (context) {
+        console.log(`[DrizzleConversationStorage] loadSession - context已设置，projectInfo.workDir: ${context.projectInfo?.workDir}`);
+        // 创建一个新的session对象，确保包含context字段
+        const session = {
+          ...rawSession,
+          context: context
+        };
+        console.log(`[DrizzleConversationStorage] loadSession - 返回session，context.projectInfo.workDir: ${session.context?.projectInfo?.workDir}`);
+        return session;
+      } else {
+        console.log(`[DrizzleConversationStorage] loadSession - context为空`);
+        const session = {
+          ...rawSession,
+          context: null
+        };
+        return session;
+      }
+    } else {
+      console.log(`[DrizzleConversationStorage] loadSession - session未找到`);
+      return null;
     }
-
-    return session;
   }
 
   /**
@@ -450,12 +472,37 @@ export class DrizzleConversationStorage {
       .where(eq(conversationContexts.conversationId, conversationId))
       .limit(1);
 
-    const context = result[0] || null;
+    const rawContext = result[0] || null;
+
+    if (!rawContext) {
+      return null;
+    }
+
+    // 转换为应用层期望的 ConversationContext 格式
+    const context = {
+      projectInfo: {
+        workDir: rawContext.workDir,
+        worktreePath: rawContext.worktreePath,
+        gitBranch: rawContext.gitBranch,
+        relevantFiles: rawContext.relevantFiles || [],
+      },
+      taskDescription: rawContext.taskDescription,
+      messageHistory: [], // 需要从其他地方加载
+      currentBranchId: rawContext.currentBranchId,
+      branches: [], // 需要从其他地方加载
+      variables: rawContext.variables || {},
+      mode: rawContext.mode || 'edit',
+      gitBranch: rawContext.contextGitBranch, // 这里是关键！
+      mrUrl: rawContext.mrUrl,
+      previewInfo: rawContext.previewInfo,
+    };
+    
+    console.log(`[DrizzleConversationStorage] loadContext - conversationId: ${conversationId}`);
+    console.log(`[DrizzleConversationStorage] rawContext.workDir: ${rawContext.workDir}`);
+    console.log(`[DrizzleConversationStorage] context.projectInfo.workDir: ${context.projectInfo.workDir}`);
 
     // 缓存结果
-    if (context) {
-      this.setCache(`context:${conversationId}`, context);
-    }
+    this.setCache(`context:${conversationId}`, context);
 
     return context;
   }

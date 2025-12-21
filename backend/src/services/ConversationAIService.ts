@@ -73,12 +73,17 @@ export class ConversationAIService {
         console.error('[ConversationAIService] ❌ 查询会话 ID 失败:', error);
       }
 
-      // 调用 AI 服务处理消息（传递 Neovate 会话 ID）
+      // 调用 AI 服务处理消息（传递 Neovate 会话 ID 和正确的工作目录）
+      const projectWorkDir = context.projectInfo.workDir;
       console.log(`[ConversationAIService] 调用 NeovateAIService - conversationId: ${sessionId}, neovateSessionId: ${neovateSessionId || '无'}`);
+      console.log(`[ConversationAIService] context.projectInfo:`, JSON.stringify(context.projectInfo, null, 2));
+      console.log(`[ConversationAIService] projectWorkDir: ${projectWorkDir}`);
+      console.log(`[ConversationAIService] context.workDir: ${context.workDir}`);
       const result = await this.neovateService.modifyCode(
         userMessage,
         sessionId,
-        neovateSessionId
+        neovateSessionId,
+        projectWorkDir
       );
 
       // 编辑模式：提交变更

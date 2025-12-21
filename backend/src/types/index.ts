@@ -180,6 +180,16 @@ export interface CodeToolConfigData {
 // ==================== 对话相关类型定义 ====================
 
 /**
+ * 创建对话请求接口
+ */
+export interface CreateConversationRequest {
+  initialPrompt: string;      // 初始提示词
+  taskId: string;              // 任务ID
+  mode?: ConversationMode;     // 对话模式（可选）
+  projectId: string;           // 项目ID（必填）
+}
+
+/**
  * 对话模式枚举
  */
 export enum ConversationMode {
@@ -269,7 +279,10 @@ export interface ConversationMessage {
  * 项目信息接口
  */
 export interface ProjectInfo {
-  workDir: string;            // 工作目录
+  projectId: string;          // 项目ID（必填）
+  projectName: string;        // 项目名称（必填）
+  gitRepositoryUrl: string;   // Git仓库URL（必填）
+  workDir: string;            // 工作目录（使用项目的workDirectory）
   gitBranch?: string;         // Git 分支
   relevantFiles?: string[];   // 相关文件
 }
@@ -448,4 +461,144 @@ export interface OperationResult {
   success: boolean;            // 是否成功
   message: string;             // 消息
   error?: string;              // 错误信息
+}
+
+// ==================== 项目管理相关类型定义 ====================
+
+// 导入数据库类型
+import type { projects, projectMembers, users } from '../db/schema';
+export type Project = typeof projects.$inferSelect;
+export type ProjectMember = typeof projectMembers.$inferSelect;
+export type User = typeof users.$inferSelect;
+
+/**
+ * 项目成员角色枚举
+ */
+export enum MemberRole {
+  OWNER = 'owner',    // 项目所有者：所有权限
+  ADMIN = 'admin',    // 管理员：管理成员、修改项目
+  MEMBER = 'member'   // 成员：查看项目、创建对话
+}
+
+/**
+ * 创建项目请求接口
+ */
+export interface CreateProjectRequest {
+  name: string;
+  description?: string;
+  gitRepositoryUrl: string;
+  gitlab?: {
+    projectId: string;
+    url: string;
+  };
+}
+
+/**
+ * 更新项目请求接口
+ */
+export interface UpdateProjectRequest {
+  name?: string;
+  description?: string;
+  gitRepositoryUrl?: string;
+  gitlab?: {
+    projectId?: string;
+    url?: string;
+  };
+  isActive?: boolean;
+}
+
+/**
+ * 项目过滤器接口
+ */
+export interface ProjectFilters {
+  isActive?: boolean;
+  search?: string; // 搜索项目名称或描述
+}
+
+/**
+ * 添加成员请求接口
+ */
+export interface AddMemberRequest {
+  userId: string;
+  role: MemberRole;
+}
+
+/**
+ * 项目结果接口
+ */
+export interface ProjectResult extends OperationResult {
+  project?: Project;
+}
+
+/**
+ * 项目列表结果接口
+ */
+export interface ProjectListResult extends OperationResult {
+  projects?: Project[];
+  total?: number;
+}
+
+/**
+ * 成员列表结果接口
+ */
+export interface MemberListResult extends OperationResult {
+  members?: (ProjectMember & { user: User })[];
+}
+
+/**
+ * 权限验证结果接口
+ */
+export interface PermissionResult {
+  hasPermission: boolean;
+  memberRole?: MemberRole;
+  isOwner: boolean;
+}
+
+/**
+ * 仓库验证结果接口
+ */
+export interface ValidationResult {
+  allowed: boolean;
+  reason?: string;
+}
+
+/**
+ * 仓库克隆结果接口
+ */
+export interface CloneResult extends OperationResult {
+  clonePath?: string;
+}
+
+/**
+ * 仓库状态枚举
+ */
+export enum RepositoryStatus {
+  PENDING = 'pending',      // 等待克隆
+  CLONING = 'cloning',      // 正在克隆
+  SUCCESS = 'success',      // 克隆成功
+  FAILED = 'failed',        // 克隆失败
+  UPDATING = 'updating'     // 正在更新
+}
+
+/**
+ * 仓库信息接口
+ */
+export interface RepositoryInfo {
+  exists: boolean;
+  branch: string;
+  lastCommit?: {
+    hash: string;
+    message: string;
+    author: string;
+    date: Date;
+  };
+  status: RepositoryStatus;
+  error?: string;
+}
+
+/**
+ * 仓库更新结果接口
+ */
+export interface UpdateResult extends OperationResult {
+  newCommits?: number;
 }
