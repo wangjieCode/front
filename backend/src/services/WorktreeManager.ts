@@ -7,6 +7,7 @@ import { ICommandExecutor } from '../types';
  */
 export interface WorktreeInfo {
   userId: string;
+  projectId?: string;        // 新增：项目ID（可选）
   worktreePath: string;
   mainBranch: string;
   createdAt: Date;
@@ -37,23 +38,29 @@ export class WorktreeManager {
   /**
    * 获取用户的 worktree 路径
    */
-  private getUserWorktreePath(userId: string): string {
+  private getUserWorktreePath(userId: string, projectId?: string): string {
+    if (projectId) {
+      // 如果有项目ID，使用项目+用户维度
+      return path.join(this.worktreeBaseDir, `project-${projectId}`, `user-${userId}`);
+    }
+    // 保持向后兼容，如果没有项目ID，使用原有的用户维度
     return path.join(this.worktreeBaseDir, `user-${userId}`);
   }
 
   /**
    * 检查 worktree 是否存在
    */
-  async worktreeExists(userId: string): Promise<boolean> {
-    const worktreePath = this.getUserWorktreePath(userId);
+  async worktreeExists(userId: string, projectId?: string): Promise<boolean> {
+    const worktreePath = this.getUserWorktreePath(userId, projectId);
     
     try {
+      // 检查目录是否存在
       const result = await this.executor.executeCommand(
-        `git worktree list`,
+        `test -d "${worktreePath}" && echo "exists" || echo "not exists"`,
         this.baseRepoPath
       );
       
-      return result.stdout.includes(worktreePath);
+      return result.stdout.trim() === 'exists';
     } catch (error) {
       console.error(`[WorktreeManager] 检查 worktree 失败:`, error);
       return false;
@@ -65,14 +72,15 @@ export class WorktreeManager {
    */
   async createWorktree(
     userId: string,
-    baseBranch: string = 'master'
+    baseBranch: string = 'master',
+    projectId?: string
   ): Promise<WorktreeInfo> {
-    const worktreePath = this.getUserWorktreePath(userId);
+    const worktreePath = this.getUserWorktreePath(userId, projectId);
     
     // 检查是否已存在
-    if (await this.worktreeExists(userId)) {
+    if (await this.worktreeExists(userId, projectId)) {
       console.log(`[WorktreeManager] Worktree 已存在: ${worktreePath}`);
-      return this.getWorktreeInfo(userId);
+      return this.getWorktreeInfo(userId, projectId);
     }
 
     try {
@@ -101,6 +109,7 @@ export class WorktreeManager {
       const now = new Date();
       const worktreeInfo: WorktreeInfo = {
         userId,
+        projectId,
         worktreePath,
         mainBranch: baseBranch,
         createdAt: now,
@@ -122,20 +131,21 @@ export class WorktreeManager {
   /**
    * 获取用户的 worktree 信息
    */
-  async getWorktreeInfo(userId: string): Promise<WorktreeInfo> {
+  async getWorktreeInfo(userId: string, projectId?: string): Promise<WorktreeInfo> {
     // 先从缓存获取
-    if (this.worktreeCache.has(userId)) {
-      const info = this.worktreeCache.get(userId)!;
+    const cacheKey = projectId ? `${userId}-${projectId}` : userId;
+    if (this.worktreeCache.has(cacheKey)) {
+      const info = this.worktreeCache.get(cacheKey)!;
       info.lastUsedAt = new Date();
       return info;
     }
 
     // 从 git worktree list 获取
-    const worktreePath = this.getUserWorktreePath(userId);
-    const exists = await this.worktreeExists(userId);
+    const worktreePath = this.getUserWorktreePath(userId, projectId);
+    const exists = await this.worktreeExists(userId, projectId);
 
     if (!exists) {
-      throw new Error(`用户 ${userId} 的 worktree 不存在`);
+      throw new Error(`用户 ${userId} ${projectId ? `项目 ${projectId} 的` : ''} worktree 不存在`);
     }
 
     // 获取当前分支
@@ -162,12 +172,19 @@ export class WorktreeManager {
    */
   async getOrCreateWorktree(
     userId: string,
-    baseBranch: string = 'master'
+    projectIdOrBaseBranch?: string,
+    baseBranch?: string
   ): Promise<WorktreeInfo> {
-    if (await this.worktreeExists(userId)) {
-      return this.getWorktreeInfo(userId);
+    // 判断参数：如果第二个参数是 UUID 格式，则认为是 projectId
+    const isProjectId = projectIdOrBaseBranch && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(projectIdOrBaseBranch);
+    
+    const projectId = isProjectId ? projectIdOrBaseBranch : undefined;
+    const actualBaseBranch = isProjectId ? (baseBranch || 'master') : (projectIdOrBaseBranch || 'master');
+    
+    if (await this.worktreeExists(userId, projectId)) {
+      return this.getWorktreeInfo(userId, projectId);
     }
-    return this.createWorktree(userId, baseBranch);
+    return this.createWorktree(userId, actualBaseBranch, projectId);
   }
 
   /**
@@ -184,9 +201,10 @@ export class WorktreeManager {
   async createConversationBranch(
     userId: string,
     sessionId: string,
-    baseBranch?: string
+    baseBranch?: string,
+    projectId?: string
   ): Promise<{ branchName: string; worktreePath: string }> {
-    const worktreeInfo = await this.getOrCreateWorktree(userId);
+    const worktreeInfo = await this.getOrCreateWorktree(userId, projectId);
     const gitService = new GitService(this.executor, worktreeInfo.worktreePath);
 
     // 生成分支名称
@@ -216,11 +234,12 @@ export class WorktreeManager {
       throw new Error(`创建分支失败: ${createResult.stderr}`);
     }
 
-    // 推送分支到远程
-    const pushResult = await gitService.push(branchName);
-    if (!pushResult.success) {
-      throw new Error(`推送分支失败: ${pushResult.error}`);
-    }
+    // 推送分支到远程（暂时禁用以避免shallow更新问题）
+    // const pushResult = await gitService.push(branchName);
+    // if (!pushResult.success) {
+    //   throw new Error(`推送分支失败: ${pushResult.error}`);
+    // }
+    console.log(`[WorktreeManager] ⚠️  跳过推送分支以避免shallow更新问题`);
 
     console.log(`[WorktreeManager] ✅ 对话分支创建成功: ${branchName}`);
 

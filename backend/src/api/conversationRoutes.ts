@@ -72,6 +72,8 @@ export function createConversationRoutes(
   messageRouter: MessageRouter,
   aiService: ConversationAIService
 ): Router {
+  // 获取 ConversationManager 中的 ProjectService 实例
+  const projectService = (conversationManager as any).projectService;
   const router = Router();
 
   /**
@@ -80,24 +82,62 @@ export function createConversationRoutes(
    */
   router.post('/', requireAuth, async (req: AuthRequest, res: Response) => {
     try {
-      const { initialPrompt, taskDescription, mode } = req.body;
+      const { initialPrompt, taskId, mode, projectId } = req.body;
+      
+      console.log('[API] 创建对话请求参数:', {
+        initialPrompt: initialPrompt?.substring(0, 50) + '...',
+        taskId,
+        mode,
+        projectId
+      });
 
-      // 兼容 initialPrompt 和 taskDescription 两种参数名
-      const prompt = initialPrompt || taskDescription;
-
-      if (!prompt) {
+      if (!initialPrompt) {
         return res.status(400).json({
           success: false,
-          error: '缺少必需参数: initialPrompt/taskDescription',
+          error: '缺少必需参数: initialPrompt',
         });
       }
 
-      // 自动生成 taskId
-      const taskId = `task-${Date.now()}`;
+      if (!taskId) {
+        return res.status(400).json({
+          success: false,
+          error: '缺少必需参数: taskId',
+        });
+      }
 
-      // 使用环境变量的 workDir（worktree 会自动管理）
+      if (!projectId) {
+        return res.status(400).json({
+          success: false,
+          error: '缺少必需参数: projectId',
+        });
+      }
+
+      // 验证项目是否存在
+      try {
+        console.log('[API] 验证项目:', projectId, '用户:', req.userId);
+        const projectResult = await projectService.getProject(projectId, req.userId!);
+        console.log('[API] 项目验证结果:', projectResult);
+        if (!projectResult.success || !projectResult.project) {
+          return res.status(404).json({
+            success: false,
+            error: projectResult.error || '项目不存在',
+          });
+        }
+      } catch (error) {
+        console.error('[API] 验证项目失败:', error);
+        console.error('[API] 错误堆栈:', error instanceof Error ? error.stack : error);
+        return res.status(500).json({
+          success: false,
+          error: `验证项目失败: ${error instanceof Error ? error.message : String(error)}`,
+        });
+      }
+
+      // 构建 projectInfo，ConversationManager 会进一步完善
       const projectInfo = {
-        workDir: process.env.LOCAL_GIT_WORK_DIR || process.env.REMOTE_GIT_WORK_DIR || process.env.GIT_WORK_DIR || '',
+        projectId,
+        projectName: '', // 将在 ConversationManager 中填充
+        gitRepositoryUrl: '', // 将在 ConversationManager 中填充
+        workDir: '', // 将在 ConversationManager 中填充
       };
 
       // 验证 mode 参数（如果提供）
@@ -110,7 +150,7 @@ export function createConversationRoutes(
 
       const session = await conversationManager.createSession(
         taskId,
-        prompt,
+        initialPrompt,
         projectInfo,
         mode,
         req.userId
@@ -224,6 +264,8 @@ export function createConversationRoutes(
       try {
         const updatedSession = await conversationManager.getSession(sessionId);
         if (updatedSession) {
+          console.log(`[conversationRoutes] 传递给AI的context - projectInfo.workDir: ${updatedSession.context?.projectInfo?.workDir}`);
+          console.log(`[conversationRoutes] 传递给AI的context - 完整projectInfo:`, JSON.stringify(updatedSession.context?.projectInfo, null, 2));
           const aiResponse = await aiService.generateResponse(
             updatedSession.context,
             content,

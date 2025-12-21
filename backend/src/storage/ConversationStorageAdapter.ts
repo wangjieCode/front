@@ -92,7 +92,14 @@ export class ConversationStorageAdapter implements IConversationStorage {
       return null;
     }
 
-    // 加载上下文
+    // 如果 DrizzleConversationStorage 已经返回了完整的 session（包含 context），直接使用
+    if (dbSession.context) {
+      console.log(`[ConversationStorageAdapter] 使用 DrizzleConversationStorage 返回的完整 context，projectInfo.workDir: ${dbSession.context.projectInfo?.workDir}`);
+      return dbSession;
+    }
+
+    // 兼容性处理：如果没有 context，则手动构建
+    console.log(`[ConversationStorageAdapter] DrizzleConversationStorage 没有返回 context，手动构建`);
     const dbContext = await this.storage.loadContext(sessionId);
     if (!dbContext) {
       return null;
