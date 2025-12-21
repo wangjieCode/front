@@ -41,7 +41,7 @@ const MessageList: React.FC<MessageListProps> = ({
       case 'added':
         return <FileAddOutlined style={{ color: '#52c41a' }} />;
       case 'modified':
-        return <FileTextOutlined style={{ color: '#1890ff' }} />;
+        return <FileTextOutlined style={{ color: '#7c5cff' }} />;
       case 'deleted':
         return <DeleteOutlined style={{ color: '#ff4d4f' }} />;
       default:
@@ -131,7 +131,7 @@ const MessageList: React.FC<MessageListProps> = ({
         {options.map((option, index) => (
           <Tag
             key={index}
-            color="blue"
+            color="#7c5cff"
             style={{
               marginBottom: 4,
               padding: '4px 12px',
@@ -166,7 +166,7 @@ const MessageList: React.FC<MessageListProps> = ({
             allText += item.content;
           }
         }
-        
+
         if (allText) {
           return allText;
         }
@@ -202,7 +202,7 @@ const MessageList: React.FC<MessageListProps> = ({
             // 跳过无法解析的行
           }
         }
-        
+
         if (allText) {
           return allText;
         }
@@ -233,41 +233,46 @@ const MessageList: React.FC<MessageListProps> = ({
           display: 'flex',
           justifyContent: isUser ? 'flex-end' : 'flex-start',
           marginBottom: 24,
-          padding: '0 24px'
+          padding: '0 24px',
+          gap: 16,
         }}
         onClick={() => onMessageClick?.(message)}
       >
+        {/* AI 头像 */}
+        {!isUser && (
+          <div style={{ flexShrink: 0, marginTop: 4 }}>
+            <img
+              src="/ai-avatar.png"
+              alt="AI"
+              style={{
+                width: 36,
+                height: 36,
+                borderRadius: '50%',
+                objectFit: 'cover',
+                border: '1px solid #eee'
+              }}
+            />
+          </div>
+        )}
+
+        {/* 消息内容容器 */}
         <div
           style={{
             maxWidth: '48rem',
-            width: '100%',
-            padding: isUser ? '12px 16px' : '16px 0',
-            borderRadius: isUser ? 12 : 0,
-            background: isUser ? '#f4f4f4' : 'transparent',
-            color: '#000',
+            padding: isUser ? '12px 18px' : '12px 18px',
+            borderRadius: isUser ? '20px 20px 4px 20px' : '4px 20px 20px 20px',
+            background: isUser ? '#7c5cff' : '#f7f8fa',
+            color: isUser ? '#fff' : '#1f2937',
+            boxShadow: isUser ? '0 2px 8px rgba(124, 92, 255, 0.2)' : 'none',
+            lineHeight: 1.6,
+            fontSize: 15,
             cursor: onMessageClick ? 'pointer' : 'default',
           }}
         >
-          {/* 角色标签 */}
-          {!isUser && (
-            <div style={{ marginBottom: 12 }}>
-              <img
-                src="/ai-avatar.png"
-                alt="AI"
-                style={{
-                  width: 32,
-                  height: 32,
-                  borderRadius: '50%',
-                  objectFit: 'cover'
-                }}
-              />
-            </div>
-          )}
-
           {/* 消息内容 - 使用 Markdown 渲染 */}
-          <div style={{ color: '#000', lineHeight: 1.7 }}>
+          <div className="message-content">
             {!isUser && !isSystem && !displayContent ? (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#999', padding: '8px 0' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#999' }}>
                 <Spin size="small" />
                 <span>思考中...</span>
               </div>
@@ -284,8 +289,9 @@ const MessageList: React.FC<MessageListProps> = ({
                         PreTag="div"
                         customStyle={{
                           margin: '12px 0',
-                          borderRadius: 6,
-                          fontSize: 14,
+                          borderRadius: 8,
+                          fontSize: 13,
+                          border: '1px solid rgba(0,0,0,0.05)',
                         }}
                       >
                         {String(children).replace(/\n$/, '')}
@@ -294,10 +300,11 @@ const MessageList: React.FC<MessageListProps> = ({
                       <code
                         className={className}
                         style={{
-                          background: '#f4f4f4',
+                          background: isUser ? 'rgba(255,255,255,0.2)' : '#ebebeb',
+                          color: isUser ? '#fff' : '#c7254e',
                           padding: '2px 6px',
                           borderRadius: 4,
-                          fontSize: 14,
+                          fontSize: 13,
                           fontFamily: 'monospace'
                         }}
                       >
@@ -306,13 +313,16 @@ const MessageList: React.FC<MessageListProps> = ({
                     );
                   },
                   p({ children }: any) {
-                    return <p style={{ margin: '0 0 12px 0' }}>{children}</p>;
+                    return <p style={{ margin: '0 0 8px 0', lineHeight: 1.6 }}>{children}</p>;
                   },
                   ul({ children }: any) {
                     return <ul style={{ margin: '8px 0', paddingLeft: 24 }}>{children}</ul>;
                   },
                   ol({ children }: any) {
                     return <ol style={{ margin: '8px 0', paddingLeft: 24 }}>{children}</ol>;
+                  },
+                  a({ href, children }: any) {
+                    return <a href={href} style={{ color: isUser ? '#fff' : '#7c5cff', textDecoration: 'underline' }} target="_blank" rel="noopener noreferrer">{children}</a>;
                   },
                 }}
               >
@@ -324,7 +334,6 @@ const MessageList: React.FC<MessageListProps> = ({
           {/* 代码变更展示 */}
           {message.metadata?.codeChanges &&
             renderCodeChanges(message.metadata.codeChanges)}
-
 
           {/* 问题选项 */}
           {message.metadata?.questionOptions &&
@@ -340,6 +349,25 @@ const MessageList: React.FC<MessageListProps> = ({
               </div>
             )}
         </div>
+
+        {/* 用户头像 (可选) */}
+        {isUser && (
+          <div style={{ flexShrink: 0, marginTop: 4 }}>
+            <div style={{
+              width: 36,
+              height: 36,
+              borderRadius: '50%',
+              background: '#7c5cff',
+              color: '#fff',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontWeight: 'bold'
+            }}>
+              ME
+            </div>
+          </div>
+        )}
       </div>
     );
   };

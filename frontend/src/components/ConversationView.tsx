@@ -49,7 +49,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
   const [prompt, setPrompt] = useState('');
   const [selectedProjectId, setSelectedProjectId] = useState<string>('');
   const [selectedProject, setSelectedProject] = useState<any>(null);
-  
+
   // 预览相关状态
   const [isDeploying, setIsDeploying] = useState(false);
   const [previewStatus, setPreviewStatus] = useState<PreviewStatus | null>(null);
@@ -270,28 +270,28 @@ const ConversationView: React.FC<ConversationViewProps> = ({
 
     try {
       const result = await conversationService.createPreview(sessionId, false);
-      
+
       if (result.success && result.previewUrl) {
         setPreviewStatus(PreviewStatus.RUNNING);
         setDeploymentInfo(result.deploymentInfo);
-        
+
         // 显示部署成功信息
         if (result.deploymentInfo) {
-          message.success({ 
-            content: `部署成功！耗时 ${result.deploymentInfo.totalTime}s`, 
-            key: 'preview', 
-            duration: 3 
+          message.success({
+            content: `部署成功！耗时 ${result.deploymentInfo.totalTime}s`,
+            key: 'preview',
+            duration: 3
           });
-          
+
           // 自动显示部署详情
           setShowDeploymentModal(true);
         } else {
           message.success({ content: '部署成功！', key: 'preview', duration: 2 });
         }
-        
+
         // 刷新会话信息
         await loadSession();
-        
+
         // 延迟打开预览页面
         setTimeout(() => {
           window.open(result.previewUrl, '_blank');
@@ -302,10 +302,10 @@ const ConversationView: React.FC<ConversationViewProps> = ({
       }
     } catch (error) {
       setPreviewStatus(PreviewStatus.ERROR);
-      message.error({ 
-        content: `部署失败: ${error instanceof Error ? error.message : '未知错误'}`, 
-        key: 'preview', 
-        duration: 3 
+      message.error({
+        content: `部署失败: ${error instanceof Error ? error.message : '未知错误'}`,
+        key: 'preview',
+        duration: 3
       });
     } finally {
       setIsDeploying(false);
@@ -333,12 +333,12 @@ const ConversationView: React.FC<ConversationViewProps> = ({
    */
   const handleCreateMR = async () => {
     if (!sessionId) return;
-    
+
     setCreatingMR(true);
     try {
       const result = await conversationService.createMergeRequest(sessionId);
       message.success('MR 已创建');
-      
+
       // 重新加载会话以获取最新的 MR URL
       await loadSession();
     } catch (error) {
@@ -353,7 +353,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
    */
   const getPreviewButtonProps = () => {
     const currentStatus = session?.context?.previewInfo?.status || previewStatus;
-    
+
     if (isDeploying || currentStatus === PreviewStatus.BUILDING) {
       return {
         icon: <Spin size="small" />,
@@ -362,7 +362,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
         style: { background: '#d9d9d9', borderColor: '#d9d9d9' },
       };
     }
-    
+
     if (currentStatus === PreviewStatus.RUNNING) {
       return {
         icon: <CheckOutlined />,
@@ -371,7 +371,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
         style: { background: '#52c41a', borderColor: '#52c41a', color: '#fff' },
       };
     }
-    
+
     if (currentStatus === PreviewStatus.ERROR) {
       return {
         icon: <WarningOutlined />,
@@ -380,12 +380,12 @@ const ConversationView: React.FC<ConversationViewProps> = ({
         style: { background: '#fa8c16', borderColor: '#fa8c16', color: '#fff' },
       };
     }
-    
+
     return {
       icon: <RocketOutlined />,
       text: '预览项目',
       disabled: false,
-      style: { background: '#1890ff', borderColor: '#1890ff', color: '#fff' },
+      style: { background: '#7c5cff', borderColor: '#7c5cff', color: '#fff' },
     };
   };
 
@@ -415,21 +415,6 @@ const ConversationView: React.FC<ConversationViewProps> = ({
         </Paragraph>
       </div>
 
-      {/* 项目选择器 */}
-      <div style={{ marginBottom: 24 }}>
-        <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 8, color: '#333' }}>
-          选择项目 <span style={{ color: '#ff4d4f' }}>*</span>
-        </div>
-        <ProjectSelector
-          value={selectedProjectId}
-          onChange={(projectId, project) => {
-            setSelectedProjectId(projectId);
-            setSelectedProject(project);
-          }}
-          placeholder="请选择要操作的项目"
-        />
-      </div>
-
       {/* 输入卡片 */}
       <div
         className="glass-card"
@@ -441,11 +426,26 @@ const ConversationView: React.FC<ConversationViewProps> = ({
           boxShadow: '0 4px 20px rgba(0,0,0,0.05)'
         }}
       >
-        <div style={{ marginBottom: 24 }}>
+        <div style={{ marginBottom: 24, display: 'flex', gap: 24 }}>
+          {/* 项目选择器 */}
+          <div style={{ flex: 1 }}>
+            <Text type="secondary" style={{ fontSize: 14, marginBottom: 8, display: 'block' }}>
+              选择项目 <span style={{ color: '#ff4d4f' }}>*</span>
+            </Text>
+            <ProjectSelector
+              value={selectedProjectId}
+              onChange={(projectId, project) => {
+                setSelectedProjectId(projectId);
+                setSelectedProject(project);
+              }}
+              placeholder="请选择要操作的项目"
+            />
+          </div>
+
           {/* 模式选择器 */}
           <div>
             <Text type="secondary" style={{ fontSize: 14, marginBottom: 8, display: 'block' }}>
-              选择对话模式：
+              对话模式
             </Text>
             <ModeSelector value={mode} onChange={onModeChange || (() => { })} />
           </div>
@@ -509,9 +509,9 @@ const ConversationView: React.FC<ConversationViewProps> = ({
               padding: '0 32px',
               fontSize: 16,
               borderRadius: 24,
-              background: 'linear-gradient(135deg, #1890ff 0%, #096dd9 100%)',
+              background: 'linear-gradient(135deg, #7c5cff 0%, #6b4ce0 100%)',
               border: 'none',
-              boxShadow: '0 4px 12px rgba(24, 144, 255, 0.3)'
+              boxShadow: '0 4px 12px rgba(124, 92, 255, 0.3)'
             }}
           >
             {sending ? '正在思考...' : '发送'}
@@ -538,7 +538,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
           </Button>
         ))}
       </div>
-    </div>
+    </div >
   );
 
   const renderChatContent = () => (
@@ -596,7 +596,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
     <div style={{
       display: 'flex',
       flexDirection: 'column',
-      height: '100vh',
+      height: '100%',
       background: '#fff'
     }}>
       {/* Header */}
@@ -620,7 +620,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
               }}>
                 {initialPrompt || '对话会话'}
               </span>
-              
+
               {mode === ConversationMode.EDIT && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
                   {/* 项目名称 */}
@@ -642,7 +642,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
                       </span>
                     </div>
                   )}
-                  
+
                   {/* Git 分支 */}
                   {(session.context?.gitBranch || session.context?.projectInfo?.gitBranch) && (
                     <div style={{
@@ -663,7 +663,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
                       </span>
                     </div>
                   )}
-                  
+
                   {/* MR 链接或创建按钮 */}
                   {session.context?.mode === 'edit' && (
                     session.context?.mrUrl ? (
@@ -717,7 +717,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
                       </Button>
                     )
                   )}
-                  
+
                   {/* 预览按钮 */}
                   {session.context?.gitBranch && (() => {
                     const buttonProps = getPreviewButtonProps();
@@ -740,7 +740,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
                       </Button>
                     );
                   })()}
-                  
+
                   {/* 停止预览按钮 */}
                   {session.context?.previewInfo?.status === PreviewStatus.RUNNING && (
                     <>
@@ -754,8 +754,8 @@ const ConversationView: React.FC<ConversationViewProps> = ({
                           padding: '0 10px',
                           borderRadius: 6,
                           fontWeight: 500,
-                          color: '#1890ff',
-                          borderColor: '#1890ff',
+                          color: '#7c5cff',
+                          borderColor: '#7c5cff',
                         }}
                       >
                         部署详情
@@ -815,9 +815,9 @@ const ConversationView: React.FC<ConversationViewProps> = ({
             关闭
           </Button>,
           session?.context?.previewInfo?.url && (
-            <Button 
-              key="open" 
-              type="primary" 
+            <Button
+              key="open"
+              type="primary"
               icon={<LinkOutlined />}
               onClick={() => {
                 window.open(session.context.previewInfo!.url, '_blank');
@@ -837,7 +837,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
                 运行中
               </Tag>
             </Descriptions.Item>
-            
+
             {deploymentInfo && (
               <>
                 <Descriptions.Item label="总耗时" span={2}>
@@ -845,40 +845,40 @@ const ConversationView: React.FC<ConversationViewProps> = ({
                     <ClockCircleOutlined /> {deploymentInfo.totalTime}s
                   </span>
                 </Descriptions.Item>
-                
+
                 <Descriptions.Item label="构建耗时">
                   <Tag color="blue">{deploymentInfo.buildTime}s</Tag>
                 </Descriptions.Item>
-                
+
                 <Descriptions.Item label="启动耗时">
                   <Tag color="cyan">{deploymentInfo.startTime}s</Tag>
                 </Descriptions.Item>
               </>
             )}
-            
+
             <Descriptions.Item label="预览地址" span={2}>
-              <a 
-                href={session?.context?.previewInfo?.url} 
-                target="_blank" 
+              <a
+                href={session?.context?.previewInfo?.url}
+                target="_blank"
                 rel="noopener noreferrer"
                 style={{ wordBreak: 'break-all' }}
               >
                 {session?.context?.previewInfo?.url}
               </a>
             </Descriptions.Item>
-            
+
             <Descriptions.Item label="容器 ID" span={2}>
-              <code style={{ 
-                fontSize: 11, 
-                background: '#f5f5f5', 
-                padding: '2px 6px', 
+              <code style={{
+                fontSize: 11,
+                background: '#f5f5f5',
+                padding: '2px 6px',
                 borderRadius: 3,
                 wordBreak: 'break-all'
               }}>
                 {session?.context?.previewInfo?.containerId?.substring(0, 12)}
               </code>
             </Descriptions.Item>
-            
+
             {(session?.context?.previewInfo?.imageId || session?.context?.previewInfo?.imageName) && (
               <>
                 {session?.context?.previewInfo?.imageName && (
@@ -888,13 +888,13 @@ const ConversationView: React.FC<ConversationViewProps> = ({
                     </Tag>
                   </Descriptions.Item>
                 )}
-                
+
                 {session?.context?.previewInfo?.imageId && (
                   <Descriptions.Item label="镇像 ID" span={2}>
-                    <code style={{ 
-                      fontSize: 11, 
-                      background: '#f5f5f5', 
-                      padding: '2px 6px', 
+                    <code style={{
+                      fontSize: 11,
+                      background: '#f5f5f5',
+                      padding: '2px 6px',
                       borderRadius: 3,
                       wordBreak: 'break-all'
                     }}>
@@ -904,12 +904,12 @@ const ConversationView: React.FC<ConversationViewProps> = ({
                 )}
               </>
             )}
-            
+
             {(deploymentInfo?.ports || session?.context?.previewInfo?.ports) && (
               <Descriptions.Item label="端口映射" span={2}>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                   {(deploymentInfo?.ports || session?.context?.previewInfo?.ports)?.map((port: any, index: number) => (
-                    <div 
+                    <div
                       key={index}
                       style={{
                         display: 'flex',
@@ -927,7 +927,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
                       <span style={{ fontFamily: 'monospace', fontSize: 13 }}>
                         {port.host} → {port.container}
                       </span>
-                      <a 
+                      <a
                         href={`http://${session?.context?.previewInfo?.url?.split('//')[1]?.split(':')[0]}:${port.host}`}
                         target="_blank"
                         rel="noopener noreferrer"
