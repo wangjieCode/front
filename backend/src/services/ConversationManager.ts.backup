@@ -17,6 +17,7 @@ import { ModeValidator } from './ModeValidator';
 import { GitService } from './GitService';
 import { GitLabMCPService } from './GitLabMCPService';
 import { WorktreeManager } from './WorktreeManager';
+import { ProjectService } from './ProjectService';
 
 /**
  * 对话管理器类
@@ -47,13 +48,6 @@ export class ConversationManager {
   }
 
   /**
-   * 获取当前项目ID
-   */
-  private getCurrentProjectId(): string {
-    return (this as any).currentProjectId;
-  }
-
-  /**
    * 获取锁
    */
   private async acquireLock(sessionId: string): Promise<void> {
@@ -80,12 +74,32 @@ export class ConversationManager {
     mode: ConversationMode = ConversationMode.EDIT,
     userId?: string
   ): Promise<ConversationSession> {
+    // 验证 projectId 必须存在
+    if (!projectInfo.projectId) {
+      throw new Error('项目ID不能为空，必须选择一个项目');
+    }
+
+    // 获取完整的项目信息
+    const projectResult = await this.projectService.getProject(projectInfo.projectId, userId || null);
+    if (!projectResult.success || !projectResult.project) {
+      throw new Error(`获取项目信息失败: ${projectResult.error || '项目不存在'}`);
+    }
+
+    const project = projectResult.project;
+
+    // 构建完整的 ProjectInfo
+    const completeProjectInfo: ProjectInfo = {
+      projectId: project.id,
+      projectName: project.name,
+      gitRepositoryUrl: project.gitRepositoryUrl,
+      workDir: project.workDirectory || project.repoDir,
+      gitBranch: project.gitBranch || 'master',
+      relevantFiles: projectInfo.relevantFiles,
+    };
+
     const sessionId = uuidv4();
     const mainBranchId = uuidv4(); // 使用 UUID 作为分支 ID
     const now = new Date();
-    
-    // 临时存储当前项目ID供handleEditModeSetup使用
-    (this as any).currentProjectId = projectInfo.projectId;
 
     // 创建主分支
     const mainBranch: ConversationBranch = {
@@ -99,7 +113,7 @@ export class ConversationManager {
 
     // 初始化上下文
     const context: ConversationContext = {
-      projectInfo,
+      projectInfo: completeProjectInfo,
       taskDescription: initialPrompt,
       messageHistory: [],
       currentBranchId: mainBranchId,
@@ -169,657 +183,95 @@ export class ConversationManager {
     await this.storage.saveSession(session);
 
     return session;
+    } catch (error) {
+      console.error('[ConversationManager] 创建会话失败:', error);
+      console.error('[ConversationManager] 错误堆栈:', error instanceof Error ? error.stack : error);
+      throw error;
+    }
   }
 
-    
-
-      /**
-
-       * 处理编辑模式的 Git 设置（使用 WorktreeManager）
-
-       */
-
-      private async handleEditModeSetup(
-
-        sessionId: string,
-
-        taskDescription: string,
-
-        userId: string
-
-      ): Promise<{ success: boolean; branchName?: string; worktreePath?: string; error?: string }> {
+  /**
+   * 处理编辑模式的 Git 设置（使用 WorktreeManager）
+   */
+  private async handleEditModeSetup(
+      sessionId: string,
+      taskDescription: string,
+      userId: string
+    ): Promise<{ success: boolean; branchName?: string; worktreePath?: string; error?: string }> {
 
         if (!this.worktreeManager) {
 
-          return { success: false, error: 'Worktree 管理器未初始化' };
+              return { success: false, error: 'Worktree 管理器未初始化' };
 
-        }
+            }
 
-    
+        
 
-        try {
-
-    
+            try {
 
               console.log(`[ConversationManager] 为用户 ${userId} 创建对话分支`);
 
-    
-
-        
-
-    
-
-              // 获取项目信息
-
-    
-
-        
-
-    
-
-                    const projectResult = await this.projectService.getProject(this.getCurrentProjectId(), userId);
-
-    
-
-        
-
-    
-
-                    if (!projectResult.success || !projectResult.project) {
-
-    
-
-        
-
-    
-
-                      return { success: false, error: '获取项目信息失败' };
-
-    
-
-        
-
-    
-
-                    }
-
-    
-
-        
-
-    
-
-              
-
-    
-
-        
-
-    
-
-                    // 创建针对该项目的 WorktreeManager
-
-    
-
-        
-
-    
-
-              
-
-    
-
-        
-
-    
-
-                          const projectWorktreeManager = new WorktreeManager(
-
-    
-
-        
-
-    
-
-              
-
-    
-
-        
-
-    
-
-                            (this.projectService as any).executor,
-
-    
-
-        
-
-    
-
-              
-
-    
-
-        
-
-    
-
-                            projectResult.project.workDirectory || projectResult.project.repoDir,
-
-    
-
-        
-
-    
-
-              
-
-    
-
-        
-
-    
-
-                            `${projectResult.project.workDirectory}/../worktrees`
-
-    
-
-        
-
-    
-
-              
-
-    
-
-        
-
-    
-
-                          );
-
-    
-
-        
-
-    
-
-              
-
-    
-
-        
-
-    
-
-                    
-
-    
-
-        
-
-    
-
-              
-
-    
-
-        
-
-    
-
-                          // 先确保用户的 worktree 存在
-
-    
-
-        
-
-    
-
-              
-
-    
-
-        
-
-    
-
-                    
-
-    
-
-        
-
-    
-
-              
-
-    
-
-        
-
-    
-
-                                    const currentProjectId = this.getCurrentProjectId();
-
-    
-
-        
-
-    
-
-              
-
-    
-
-        
-
-    
-
-                    
-
-    
-
-        
-
-    
-
-              
-
-    
-
-        
-
-    
-
-                                    console.log(`[ConversationManager] 创建 worktree - userId: ${userId}, projectId: ${currentProjectId}`);
-
-    
-
-        
-
-    
-
-              
-
-    
-
-        
-
-    
-
-                    
-
-    
-
-        
-
-    
-
-              
-
-    
-
-        
-
-    
-
-                                    const worktreeInfo = await projectWorktreeManager.getOrCreateWorktree(
-
-    
-
-        
-
-    
-
-              
-
-    
-
-        
-
-    
-
-                    
-
-    
-
-        
-
-    
-
-              
-
-    
-
-        
-
-    
-
-                                      userId,
-
-    
-
-        
-
-    
-
-              
-
-    
-
-        
-
-    
-
-                    
-
-    
-
-        
-
-    
-
-              
-
-    
-
-        
-
-    
-
-                                      currentProjectId,
-
-    
-
-        
-
-    
-
-              
-
-    
-
-        
-
-    
-
-                    
-
-    
-
-        
-
-    
-
-              
-
-    
-
-        
-
-    
-
-                                      process.env.GIT_DEFAULT_BRANCH || 'master'
-
-    
-
-        
-
-    
-
-              
-
-    
-
-        
-
-    
-
-                    
-
-    
-
-        
-
-    
-
-              
-
-    
-
-        
-
-    
-
-                                    );
-
-    
-
-        
-
-    
-
-              
-
-    
-
-        
-
-    
-
-                    
-
-    
-
-        
-
-    
-
-              
-
-    
-
-        
-
-    
-
-                                    console.log(`[ConversationManager] worktree 路径: ${worktreeInfo.worktreePath}`);
-
-    
-
-        
-
-    
-
-              
-
-    
-
-        
-
-    
-
-                    
-
-    
-
-        
-
-    
-
-              
-
-    
-
-        
-
-    
-
-                          console.log(`[ConversationManager] ✅ Worktree 已创建: ${worktreeInfo.worktreePath}`);
-
-    
-
-        
-
-    
-
-              
-
-    
-
-        
-
-    
-
-                    
-
-    
-
-        
-
-    
-
-              
-
-    
-
-        
-
-    
-
-                          // 在用户的 worktree 中创建对话分支
-
-    
-
-        
-
-    
-
-              
-
-    
-
-        
-
-    
-
-                          const result = await projectWorktreeManager.createConversationBranch(
-
-    
-
-        
-
-    
-
-              
-
-    
-
-        
-
-    
-
-                            userId,
-
-    
-
-        
-
-    
-
-              
-
-    
-
-        
-
-    
-
-                            sessionId,
-
-    
-
         
 
-    
+              // 获取会话信息以获取项目ID
 
-              
+              const session = await this.getSession(sessionId);
 
-    
+              if (!session) {
 
-        
-
-    
+                return { success: false, error: '会话不存在' };
 
-                            process.env.GIT_DEFAULT_BRANCH || 'master',
+              }
 
-    
-
         
 
-    
+              // 在用户的 worktree 中创建对话分支
 
-              
+              const result = await this.worktreeManager.createConversationBranch(
 
-    
+                userId,
 
-        
+                sessionId,
 
-    
+                process.env.GIT_DEFAULT_BRANCH || 'master',
 
-                            this.getCurrentProjectId()
+                session.context.projectInfo.projectId
 
-    
+              );
 
         
 
-    
+              console.log(`[ConversationManager] ✅ Git 分支已创建: ${result.branchName}`);
 
-              
+              console.log(`[ConversationManager] ✅ Worktree 路径: ${result.worktreePath}`);
 
-    
+              console.log(`[ConversationManager] ℹ️  MR 将由用户手动创建`);
 
         
-
-    
-
-                          );
-
-    
-
-          console.log(`[ConversationManager] ✅ Git 分支已创建: ${result.branchName}`);
-
-          console.log(`[ConversationManager] ✅ Worktree 路径: ${result.worktreePath}`);
-
-          console.log(`[ConversationManager] ℹ️  MR 将由用户手动创建`);
-
-    
 
-          return {
+              return {
 
-            success: true,
+                success: true,
 
-            branchName: result.branchName,
+                branchName: result.branchName,
 
-            worktreePath: result.worktreePath,
+                worktreePath: result.worktreePath,
 
-          };
+              };
 
-        } catch (error) {
+            } catch (error) {
 
-          return {
+              return {
 
-            success: false,
+                success: false,
 
-            error: error instanceof Error ? error.message : String(error),
+                error: error instanceof Error ? error.message : String(error),
 
-          };
+              };
 
-        }
+            }
 
-      }
+          }
 
     
 
@@ -898,10 +350,7 @@ export class ConversationManager {
        */
 
       async getSession(sessionId: string): Promise<ConversationSession | null> {
-    const session = await this.storage.loadSession(sessionId);
-    console.log(`[ConversationManager] getSession - sessionId: ${sessionId}`);
-    console.log(`[ConversationManager] 返回的session.context.projectInfo.workDir: ${session?.context?.projectInfo?.workDir}`);
-    return session;
+    return await this.storage.loadSession(sessionId);
   }
 
   /**

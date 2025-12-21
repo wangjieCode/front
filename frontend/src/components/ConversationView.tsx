@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Spin, Typography, Button, Input, message, Modal, Descriptions, Tag } from 'antd';
 import { ThunderboltOutlined, SendOutlined, RocketOutlined, CheckOutlined, WarningOutlined, StopOutlined, GitlabOutlined, ClockCircleOutlined, LinkOutlined } from '@ant-design/icons';
 import ModeSelector from './ModeSelector';
+import ProjectSelector from './ProjectSelector';
 import {
   ConversationSession,
   ConversationMessage,
@@ -16,7 +17,7 @@ interface ConversationViewProps {
   sessionId?: string;
   initialPrompt?: string;
   initialSession?: ConversationSession;
-  onNewConversation?: (prompt: string, mode: ConversationMode) => Promise<void>;
+  onNewConversation?: (prompt: string, mode: ConversationMode, projectId: string) => Promise<void>;
   mode?: ConversationMode;
   onModeChange?: (mode: ConversationMode) => void;
 }
@@ -46,6 +47,8 @@ const ConversationView: React.FC<ConversationViewProps> = ({
 
   // New conversation state
   const [prompt, setPrompt] = useState('');
+  const [selectedProjectId, setSelectedProjectId] = useState<string>('');
+  const [selectedProject, setSelectedProject] = useState<any>(null);
   
   // 预览相关状态
   const [isDeploying, setIsDeploying] = useState(false);
@@ -408,35 +411,19 @@ const ConversationView: React.FC<ConversationViewProps> = ({
         </Paragraph>
       </div>
 
-      {/* 项目信息展示 */}
-      <div style={{
-        marginBottom: 24,
-        padding: '16px 20px',
-        background: 'linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%)',
-        borderRadius: 12,
-        border: '1px solid #e5e5e5'
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-          <span style={{ fontSize: 20 }}>📁</span>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 13, color: '#666', marginBottom: 4 }}>代码仓库</div>
-            <div style={{ fontSize: 14, fontWeight: 500, color: '#333', fontFamily: 'monospace' }}>
-              /dtmall-admin
-            </div>
-          </div>
-          <div style={{
-            padding: '4px 12px',
-            background: 'rgba(255,255,255,0.8)',
-            borderRadius: 6,
-            fontSize: 13,
-            fontWeight: 500,
-            color: '#667eea',
-            border: '1px solid rgba(102, 126, 234, 0.2)'
-          }}>
-            <span style={{ marginRight: 4 }}>🌿</span>
-            master
-          </div>
+      {/* 项目选择器 */}
+      <div style={{ marginBottom: 24 }}>
+        <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 8, color: '#333' }}>
+          选择项目 <span style={{ color: '#ff4d4f' }}>*</span>
         </div>
+        <ProjectSelector
+          value={selectedProjectId}
+          onChange={(projectId, project) => {
+            setSelectedProjectId(projectId);
+            setSelectedProject(project);
+          }}
+          placeholder="请选择要操作的项目"
+        />
       </div>
 
       {/* 输入卡片 */}
@@ -475,9 +462,13 @@ const ConversationView: React.FC<ConversationViewProps> = ({
             }}
             onPressEnter={async (e) => {
               if ((e.ctrlKey || e.metaKey) && onNewConversation) {
+                if (!selectedProjectId) {
+                  message.warning('请先选择项目');
+                  return;
+                }
                 setSending(true);
                 try {
-                  await onNewConversation(prompt, mode);
+                  await onNewConversation(prompt, mode, selectedProjectId);
                 } finally {
                   setSending(false);
                 }
@@ -495,10 +486,14 @@ const ConversationView: React.FC<ConversationViewProps> = ({
             size="large"
             icon={<SendOutlined />}
             onClick={async () => {
+              if (!selectedProjectId) {
+                message.warning('请先选择项目');
+                return;
+              }
               if (onNewConversation) {
                 setSending(true);
                 try {
-                  await onNewConversation(prompt, mode);
+                  await onNewConversation(prompt, mode, selectedProjectId);
                 } finally {
                   setSending(false);
                 }

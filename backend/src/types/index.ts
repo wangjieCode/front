@@ -180,6 +180,16 @@ export interface CodeToolConfigData {
 // ==================== 对话相关类型定义 ====================
 
 /**
+ * 创建对话请求接口
+ */
+export interface CreateConversationRequest {
+  initialPrompt: string;      // 初始提示词
+  taskId: string;              // 任务ID
+  mode?: ConversationMode;     // 对话模式（可选）
+  projectId: string;           // 项目ID（必填）
+}
+
+/**
  * 对话模式枚举
  */
 export enum ConversationMode {
@@ -269,7 +279,10 @@ export interface ConversationMessage {
  * 项目信息接口
  */
 export interface ProjectInfo {
-  workDir: string;            // 工作目录
+  projectId: string;          // 项目ID（必填）
+  projectName: string;        // 项目名称（必填）
+  gitRepositoryUrl: string;   // Git仓库URL（必填）
+  workDir: string;            // 工作目录（使用项目的workDirectory）
   gitBranch?: string;         // Git 分支
   relevantFiles?: string[];   // 相关文件
 }

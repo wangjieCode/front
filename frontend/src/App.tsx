@@ -71,7 +71,7 @@ const AppContent: React.FC = () => {
   }, []);
 
   // 提交新对话
-  const handleSubmit = async (promptText: string, conversationMode: ConversationMode) => {
+  const handleSubmit = async (promptText: string, conversationMode: ConversationMode, projectId?: string) => {
     if (!promptText.trim()) {
       message.warning('请输入你的需求');
       return;
@@ -82,14 +82,18 @@ const AppContent: React.FC = () => {
       return;
     }
 
+    if (!projectId) {
+      message.error('项目ID不能为空');
+      return;
+    }
+
     try {
+      console.log('创建对话 - projectId:', projectId); // 调试日志
+      
       const response = await conversationService.createConversation({
         taskId: `task-${Date.now()}`,
         initialPrompt: promptText,
-        projectInfo: {
-          workDir: '/Users/admin/desktop/front-workspace/dtmall-admin',
-          gitBranch: 'master',
-        },
+        projectId: projectId,
         mode: conversationMode,
       });
 
@@ -371,9 +375,9 @@ const AppContent: React.FC = () => {
                 sessionId={currentConversation?.id}
                 initialPrompt={currentConversation?.initialPrompt}
                 initialSession={currentConversation}
-                onNewConversation={async (prompt, mode) => {
+                onNewConversation={async (prompt, mode, projectId) => {
                   setMode(mode);
-                  await handleSubmit(prompt, mode);
+                  await handleSubmit(prompt, mode, projectId);
                 }}
                 mode={mode}
                 onModeChange={setMode}
