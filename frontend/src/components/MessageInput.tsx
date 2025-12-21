@@ -74,7 +74,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
   const canSend = content.trim().length > 0 && !isDisabled;
 
   return (
-    <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+    <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end' }}>
       <div style={{ flex: 1 }}>
         <TextArea
           ref={textAreaRef}
@@ -83,13 +83,14 @@ const MessageInput: React.FC<MessageInputProps> = ({
           onKeyDown={handleKeyDown}
           placeholder={placeholder}
           disabled={isDisabled}
-          autoSize={{ minRows: 2, maxRows: 8 }}
+          bordered={false}
+          autoSize={{ minRows: 1, maxRows: 8 }}
           style={{
             resize: 'none',
             fontSize: 15,
             lineHeight: 1.6,
-            borderRadius: 8,
-            padding: '12px'
+            padding: '8px 0',
+            background: 'transparent',
           }}
         />
       </div>
@@ -102,9 +103,12 @@ const MessageInput: React.FC<MessageInputProps> = ({
         shape="circle"
         size="large"
         style={{
-          background: canSend ? 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' : undefined,
+          background: canSend ? 'linear-gradient(135deg, #7c5cff 0%, #6b4ce0 100%)' : '#e5e7eb',
+          color: canSend ? '#fff' : '#9ca3af',
           border: 'none',
-          boxShadow: canSend ? '0 2px 8px rgba(102, 126, 234, 0.3)' : undefined
+          boxShadow: canSend ? '0 4px 12px rgba(124, 92, 255, 0.3)' : 'none',
+          marginBottom: 4,
+          flexShrink: 0
         }}
       />
     </div>
