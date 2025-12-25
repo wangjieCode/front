@@ -362,5 +362,45 @@ export function createConversationRoutes(
     }
   });
 
+  /**
+   * DELETE /api/conversations/:sessionId
+   * 删除对话会话
+   */
+  router.delete('/:sessionId', requireAuth, async (req: AuthRequest, res: Response) => {
+    try {
+      const { sessionId } = req.params;
+
+      // 验证会话是否存在
+      const session = await conversationManager.getSession(sessionId);
+      if (!session) {
+        return res.status(404).json({
+          success: false,
+          error: '会话不存在',
+        });
+      }
+
+      // 验证用户权限（只有会话创建者可以删除）
+      if (session.userId !== req.userId) {
+        return res.status(403).json({
+          success: false,
+          error: '无权限删除该会话',
+        });
+      }
+
+      // 删除会话
+      await conversationManager.deleteSession(sessionId);
+
+      res.json({
+        success: true,
+        message: '会话删除成功',
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : '删除会话失败',
+      });
+    }
+  });
+
   return router;
 }

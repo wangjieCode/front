@@ -162,6 +162,8 @@ export class ConversationStorageAdapter implements IConversationStorage {
 
     const context: ConversationContext = {
       projectInfo: {
+        projectId: dbSession.projectId || undefined,
+        projectName: dbSession.projectName || '',
         workDir: dbContext.workDir,
         gitBranch: dbContext.gitBranch || undefined,
         relevantFiles: dbContext.relevantFiles || [],
@@ -387,6 +389,12 @@ export class ConversationStorageAdapter implements IConversationStorage {
       return null;
     }
 
+    // 加载会话信息以获取项目数据
+    const dbSession = await this.storage.loadSession(sessionId);
+    if (!dbSession) {
+      return null;
+    }
+
     // 加载分支
     const dbBranches = await this.storage.listBranches(sessionId);
 
@@ -407,6 +415,8 @@ export class ConversationStorageAdapter implements IConversationStorage {
 
     const context: ConversationContext = {
       projectInfo: {
+        projectId: dbSession.projectId || undefined,
+        projectName: dbSession.projectName || '',
         workDir: dbContext.workDir,
         gitBranch: dbContext.gitBranch || undefined,
         relevantFiles: dbContext.relevantFiles || [],
