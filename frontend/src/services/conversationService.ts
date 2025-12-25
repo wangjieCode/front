@@ -10,6 +10,58 @@ import {
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || '';
 
+// 全局登录状态管理
+let showLoginModalCallback: (() => void) | null = null;
+
+/**
+ * 设置登录模态框回调
+ */
+export const setLoginModalCallback = (callback: () => void) => {
+  showLoginModalCallback = callback;
+};
+
+/**
+ * 统一的 fetch 包装器，处理认证和错误
+ */
+const fetchWithAuth = async (url: string, options: RequestInit = {}): Promise<Response> => {
+  // 添加认证头
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...((options.headers as Record<string, string>) || {}),
+  };
+  
+  const userId = localStorage.getItem('user_id');
+  if (userId) {
+    headers['x-user-id'] = userId;
+    
+    const username = localStorage.getItem('username');
+    if (username) {
+      headers['x-username'] = username;
+    }
+  }
+
+  const response = await fetch(url, {
+    ...options,
+    headers,
+  });
+
+  // 处理 401 错误
+  if (response.status === 401) {
+    // 清除本地存储的用户信息
+    localStorage.removeItem('user_id');
+    localStorage.removeItem('username');
+    
+    // 触发登录模态框
+    if (showLoginModalCallback) {
+      showLoginModalCallback();
+    }
+    
+    throw new Error('请先登录');
+  }
+
+  return response;
+};
+
 /**
  * 轮询配置
  */
@@ -84,9 +136,8 @@ class ConversationService {
    * 创建新的对话会话
    */
   async createSession(taskId: string, initialPrompt: string): Promise<ConversationSession> {
-    const response = await fetch(`${this.baseUrl}/api/conversations`, {
+    const response = await fetchWithAuth(`${this.baseUrl}/api/conversations`, {
       method: 'POST',
-      headers: this.getAuthHeaders(),
       body: JSON.stringify({ taskId, initialPrompt }),
     });
 
@@ -103,7 +154,7 @@ class ConversationService {
    * 获取对话会话详情
    */
   async getSession(sessionId: string): Promise<ConversationSession> {
-    const response = await fetch(`${this.baseUrl}/api/conversations/${sessionId}`);
+    const response = await fetchWithAuth(`${this.baseUrl}/api/conversations/${sessionId}`);
 
     if (!response.ok) {
       throw new Error('获取会话详情失败');
@@ -117,7 +168,7 @@ class ConversationService {
    * 获取所有对话会话列表
    */
   async getSessions(): Promise<SimplifiedConversation[]> {
-    const response = await fetch(`${this.baseUrl}/api/conversations`);
+    const response = await fetchWithAuth(`${this.baseUrl}/api/conversations`);
 
     if (!response.ok) {
       throw new Error('获取会话列表失败');
@@ -144,9 +195,8 @@ class ConversationService {
     projectId: string;
     mode?: string; // 对话模式：'edit' 或 'readonly'
   }): Promise<{ success: boolean; data: ConversationSession }> {
-    const response = await fetch(`${this.baseUrl}/api/conversations`, {
+    const response = await fetchWithAuth(`${this.baseUrl}/api/conversations`, {
       method: 'POST',
-      headers: this.getAuthHeaders(),
       body: JSON.stringify(params),
     });
 
@@ -167,9 +217,8 @@ class ConversationService {
     content: string,
     branchId?: string
   ): Promise<{ userMessage: ConversationMessage; aiMessage?: ConversationMessage }> {
-    const response = await fetch(`${this.baseUrl}/api/conversations/${sessionId}/messages`, {
+    const response = await fetchWithAuth(`${this.baseUrl}/api/conversations/${sessionId}/messages`, {
       method: 'POST',
-      headers: this.getAuthHeaders(),
       body: JSON.stringify({ content, branchId }),
     });
 
@@ -202,7 +251,7 @@ class ConversationService {
       params.toString() ? '?' + params.toString() : ''
     }`;
 
-    const response = await fetch(url);
+    const response = await fetchWithAuth(url);
 
     if (!response.ok) {
       throw new Error('获取消息历史失败');
@@ -216,7 +265,7 @@ class ConversationService {
    * 获取单条消息详情
    */
   async getMessage(sessionId: string, messageId: string): Promise<ConversationMessage> {
-    const response = await fetch(
+    const response = await fetchWithAuth(
       `${this.baseUrl}/api/conversations/${sessionId}/messages/${messageId}`
     );
 
@@ -232,7 +281,7 @@ class ConversationService {
    * 获取会话当前状态（用于轮询）
    */
   async getSessionStatus(sessionId: string): Promise<SessionStatusResponse> {
-    const response = await fetch(`${this.baseUrl}/api/conversations/${sessionId}/status`);
+    const response = await fetchWithAuth(`${this.baseUrl}/api/conversations/${sessionId}/status`);
 
     if (!response.ok) {
       throw new Error('获取会话状态失败');
@@ -250,9 +299,8 @@ class ConversationService {
     fromMessageId: string,
     branchName: string
   ): Promise<ConversationBranch> {
-    const response = await fetch(`${this.baseUrl}/api/conversations/${sessionId}/branches`, {
+    const response = await fetchWithAuth(`${this.baseUrl}/api/conversations/${sessionId}/branches`, {
       method: 'POST',
-      headers: this.getAuthHeaders(),
       body: JSON.stringify({ fromMessageId, branchName }),
     });
 
@@ -269,7 +317,7 @@ class ConversationService {
    * 切换到指定分支
    */
   async switchBranch(sessionId: string, branchId: string): Promise<ConversationSession> {
-    const response = await fetch(
+    const response = await fetchWithAuth(
       `${this.baseUrl}/api/conversations/${sessionId}/branches/${branchId}/activate`,
       {
         method: 'PUT',
@@ -289,7 +337,7 @@ class ConversationService {
    * 获取所有分支
    */
   async getBranches(sessionId: string): Promise<ConversationBranch[]> {
-    const response = await fetch(`${this.baseUrl}/api/conversations/${sessionId}/branches`);
+    const response = await fetchWithAuth(`${this.baseUrl}/api/conversations/${sessionId}/branches`);
 
     if (!response.ok) {
       throw new Error('获取分支列表失败');
@@ -303,9 +351,8 @@ class ConversationService {
    * 为会话创建 Merge Request
    */
   async createMergeRequest(sessionId: string): Promise<{ mrUrl: string }> {
-    const response = await fetch(`${this.baseUrl}/api/conversations/${sessionId}/merge-request`, {
+    const response = await fetchWithAuth(`${this.baseUrl}/api/conversations/${sessionId}/merge-request`, {
       method: 'POST',
-      headers: this.getAuthHeaders(),
     });
 
     if (!response.ok) {
@@ -463,9 +510,8 @@ class ConversationService {
     sessionId: string,
     forceRebuild: boolean = false
   ): Promise<PreviewResult> {
-    const response = await fetch(`${this.baseUrl}/api/conversations/${sessionId}/preview`, {
+    const response = await fetchWithAuth(`${this.baseUrl}/api/conversations/${sessionId}/preview`, {
       method: 'POST',
-      headers: this.getAuthHeaders(),
       body: JSON.stringify({ forceRebuild }),
     });
 
@@ -482,7 +528,7 @@ class ConversationService {
    * 获取预览状态
    */
   async getPreviewStatus(sessionId: string): Promise<PreviewStatusResponse> {
-    const response = await fetch(`${this.baseUrl}/api/conversations/${sessionId}/preview/status`);
+    const response = await fetchWithAuth(`${this.baseUrl}/api/conversations/${sessionId}/preview/status`);
 
     if (!response.ok) {
       throw new Error('获取预览状态失败');
@@ -496,7 +542,7 @@ class ConversationService {
    * 停止预览
    */
   async stopPreview(sessionId: string): Promise<{ success: boolean; message: string }> {
-    const response = await fetch(`${this.baseUrl}/api/conversations/${sessionId}/preview`, {
+    const response = await fetchWithAuth(`${this.baseUrl}/api/conversations/${sessionId}/preview`, {
       method: 'DELETE',
     });
 

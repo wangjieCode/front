@@ -10,6 +10,58 @@ import {
 } from '../types/project';
 import { authUtils } from '../utils/auth';
 
+// 全局登录状态管理
+let showLoginModalCallback: (() => void) | null = null;
+
+/**
+ * 设置登录模态框回调
+ */
+export const setLoginModalCallback = (callback: () => void) => {
+  showLoginModalCallback = callback;
+};
+
+/**
+ * 统一的 fetch 包装器，处理认证和错误
+ */
+const fetchWithAuth = async (url: string, options: RequestInit = {}): Promise<Response> => {
+  // 添加认证头
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...((options.headers as Record<string, string>) || {}),
+  };
+  
+  const userId = localStorage.getItem('user_id');
+  if (userId) {
+    headers['x-user-id'] = userId;
+    
+    const username = localStorage.getItem('username');
+    if (username) {
+      headers['x-username'] = username;
+    }
+  }
+
+  const response = await fetch(url, {
+    ...options,
+    headers,
+  });
+
+  // 处理 401 错误
+  if (response.status === 401) {
+    // 清除本地存储的用户信息
+    localStorage.removeItem('user_id');
+    localStorage.removeItem('username');
+    
+    // 触发登录模态框
+    if (showLoginModalCallback) {
+      showLoginModalCallback();
+    }
+    
+    throw new Error('请先登录');
+  }
+
+  return response;
+};
+
 /**
  * 项目服务类
  * 负责项目管理相关的API调用
@@ -24,12 +76,8 @@ class ProjectService {
    */
   async createProject(data: CreateProjectRequest): Promise<ApiResponse<Project>> {
     try {
-      const response = await fetch(this.baseUrl, {
+      const response = await fetchWithAuth(this.baseUrl, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-user-id': this.getUserId(),
-        },
         body: JSON.stringify(data),
       });
 
@@ -59,11 +107,7 @@ class ProjectService {
       }
 
       const url = params.toString() ? `${this.baseUrl}?${params}` : this.baseUrl;
-      const response = await fetch(url, {
-        headers: {
-          'x-user-id': this.getUserId(),
-        },
-      });
+      const response = await fetchWithAuth(url);
 
       const result: ApiResponse<Project[]> = await response.json();
       return result;
@@ -82,11 +126,7 @@ class ProjectService {
    */
   async getProject(projectId: string): Promise<ApiResponse<Project>> {
     try {
-      const response = await fetch(`${this.baseUrl}/${projectId}`, {
-        headers: {
-          'x-user-id': this.getUserId(),
-        },
-      });
+      const response = await fetchWithAuth(`${this.baseUrl}/${projectId}`);
 
       const result: ApiResponse<Project> = await response.json();
       return result;
@@ -109,12 +149,8 @@ class ProjectService {
     data: UpdateProjectRequest
   ): Promise<ApiResponse<Project>> {
     try {
-      const response = await fetch(`${this.baseUrl}/${projectId}`, {
+      const response = await fetchWithAuth(`${this.baseUrl}/${projectId}`, {
         method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-user-id': this.getUserId(),
-        },
         body: JSON.stringify(data),
       });
 
@@ -135,11 +171,8 @@ class ProjectService {
    */
   async deleteProject(projectId: string): Promise<ApiResponse> {
     try {
-      const response = await fetch(`${this.baseUrl}/${projectId}`, {
+      const response = await fetchWithAuth(`${this.baseUrl}/${projectId}`, {
         method: 'DELETE',
-        headers: {
-          'x-user-id': this.getUserId(),
-        },
       });
 
       const result: ApiResponse = await response.json();
@@ -159,11 +192,7 @@ class ProjectService {
    */
   async getMembers(projectId: string): Promise<ApiResponse<ProjectMember[]>> {
     try {
-      const response = await fetch(`${this.baseUrl}/${projectId}/members`, {
-        headers: {
-          'x-user-id': this.getUserId(),
-        },
-      });
+      const response = await fetchWithAuth(`${this.baseUrl}/${projectId}/members`);
 
       const result: ApiResponse<ProjectMember[]> = await response.json();
       return result;
@@ -183,12 +212,8 @@ class ProjectService {
    */
   async addMember(projectId: string, data: AddMemberRequest): Promise<ApiResponse> {
     try {
-      const response = await fetch(`${this.baseUrl}/${projectId}/members`, {
+      const response = await fetchWithAuth(`${this.baseUrl}/${projectId}/members`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-user-id': this.getUserId(),
-        },
         body: JSON.stringify(data),
       });
 
@@ -210,11 +235,8 @@ class ProjectService {
    */
   async removeMember(projectId: string, userId: string): Promise<ApiResponse> {
     try {
-      const response = await fetch(`${this.baseUrl}/${projectId}/members/${userId}`, {
+      const response = await fetchWithAuth(`${this.baseUrl}/${projectId}/members/${userId}`, {
         method: 'DELETE',
-        headers: {
-          'x-user-id': this.getUserId(),
-        },
       });
 
       const result: ApiResponse = await response.json();
@@ -240,12 +262,8 @@ class ProjectService {
     role: MemberRole
   ): Promise<ApiResponse> {
     try {
-      const response = await fetch(`${this.baseUrl}/${projectId}/members/${userId}`, {
+      const response = await fetchWithAuth(`${this.baseUrl}/${projectId}/members/${userId}`, {
         method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-user-id': this.getUserId(),
-        },
         body: JSON.stringify({ role }),
       });
 
@@ -270,11 +288,7 @@ class ProjectService {
     requiredRole: MemberRole
   ): Promise<ApiResponse<{ hasPermission: boolean; memberRole?: MemberRole; isOwner: boolean }>> {
     try {
-      const response = await fetch(`${this.baseUrl}/${projectId}/permissions/${requiredRole}`, {
-        headers: {
-          'x-user-id': this.getUserId(),
-        },
-      });
+      const response = await fetchWithAuth(`${this.baseUrl}/${projectId}/permissions/${requiredRole}`);
 
       const result: ApiResponse<{ hasPermission: boolean; memberRole?: MemberRole; isOwner: boolean }> = await response.json();
       return result;
@@ -284,14 +298,6 @@ class ProjectService {
         error: error instanceof Error ? error.message : '权限检查失败',
       };
     }
-  }
-
-  /**
-   * 获取当前用户ID
-   * @returns 用户ID
-   */
-  private getUserId(): string {
-    return authUtils.getUserId() || '';
   }
 }
 

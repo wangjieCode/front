@@ -16,7 +16,8 @@ import {
 import ConversationView from './components/ConversationView';
 import LoginModal from './components/LoginModal';
 import ProjectsPage from './pages/ProjectsPage';
-import { conversationService } from './services/conversationService';
+import { conversationService, setLoginModalCallback } from './services/conversationService';
+import { setLoginModalCallback as setProjectLoginModalCallback } from './services/projectService';
 import { ConversationMode } from './types/conversation';
 import { authUtils } from './utils/auth';
 import './App.css';
@@ -87,6 +88,17 @@ const AppContent: React.FC = () => {
       setIsLoggedIn(true);
       setCurrentUser(userInfo);
     }
+    
+    // 设置登录回调
+    const showLogin = () => {
+      setIsLoggedIn(false);
+      setCurrentUser(null);
+      setShowLoginModal(true);
+    };
+    
+    setLoginModalCallback(showLogin);
+    setProjectLoginModalCallback(showLogin);
+    
     loadConversations();
   }, []);
 
@@ -343,9 +355,34 @@ const AppContent: React.FC = () => {
                       onConfirm={async (e) => {
                         e?.stopPropagation();
                         try {
+                          const userId = localStorage.getItem('user_id');
+                          const username = localStorage.getItem('username');
+                          
+                          const headers: Record<string, string> = {
+                            'Content-Type': 'application/json',
+                          };
+                          
+                          if (userId) {
+                            headers['x-user-id'] = userId;
+                            if (username) {
+                              headers['x-username'] = username;
+                            }
+                          }
+
                           const response = await fetch(`/api/conversations/${conv.id}`, {
                             method: 'DELETE',
+                            headers,
                           });
+
+                          if (response.status === 401) {
+                            localStorage.removeItem('user_id');
+                            localStorage.removeItem('username');
+                            setIsLoggedIn(false);
+                            setCurrentUser(null);
+                            setShowLoginModal(true);
+                            return;
+                          }
+
                           const data = await response.json();
 
                           if (data.success) {
