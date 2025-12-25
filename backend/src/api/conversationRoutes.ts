@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { ConversationManager } from '../services/ConversationManager';
 import { MessageRouter } from '../services/MessageRouter';
 import { ConversationAIService } from '../services/ConversationAIService';
+import { ConversationStatus } from '../types';
 import { requireAuth, AuthRequest } from './authMiddleware';
 
 /**
@@ -153,11 +154,41 @@ export function createConversationRoutes(
         initialPrompt,
         projectInfo,
         mode,
-        req.userId
+        req.userId!
       );
 
-      // 只创建会话，不自动生成响应
-      // 前端需要调用 POST /api/conversations/:sessionId/messages 来流式获取响应
+      // 发送第一条用户消息并生成AI回复
+      try {
+        console.log('[API] 发送第一条用户消息:', initialPrompt.substring(0, 50) + '...');
+        await messageRouter.handleUserMessage(session.id, initialPrompt);
+        console.log('[API] 第一条用户消息发送成功');
+
+        // 立即生成AI回复
+        console.log('[API] 开始生成AI回复...');
+        await conversationManager.updateSessionStatus(session.id, ConversationStatus.EXECUTING);
+        
+        const updatedSession = await conversationManager.getSession(session.id);
+        if (updatedSession) {
+          const aiResponse = await aiService.generateResponse(
+            updatedSession.context,
+            initialPrompt,
+            session.id
+          );
+          
+          await messageRouter.handleAIResponse(session.id, aiResponse);
+          await conversationManager.updateSessionStatus(session.id, ConversationStatus.COMPLETED);
+          console.log('[API] AI回复生成完成');
+        }
+      } catch (messageError) {
+        console.error('[API] 发送第一条消息或生成AI回复失败:', messageError);
+        await conversationManager.updateSessionStatus(
+          session.id, 
+          ConversationStatus.FAILED, 
+          messageError instanceof Error ? messageError.message : String(messageError)
+        );
+        // 不阻断会话创建，只记录错误
+      }
+
       res.status(201).json({
         success: true,
         data: session,
@@ -172,15 +203,41 @@ export function createConversationRoutes(
 
   /**
    * GET /api/conversations
-   * 获取所有对话会话列表
+   * 获取所有对话会话列表（简化版）
    */
   router.get('/', async (req: Request, res: Response) => {
     try {
       const sessions = await conversationManager.listSessions();
 
+      // 转换为简化版响应
+      const simplifiedSessions = sessions.map(session => {
+        // 使用 taskDescription 作为对话概览
+        const overview = session.context.taskDescription;
+        
+        // 确保项目信息正确
+        const projectInfo = {
+          projectId: session.context.projectInfo.projectId,
+          projectName: session.context.projectInfo.projectName,
+          gitRepositoryUrl: session.context.projectInfo.gitRepositoryUrl,
+          workDir: session.context.projectInfo.workDir,
+          gitBranch: session.context.projectInfo.gitBranch,
+        };
+        
+        return {
+          id: session.id,
+          taskId: session.taskId,
+          projectInfo: projectInfo,
+          mode: session.context.mode,
+          overview: overview,
+          status: session.status,
+          createdAt: session.createdAt,
+          updatedAt: session.updatedAt,
+        };
+      });
+
       res.json({
         success: true,
-        data: sessions,
+        data: simplifiedSessions,
         total: sessions.length,
       });
     } catch (error) {
@@ -301,264 +358,6 @@ export function createConversationRoutes(
       res.status(500).json({
         success: false,
         error: error instanceof Error ? error.message : '发送消息失败',
-      });
-    }
-  });
-
-  /**
-   * GET /api/conversations/:sessionId/messages
-   * 获取对话历史
-   */
-  router.get('/:sessionId/messages', async (req: Request, res: Response) => {
-    try {
-      const { sessionId } = req.params;
-      const { branchId, since } = req.query;
-
-      const session = await conversationManager.getSession(sessionId);
-      if (!session) {
-        return res.status(404).json({
-          success: false,
-          error: '会话不存在',
-        });
-      }
-
-      let messages = await conversationManager.getMessageHistory(
-        sessionId,
-        branchId as string | undefined
-      );
-
-      // 如果指定了 since 参数,只返回该时间之后的消息
-      if (since) {
-        const sinceDate = new Date(since as string);
-        messages = messages.filter(m => m.timestamp > sinceDate);
-      }
-
-      res.json({
-        success: true,
-        data: messages,
-        total: messages.length,
-      });
-    } catch (error) {
-      res.status(500).json({
-        success: false,
-        error: error instanceof Error ? error.message : '获取消息历史失败',
-      });
-    }
-  });
-
-  /**
-   * GET /api/conversations/:sessionId/messages/:messageId
-   * 获取单条消息详情
-   */
-  router.get('/:sessionId/messages/:messageId', async (req: Request, res: Response) => {
-    try {
-      const { sessionId, messageId } = req.params;
-
-      const message = await conversationManager.getMessage(sessionId, messageId);
-      if (!message) {
-        return res.status(404).json({
-          success: false,
-          error: '消息不存在',
-        });
-      }
-
-      res.json({
-        success: true,
-        data: message,
-      });
-    } catch (error) {
-      res.status(500).json({
-        success: false,
-        error: error instanceof Error ? error.message : '获取消息详情失败',
-      });
-    }
-  });
-
-  /**
-   * GET /api/conversations/:sessionId/status
-   * 获取会话当前状态(用于轮询)
-   */
-  router.get('/:sessionId/status', async (req: Request, res: Response) => {
-    try {
-      const { sessionId } = req.params;
-
-      const session = await conversationManager.getSession(sessionId);
-      if (!session) {
-        return res.status(404).json({
-          success: false,
-          error: '会话不存在',
-        });
-      }
-
-      const messages = await conversationManager.getMessageHistory(sessionId);
-      const lastMessage = messages.length > 0 ? messages[messages.length - 1] : null;
-
-      // 检查是否有待回答的问题
-      const pendingQuestion = await messageRouter.getPendingQuestion(sessionId);
-
-      res.json({
-        success: true,
-        data: {
-          status: session.status,
-          lastMessageId: lastMessage?.id,
-          hasNewMessages: messages.length > 0,
-          pendingQuestion,
-        },
-      });
-    } catch (error) {
-      res.status(500).json({
-        success: false,
-        error: error instanceof Error ? error.message : '获取状态失败',
-      });
-    }
-  });
-
-  /**
-   * POST /api/conversations/:sessionId/branches
-   * 创建新分支
-   */
-  router.post('/:sessionId/branches', async (req: Request, res: Response) => {
-    try {
-      const { sessionId } = req.params;
-      const { fromMessageId, branchName } = req.body;
-
-      if (!fromMessageId || !branchName) {
-        return res.status(400).json({
-          success: false,
-          error: '缺少必需参数: fromMessageId 和 branchName',
-        });
-      }
-
-      const branch = await conversationManager.createBranch(
-        sessionId,
-        fromMessageId,
-        branchName
-      );
-
-      res.status(201).json({
-        success: true,
-        data: branch,
-      });
-    } catch (error) {
-      res.status(400).json({
-        success: false,
-        error: error instanceof Error ? error.message : '创建分支失败',
-      });
-    }
-  });
-
-  /**
-   * PUT /api/conversations/:sessionId/branches/:branchId/activate
-   * 切换到指定分支
-   */
-  router.put('/:sessionId/branches/:branchId/activate', async (req: Request, res: Response) => {
-    try {
-      const { sessionId, branchId } = req.params;
-
-      await conversationManager.switchBranch(sessionId, branchId);
-
-      const session = await conversationManager.getSession(sessionId);
-
-      res.json({
-        success: true,
-        data: session,
-      });
-    } catch (error) {
-      res.status(400).json({
-        success: false,
-        error: error instanceof Error ? error.message : '切换分支失败',
-      });
-    }
-  });
-
-  /**
-   * GET /api/conversations/:sessionId/branches
-   * 获取所有分支
-   */
-  router.get('/:sessionId/branches', async (req: Request, res: Response) => {
-    try {
-      const { sessionId } = req.params;
-
-      const branches = await conversationManager.getBranches(sessionId);
-
-      res.json({
-        success: true,
-        data: branches,
-        total: branches.length,
-      });
-    } catch (error) {
-      res.status(500).json({
-        success: false,
-        error: error instanceof Error ? error.message : '获取分支列表失败',
-      });
-    }
-  });
-
-  /**
-   * DELETE /api/conversations/:sessionId
-   * 删除对话会话
-   */
-  router.delete('/:sessionId', async (req: Request, res: Response) => {
-    try {
-      const { sessionId } = req.params;
-
-      const session = await conversationManager.getSession(sessionId);
-      if (!session) {
-        return res.status(404).json({
-          success: false,
-          error: '会话不存在',
-        });
-      }
-
-      await conversationManager.deleteSession(sessionId);
-
-      res.json({
-        success: true,
-        message: '会话已删除',
-      });
-    } catch (error) {
-      res.status(500).json({
-        success: false,
-        error: error instanceof Error ? error.message : '删除会话失败',
-      });
-    }
-  });
-
-  /**
-   * POST /api/conversations/:sessionId/merge-request
-   * 为会话创建 Merge Request（编辑模式）
-   */
-  router.post('/:sessionId/merge-request', async (req: Request, res: Response) => {
-    try {
-      const { sessionId } = req.params;
-
-      const session = await conversationManager.getSession(sessionId);
-      if (!session) {
-        return res.status(404).json({
-          success: false,
-          error: '会话不存在',
-        });
-      }
-
-      const result = await conversationManager.createMergeRequest(sessionId);
-
-      if (!result.success) {
-        return res.status(400).json({
-          success: false,
-          error: result.error,
-        });
-      }
-
-      res.json({
-        success: true,
-        data: {
-          mrUrl: result.mrUrl,
-        },
-      });
-    } catch (error) {
-      res.status(500).json({
-        success: false,
-        error: error instanceof Error ? error.message : '创建 MR 失败',
       });
     }
   });

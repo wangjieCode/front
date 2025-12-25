@@ -43,12 +43,22 @@ export class ConversationStorageAdapter implements IConversationStorage {
    * 保存会话
    */
   async saveSession(session: ConversationSession): Promise<void> {
+    // 提取对话标题和概览
+    const title = this.extractTitle(session.context.taskDescription);
+    const summary = session.context.taskDescription;
+    const projectName = session.context.projectInfo.projectName || '';
+
     // 转换为数据库格式
     await this.storage.saveSession({
       id: session.id,
       sessionId: session.id, // 使用 id 作为 sessionId
       taskId: session.taskId,
+      userId: session.userId,
+      projectId: session.context.projectInfo.projectId,
       status: session.status,
+      title,
+      summary,
+      projectName,
       createdAt: session.createdAt,
       updatedAt: session.updatedAt,
       completedAt: session.completedAt || null,
@@ -81,6 +91,32 @@ export class ConversationStorageAdapter implements IConversationStorage {
       mrUrl: session.context.mrUrl || null,
       previewInfo: session.context.previewInfo || null,
     });
+  }
+
+  /**
+   * 从任务描述中提取标题（取前50个字符）
+   */
+  private extractTitle(taskDescription: string): string {
+    if (!taskDescription) return '';
+    
+    // 移除多余的空白字符
+    const cleaned = taskDescription.trim().replace(/\s+/g, ' ');
+    
+    // 如果长度小于等于50，直接返回
+    if (cleaned.length <= 50) {
+      return cleaned;
+    }
+    
+    // 截取前50个字符，并在合适的位置断开
+    let title = cleaned.substring(0, 50);
+    const lastSpace = title.lastIndexOf(' ');
+    
+    // 如果在前40个字符内找到空格，在空格处断开
+    if (lastSpace > 30) {
+      title = title.substring(0, lastSpace);
+    }
+    
+    return title + '...';
   }
 
   /**
@@ -162,19 +198,44 @@ export class ConversationStorageAdapter implements IConversationStorage {
 
   /**
    * 获取所有会话列表
+   * 使用新的字段：title, summary, projectName
    */
   async listSessions(): Promise<ConversationSession[]> {
-    const dbSessions = await this.storage.listSessions();
-    const sessions: ConversationSession[] = [];
+    try {
+      const dbSessions = await this.storage.listSessions();
+      
+      // 使用数据库中的新字段构建会话信息
+      const sessions: ConversationSession[] = dbSessions.map(dbSession => ({
+        id: dbSession.id,
+        taskId: dbSession.taskId,
+        userId: dbSession.userId || undefined,
+        status: dbSession.status as ConversationStatus,
+        // 极简化的 context，只包含列表展示需要的核心信息
+        context: {
+          projectInfo: {
+            projectId: dbSession.projectId || undefined,
+            projectName: dbSession.projectName || '', // 使用数据库中的项目名称
+          },
+          taskDescription: dbSession.summary || '', // 使用数据库中的对话概览
+          mode: ConversationMode.EDIT, // 对话模式
+          messageHistory: [],
+          currentBranchId: '',
+          branches: [],
+          variables: {},
+        } as ConversationContext,
+        createdAt: dbSession.createdAt,
+        updatedAt: dbSession.updatedAt,
+        completedAt: dbSession.completedAt || undefined,
+        error: dbSession.error || undefined,
+        // 添加展示用的字段
+        title: dbSession.title || '', // 对话标题
+      }));
 
-    for (const dbSession of dbSessions) {
-      const session = await this.loadSession(dbSession.id);
-      if (session) {
-        sessions.push(session);
-      }
+      return sessions;
+    } catch (error) {
+      console.error('[ConversationStorageAdapter] listSessions 错误:', error);
+      throw error;
     }
-
-    return sessions;
   }
 
   /**

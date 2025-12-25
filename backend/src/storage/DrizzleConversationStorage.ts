@@ -90,6 +90,10 @@ export class DrizzleConversationStorage {
         .update(conversations)
         .set({
           status: session.status,
+          title: session.title,
+          summary: session.summary,
+          projectId: session.projectId,
+          projectName: session.projectName,
           updatedAt: session.updatedAt,
           completedAt: session.completedAt,
           error: session.error,
@@ -186,7 +190,7 @@ export class DrizzleConversationStorage {
   }
 
   /**
-   * 列出所有会话
+   * 列出所有会话（优化版，包含项目名称和第一条消息）
    */
   async listSessions(): Promise<Conversation[]> {
     // 检查缓存
@@ -197,6 +201,7 @@ export class DrizzleConversationStorage {
 
     const db = this.getDb();
     
+    // 直接查询 conversations 表，现在包含了 title, summary, projectName 字段
     const sessions = await db
       .select()
       .from(conversations)

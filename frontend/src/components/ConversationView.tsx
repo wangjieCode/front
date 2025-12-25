@@ -105,12 +105,12 @@ const ConversationView: React.FC<ConversationViewProps> = ({
     }
   }, [sessionId, initialSession, initialPrompt]);
 
-  // 自动发送初始消息
+  // 自动加载消息
   useEffect(() => {
-    if (initialPrompt && messages.length === 0 && !sending && session) {
-      handleSendMessage(initialPrompt);
+    if (sessionId && !initialPrompt) {
+      loadMessages();
     }
-  }, [initialPrompt, messages.length, session]);
+  }, [sessionId, initialPrompt]);
 
   // 自动滚动到最新消息
   useEffect(() => {

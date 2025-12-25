@@ -5,6 +5,7 @@ import {
   ConversationBranch,
   PreviewResult,
   PreviewStatusResponse,
+  SimplifiedConversation,
 } from '../types/conversation';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || '';
@@ -115,7 +116,7 @@ class ConversationService {
   /**
    * 获取所有对话会话列表
    */
-  async getSessions(): Promise<ConversationSession[]> {
+  async getSessions(): Promise<SimplifiedConversation[]> {
     const response = await fetch(`${this.baseUrl}/api/conversations`);
 
     if (!response.ok) {
@@ -129,13 +130,13 @@ class ConversationService {
   /**
    * 获取所有对话会话列表（别名）
    */
-  async listConversations(): Promise<{ success: boolean; data: ConversationSession[] }> {
+  async listConversations(): Promise<{ success: boolean; data: SimplifiedConversation[] }> {
     const data = await this.getSessions();
     return { success: true, data };
   }
 
   /**
-   * 创建新对话（别名）
+   * 创建新对话
    */
   async createConversation(params: {
     taskId: string;
