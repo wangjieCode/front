@@ -19,13 +19,14 @@ export class MessageRouter {
   }
 
   /**
-   * 处理用户消息
+   * 处理用户消息（优化版本，减少数据库查询）
    */
   async handleUserMessage(
     sessionId: string,
-    content: string
+    content: string,
+    existingSession?: any // 可选的已存在会话对象，避免重复查询
   ): Promise<void> {
-    const session = await this.conversationManager.getSession(sessionId);
+    const session = existingSession || await this.conversationManager.getSession(sessionId);
     if (!session) {
       throw new Error(`会话不存在: ${sessionId}`);
     }
@@ -38,11 +39,13 @@ export class MessageRouter {
       );
     }
 
-    // 添加用户消息
+    // 添加用户消息（传递已存在的会话对象）
     await this.conversationManager.addMessage(
       sessionId,
       MessageRole.USER,
-      content
+      content,
+      undefined,
+      session
     );
 
     // 如果有等待的响应,解决它
@@ -54,23 +57,25 @@ export class MessageRouter {
   }
 
   /**
-   * 处理 AI 响应
+   * 处理 AI 响应（优化版本，减少数据库查询）
    */
   async handleAIResponse(
     sessionId: string,
-    response: AIResponse
+    response: AIResponse,
+    existingSession?: any // 可选的已存在会话对象，避免重复查询
   ): Promise<void> {
-    const session = await this.conversationManager.getSession(sessionId);
+    const session = existingSession || await this.conversationManager.getSession(sessionId);
     if (!session) {
       throw new Error(`会话不存在: ${sessionId}`);
     }
 
-    // 添加 AI 消息
+    // 添加 AI 消息（传递已存在的会话对象）
     await this.conversationManager.addMessage(
       sessionId,
       MessageRole.ASSISTANT,
       response.content,
-      response.metadata
+      response.metadata,
+      session
     );
 
     // 如果 metadata 中包含 gitBranch 或 mrUrl，更新到 session.context

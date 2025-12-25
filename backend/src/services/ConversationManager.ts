@@ -357,18 +357,19 @@ export class ConversationManager {
   }
 
   /**
-   * 添加消息到对话
+   * 添加消息到对话（优化版本，减少数据库写入）
    */
   async addMessage(
     sessionId: string,
     role: MessageRole,
     content: string,
-    metadata?: MessageMetadata
+    metadata?: MessageMetadata,
+    existingSession?: ConversationSession // 可选的已存在会话对象
   ): Promise<ConversationMessage> {
     await this.acquireLock(sessionId);
 
     try {
-      const session = await this.getSession(sessionId);
+      const session = existingSession || await this.getSession(sessionId);
       if (!session) {
         throw new Error(`会话不存在: ${sessionId}`);
       }
@@ -388,27 +389,35 @@ export class ConversationManager {
         timestamp: now,
       };
 
-      // 保存消息
-      await this.storage.saveMessage(message);
-
-      // 更新上下文
+      // 更新内存中的数据结构
       context.messageHistory.push(messageId);
-
+      
       // 更新分支的消息列表
       const branch = context.branches.find(
         (b) => b.id === context.currentBranchId
       );
       if (branch) {
         branch.messageIds.push(messageId);
-        await this.storage.saveBranch(sessionId, branch);
       }
-
-      // 保存上下文
-      await this.storage.saveContext(sessionId, context);
 
       // 更新会话的 updatedAt
       session.updatedAt = now;
-      await this.storage.saveSession(session);
+
+      // 批量保存到数据库（异步执行，不阻塞返回）
+      setImmediate(async () => {
+        try {
+          // 并行执行数据库写入操作
+          await Promise.all([
+            this.storage.saveMessage(message),
+            branch ? this.storage.saveBranch(sessionId, branch) : Promise.resolve(),
+            this.storage.saveContext(sessionId, context),
+            this.storage.saveSession(session)
+          ]);
+          console.log(`[ConversationManager] 消息 ${messageId} 批量保存完成`);
+        } catch (error) {
+          console.error(`[ConversationManager] 批量保存消息失败:`, error);
+        }
+      });
 
       return message;
     } finally {

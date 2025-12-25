@@ -281,9 +281,14 @@ export function createConversationRoutes(
    * 发送用户消息（SSE 流式响应）
    */
   router.post('/:sessionId/messages', async (req: Request, res: Response) => {
+    const startTime = Date.now();
+    console.log(`[conversationRoutes] ========== 开始处理消息 ==========`);
+    
     try {
       const { sessionId } = req.params;
       const { content, branchId } = req.body;
+
+      console.log(`[conversationRoutes] sessionId: ${sessionId}, content 长度: ${content?.length || 0}`);
 
       if (!content) {
         return res.status(400).json({
@@ -292,7 +297,12 @@ export function createConversationRoutes(
         });
       }
 
+      // 步骤1: 获取会话（只获取一次，后续复用）
+      const step1Start = Date.now();
       const session = await conversationManager.getSession(sessionId);
+      const step1Time = Date.now() - step1Start;
+      console.log(`[conversationRoutes] 步骤1: 获取会话完成，耗时 ${step1Time}ms`);
+
       if (!session) {
         return res.status(404).json({
           success: false,
@@ -300,15 +310,18 @@ export function createConversationRoutes(
         });
       }
 
-      // 如果指定了分支,先切换分支
+      // 步骤2: 切换分支（如果需要）
       if (branchId && branchId !== session.context.currentBranchId) {
+        const step2Start = Date.now();
         await conversationManager.switchBranch(sessionId, branchId);
+        const step2Time = Date.now() - step2Start;
+        console.log(`[conversationRoutes] 步骤2: 切换分支完成，耗时 ${step2Time}ms`);
+        // 更新本地会话对象的分支ID，避免重新查询
+        session.context.currentBranchId = branchId;
       }
 
-      // 处理用户消息
-      await messageRouter.handleUserMessage(sessionId, content);
-
-      // 设置 SSE 响应头
+      // 步骤3: 设置 SSE 响应头（提前设置，让用户更快看到响应）
+      const step3Start = Date.now();
       res.setHeader('Content-Type', 'text/event-stream');
       res.setHeader('Cache-Control', 'no-cache');
       res.setHeader('Connection', 'keep-alive');
@@ -316,45 +329,98 @@ export function createConversationRoutes(
 
       // 发送用户消息确认
       res.write(`data: ${JSON.stringify({ type: 'user_message', content })}\n\n`);
+      // 立即发送"正在思考"状态
+      res.write(`data: ${JSON.stringify({ type: 'thinking', message: 'AI 正在思考中...' })}\n\n`);
+      const step3Time = Date.now() - step3Start;
+      console.log(`[conversationRoutes] 步骤3: SSE 响应头设置完成，耗时 ${step3Time}ms`);
 
-      // 生成 AI 响应（流式）
-      try {
-        const updatedSession = await conversationManager.getSession(sessionId);
-        if (updatedSession) {
-          console.log(`[conversationRoutes] 传递给AI的context - projectInfo.workDir: ${updatedSession.context?.projectInfo?.workDir}`);
-          console.log(`[conversationRoutes] 传递给AI的context - 完整projectInfo:`, JSON.stringify(updatedSession.context?.projectInfo, null, 2));
-          const aiResponse = await aiService.generateResponse(
-            updatedSession.context,
+      // 步骤4: 异步处理用户消息和AI响应（不阻塞响应）
+      const step4Start = Date.now();
+      console.log(`[conversationRoutes] 步骤4: 开始异步处理...`);
+      
+      // 异步处理，不等待完成
+      (async () => {
+        try {
+          // 4a: 处理用户消息（传递已存在的会话对象）
+          const step4aStart = Date.now();
+          await messageRouter.handleUserMessage(sessionId, content, session);
+          const step4aTime = Date.now() - step4aStart;
+          console.log(`[conversationRoutes] 步骤4a: 处理用户消息完成，耗时 ${step4aTime}ms`);
+
+          // 4b: 生成 AI 响应（使用已有的会话对象，避免重新查询）
+          const step4bStart = Date.now();
+          console.log(`[conversationRoutes] 步骤4b: 开始生成 AI 响应...`);
+          
+          // 设置 30 秒超时
+          const timeoutPromise = new Promise<never>((_, reject) => {
+            setTimeout(() => reject(new Error('AI 响应超时')), 30000);
+          });
+
+          const aiResponsePromise = aiService.generateResponse(
+            session.context, // 直接使用已获取的会话上下文
             content,
             sessionId
           );
 
-          // 解析 AI 响应并流式发送
-          const parsedContent = parseAIResponse(aiResponse.content);
+          try {
+            const aiResponse = await Promise.race([aiResponsePromise, timeoutPromise]);
+            const step4bTime = Date.now() - step4bStart;
+            console.log(`[conversationRoutes] 步骤4b: AI 响应生成完成，耗时 ${step4bTime}ms`);
 
-          // 按较大的块发送（平衡流畅度和性能）
-          const chunkSize = 50; // 每次发送 50 个字符
-          for (let i = 0; i < parsedContent.length; i += chunkSize) {
-            const chunk = parsedContent.slice(i, i + chunkSize);
-            res.write(`data: ${JSON.stringify({ type: 'chunk', content: chunk })}\n\n`);
+            // 4c: 解析和发送响应
+            const step4cStart = Date.now();
+            const parsedContent = parseAIResponse(aiResponse.content);
+            console.log(`[conversationRoutes] 步骤4c: AI 响应解析完成，内容长度: ${parsedContent.length}`);
 
-            // 减少延迟，提高响应速度
-            await new Promise(resolve => setTimeout(resolve, 10));
+            // 流式发送响应
+            const chunkSize = 100; // 增大块大小，减少网络开销
+            for (let i = 0; i < parsedContent.length; i += chunkSize) {
+              const chunk = parsedContent.slice(i, i + chunkSize);
+              res.write(`data: ${JSON.stringify({ type: 'chunk', content: chunk })}\n\n`);
+              // 减少延迟
+              if (i % 500 === 0) { // 每500字符暂停一次，减少CPU占用
+                await new Promise(resolve => setTimeout(resolve, 5));
+              }
+            }
+            const step4cTime = Date.now() - step4cStart;
+            console.log(`[conversationRoutes] 步骤4c: 流式发送完成，耗时 ${step4cTime}ms`);
+
+            // 4d: 异步保存 AI 响应（不阻塞用户体验，传递会话对象）
+            const step4dStart = Date.now();
+            messageRouter.handleAIResponse(sessionId, aiResponse, session).then(() => {
+              const step4dTime = Date.now() - step4dStart;
+              console.log(`[conversationRoutes] 步骤4d: 保存 AI 响应完成，耗时 ${step4dTime}ms`);
+            }).catch(error => {
+              console.error(`[conversationRoutes] 保存 AI 响应失败:`, error);
+            });
+
+            // 发送完成信号
+            res.write(`data: ${JSON.stringify({ type: 'complete' })}\n\n`);
+          } catch (timeoutError) {
+            const step4bTime = Date.now() - step4bStart;
+            console.error(`[conversationRoutes] AI 响应超时，耗时 ${step4bTime}ms:`, timeoutError);
+            res.write(`data: ${JSON.stringify({ 
+              type: 'chunk', 
+              content: '抱歉，AI 响应时间较长，请稍后再试。您可以重新发送消息或等待系统处理完成。' 
+            })}\n\n`);
+            res.write(`data: ${JSON.stringify({ type: 'complete' })}\n\n`);
           }
-
-          // 保存 AI 响应
-          await messageRouter.handleAIResponse(sessionId, aiResponse);
-
-          // 发送完成信号
-          res.write(`data: ${JSON.stringify({ type: 'complete' })}\n\n`);
+        } catch (error) {
+          console.error('[conversationRoutes] 异步处理失败:', error);
+          res.write(`data: ${JSON.stringify({ type: 'error', message: '处理失败' })}\n\n`);
+        } finally {
+          res.end();
+          const totalTime = Date.now() - startTime;
+          console.log(`[conversationRoutes] ========== 消息处理完成，总耗时: ${totalTime}ms ==========`);
         }
-      } catch (error) {
-        console.error('生成 AI 响应失败:', error);
-        res.write(`data: ${JSON.stringify({ type: 'error', message: '生成响应失败' })}\n\n`);
-      }
+      })();
 
-      res.end();
+      const step4Time = Date.now() - step4Start;
+      console.log(`[conversationRoutes] 步骤4: 异步处理启动完成，耗时 ${step4Time}ms`);
+
     } catch (error) {
+      const totalTime = Date.now() - startTime;
+      console.error(`[conversationRoutes] 消息处理失败，总耗时: ${totalTime}ms:`, error);
       res.status(500).json({
         success: false,
         error: error instanceof Error ? error.message : '发送消息失败',

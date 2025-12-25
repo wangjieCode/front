@@ -63,8 +63,8 @@ export class NeovateAIService {
       
       console.log('[NeovateAIService] 执行命令:', command);
       
-      // 执行命令
-      const result = await this.sshExecutor.executeCommand(command, workDir);
+      // 执行命令，设置 60 秒超时（AI 处理需要更多时间）
+      const result = await this.sshExecutor.executeCommand(command, workDir, 60000);
       
       // 检查执行是否成功
       if (result.exitCode !== 0) {

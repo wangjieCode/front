@@ -81,7 +81,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
           value={content}
           onChange={handleChange}
           onKeyDown={handleKeyDown}
-          placeholder={placeholder}
+          placeholder={sending ? 'AI 正在处理中...' : placeholder}
           disabled={isDisabled}
           bordered={false}
           autoSize={{ minRows: 1, maxRows: 8 }}
@@ -91,6 +91,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
             lineHeight: 1.6,
             padding: '8px 0',
             background: 'transparent',
+            opacity: sending ? 0.7 : 1,
           }}
         />
       </div>
@@ -108,8 +109,10 @@ const MessageInput: React.FC<MessageInputProps> = ({
           border: 'none',
           boxShadow: canSend ? '0 4px 12px rgba(124, 92, 255, 0.3)' : 'none',
           marginBottom: 4,
-          flexShrink: 0
+          flexShrink: 0,
+          transition: 'all 0.2s ease',
         }}
+        title={sending ? 'AI 正在处理中...' : canSend ? '发送消息 (Ctrl+Enter)' : '请输入消息'}
       />
     </div>
   );
