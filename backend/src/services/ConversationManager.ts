@@ -159,17 +159,17 @@ export class ConversationManager {
       if (!this.worktreeManager) {
         throw new Error('编辑模式需要 Worktree 管理器，但服务未初始化');
       }
-      
+
       if (!userId) {
         throw new Error('编辑模式需要用户 ID');
       }
-      
+
       // 编辑模式：在用户 worktree 中创建对话分支
       const gitResult = await this.handleEditModeSetup(sessionId, initialPrompt, userId);
       if (!gitResult.success) {
         throw new Error(`Git 操作失败: ${gitResult.error}`);
       }
-      
+
       context.gitBranch = gitResult.branchName;
       if (gitResult.worktreePath) {
         // 只更新 workDir，保留其他项目信息
@@ -178,23 +178,23 @@ export class ConversationManager {
           workDir: gitResult.worktreePath
         };
       }
-      
+
       console.log(`[ConversationManager] Git 分支已创建: ${gitResult.branchName}`);
     } else if (mode === ConversationMode.READONLY) {
       if (!this.worktreeManager) {
         throw new Error('只读模式需要 Worktree 管理器，但服务未初始化');
       }
-      
+
       if (!userId) {
         throw new Error('只读模式需要用户 ID');
       }
-      
+
       // 只读模式：切换用户 worktree 到主分支
       const gitResult = await this.handleReadonlyModeSetup(userId);
       if (!gitResult.success) {
         throw new Error(`Git 操作失败: ${gitResult.error}`);
       }
-      
+
       if (gitResult.worktreePath) {
         // 只更新 workDir，保留其他项目信息
         context.projectInfo = {
@@ -202,7 +202,7 @@ export class ConversationManager {
           workDir: gitResult.worktreePath
         };
       }
-      
+
       console.log(`[ConversationManager] 已切换到主分支`);
     }
 
@@ -321,10 +321,10 @@ export class ConversationManager {
    */
   async getSession(sessionId: string): Promise<ConversationSession | null> {
     const session = await this.storage.loadSession(sessionId);
-    console.log(`[ConversationManager] getSession - sessionId: ${sessionId}`);
-    console.log(
-      `[ConversationManager] 返回的session.context.projectInfo.workDir: ${session?.context?.projectInfo?.workDir}`
-    );
+    // console.log(`[ConversationManager] getSession - sessionId: ${sessionId}`);
+    // console.log(
+    //   `[ConversationManager] 返回的session.context.projectInfo.workDir: ${session?.context?.projectInfo?.workDir}`
+    // );
     return session;
   }
 
@@ -391,7 +391,7 @@ export class ConversationManager {
 
       // 更新内存中的数据结构
       context.messageHistory.push(messageId);
-      
+
       // 更新分支的消息列表
       const branch = context.branches.find(
         (b) => b.id === context.currentBranchId
@@ -403,21 +403,20 @@ export class ConversationManager {
       // 更新会话的 updatedAt
       session.updatedAt = now;
 
-      // 批量保存到数据库（异步执行，不阻塞返回）
-      setImmediate(async () => {
-        try {
-          // 并行执行数据库写入操作
-          await Promise.all([
-            this.storage.saveMessage(message),
-            branch ? this.storage.saveBranch(sessionId, branch) : Promise.resolve(),
-            this.storage.saveContext(sessionId, context),
-            this.storage.saveSession(session)
-          ]);
-          console.log(`[ConversationManager] 消息 ${messageId} 批量保存完成`);
-        } catch (error) {
-          console.error(`[ConversationManager] 批量保存消息失败:`, error);
-        }
-      });
+      // 批量保存到数据库（同步执行，确保数据一致性）
+      try {
+        // 并行执行数据库写入操作
+        await Promise.all([
+          this.storage.saveMessage(message),
+          branch ? this.storage.saveBranch(sessionId, branch) : Promise.resolve(),
+          this.storage.saveContext(sessionId, context),
+          this.storage.saveSession(session)
+        ]);
+        console.log(`[ConversationManager] 消息 ${messageId} 批量保存完成`);
+      } catch (error) {
+        console.error(`[ConversationManager] 批量保存消息失败:`, error);
+        throw error;
+      }
 
       return message;
     } finally {

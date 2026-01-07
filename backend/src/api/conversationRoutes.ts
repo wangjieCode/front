@@ -84,7 +84,7 @@ export function createConversationRoutes(
   router.post('/', requireAuth, async (req: AuthRequest, res: Response) => {
     try {
       const { initialPrompt, taskId, mode, projectId } = req.body;
-      
+
       console.log('[API] 创建对话请求参数:', {
         initialPrompt: initialPrompt?.substring(0, 50) + '...',
         taskId,
@@ -166,7 +166,7 @@ export function createConversationRoutes(
         // 立即生成AI回复
         console.log('[API] 开始生成AI回复...');
         await conversationManager.updateSessionStatus(session.id, ConversationStatus.EXECUTING);
-        
+
         const updatedSession = await conversationManager.getSession(session.id);
         if (updatedSession) {
           const aiResponse = await aiService.generateResponse(
@@ -174,7 +174,7 @@ export function createConversationRoutes(
             initialPrompt,
             session.id
           );
-          
+
           await messageRouter.handleAIResponse(session.id, aiResponse);
           await conversationManager.updateSessionStatus(session.id, ConversationStatus.COMPLETED);
           console.log('[API] AI回复生成完成');
@@ -182,8 +182,8 @@ export function createConversationRoutes(
       } catch (messageError) {
         console.error('[API] 发送第一条消息或生成AI回复失败:', messageError);
         await conversationManager.updateSessionStatus(
-          session.id, 
-          ConversationStatus.FAILED, 
+          session.id,
+          ConversationStatus.FAILED,
           messageError instanceof Error ? messageError.message : String(messageError)
         );
         // 不阻断会话创建，只记录错误
@@ -213,7 +213,7 @@ export function createConversationRoutes(
       const simplifiedSessions = sessions.map(session => {
         // 使用 taskDescription 作为对话概览
         const overview = session.context.taskDescription;
-        
+
         // 确保项目信息正确
         const projectInfo = {
           projectId: session.context.projectInfo.projectId,
@@ -222,7 +222,7 @@ export function createConversationRoutes(
           workDir: session.context.projectInfo.workDir,
           gitBranch: session.context.projectInfo.gitBranch,
         };
-        
+
         return {
           id: session.id,
           taskId: session.taskId,
@@ -277,13 +277,49 @@ export function createConversationRoutes(
   });
 
   /**
+   * GET /api/conversations/:sessionId/messages
+   * 获取会话消息历史
+   */
+  router.get('/:sessionId/messages', async (req: Request, res: Response) => {
+    try {
+      const { sessionId } = req.params;
+      const { branchId } = req.query;
+
+      // 验证会话是否存在
+      const session = await conversationManager.getSession(sessionId);
+      if (!session) {
+        return res.status(404).json({
+          success: false,
+          error: '会话不存在',
+        });
+      }
+
+      // 获取消息历史
+      const messages = await conversationManager.getMessageHistory(
+        sessionId,
+        typeof branchId === 'string' ? branchId : undefined
+      );
+
+      res.json({
+        success: true,
+        data: messages,
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : '获取消息历史失败',
+      });
+    }
+  });
+
+  /**
    * POST /api/conversations/:sessionId/messages
    * 发送用户消息（SSE 流式响应）
    */
   router.post('/:sessionId/messages', async (req: Request, res: Response) => {
     const startTime = Date.now();
     console.log(`[conversationRoutes] ========== 开始处理消息 ==========`);
-    
+
     try {
       const { sessionId } = req.params;
       const { content, branchId } = req.body;
@@ -337,7 +373,7 @@ export function createConversationRoutes(
       // 步骤4: 异步处理用户消息和AI响应（不阻塞响应）
       const step4Start = Date.now();
       console.log(`[conversationRoutes] 步骤4: 开始异步处理...`);
-      
+
       // 异步处理，不等待完成
       (async () => {
         try {
@@ -350,7 +386,7 @@ export function createConversationRoutes(
           // 4b: 生成 AI 响应（使用已有的会话对象，避免重新查询）
           const step4bStart = Date.now();
           console.log(`[conversationRoutes] 步骤4b: 开始生成 AI 响应...`);
-          
+
           // 设置 30 秒超时
           const timeoutPromise = new Promise<never>((_, reject) => {
             setTimeout(() => reject(new Error('AI 响应超时')), 30000);
@@ -399,9 +435,9 @@ export function createConversationRoutes(
           } catch (timeoutError) {
             const step4bTime = Date.now() - step4bStart;
             console.error(`[conversationRoutes] AI 响应超时，耗时 ${step4bTime}ms:`, timeoutError);
-            res.write(`data: ${JSON.stringify({ 
-              type: 'chunk', 
-              content: '抱歉，AI 响应时间较长，请稍后再试。您可以重新发送消息或等待系统处理完成。' 
+            res.write(`data: ${JSON.stringify({
+              type: 'chunk',
+              content: '抱歉，AI 响应时间较长，请稍后再试。您可以重新发送消息或等待系统处理完成。'
             })}\n\n`);
             res.write(`data: ${JSON.stringify({ type: 'complete' })}\n\n`);
           }

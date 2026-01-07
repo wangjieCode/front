@@ -98,24 +98,24 @@ export class ConversationStorageAdapter implements IConversationStorage {
    */
   private extractTitle(taskDescription: string): string {
     if (!taskDescription) return '';
-    
+
     // 移除多余的空白字符
     const cleaned = taskDescription.trim().replace(/\s+/g, ' ');
-    
+
     // 如果长度小于等于50，直接返回
     if (cleaned.length <= 50) {
       return cleaned;
     }
-    
+
     // 截取前50个字符，并在合适的位置断开
     let title = cleaned.substring(0, 50);
     const lastSpace = title.lastIndexOf(' ');
-    
+
     // 如果在前40个字符内找到空格，在空格处断开
     if (lastSpace > 30) {
       title = title.substring(0, lastSpace);
     }
-    
+
     return title + '...';
   }
 
@@ -130,12 +130,12 @@ export class ConversationStorageAdapter implements IConversationStorage {
 
     // 如果 DrizzleConversationStorage 已经返回了完整的 session（包含 context），直接使用
     if (dbSession.context) {
-      console.log(`[ConversationStorageAdapter] 使用 DrizzleConversationStorage 返回的完整 context，projectInfo.workDir: ${dbSession.context.projectInfo?.workDir}`);
+      // console.log(`[ConversationStorageAdapter] 使用 DrizzleConversationStorage 返回的完整 context，projectInfo.workDir: ${dbSession.context.projectInfo?.workDir}`);
       return dbSession;
     }
 
     // 兼容性处理：如果没有 context，则手动构建
-    console.log(`[ConversationStorageAdapter] DrizzleConversationStorage 没有返回 context，手动构建`);
+    // console.log(`[ConversationStorageAdapter] DrizzleConversationStorage 没有返回 context，手动构建`);
     const dbContext = await this.storage.loadContext(sessionId);
     if (!dbContext) {
       return null;
@@ -205,7 +205,7 @@ export class ConversationStorageAdapter implements IConversationStorage {
   async listSessions(): Promise<ConversationSession[]> {
     try {
       const dbSessions = await this.storage.listSessions();
-      
+
       // 使用数据库中的新字段构建会话信息
       const sessions: ConversationSession[] = dbSessions.map(dbSession => ({
         id: dbSession.id,
