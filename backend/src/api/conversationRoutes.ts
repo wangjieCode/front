@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { ConversationManager } from '../services/ConversationManager';
 import { MessageRouter } from '../services/MessageRouter';
 import { ConversationAIService } from '../services/ConversationAIService';
+import { ConversationStatus } from '../types';
 import { requireAuth, AuthRequest } from './authMiddleware';
 
 /**
@@ -83,7 +84,7 @@ export function createConversationRoutes(
   router.post('/', requireAuth, async (req: AuthRequest, res: Response) => {
     try {
       const { initialPrompt, taskId, mode, projectId } = req.body;
-      
+
       console.log('[API] 创建对话请求参数:', {
         initialPrompt: initialPrompt?.substring(0, 50) + '...',
         taskId,
@@ -112,17 +113,19 @@ export function createConversationRoutes(
         });
       }
 
+      let project;
       // 验证项目是否存在
       try {
-        console.log('[API] 验证项目:', projectId, '用户:', req.userId);
+        // console.log('[API] 验证项目:', projectId, '用户:', req.userId);
         const projectResult = await projectService.getProject(projectId, req.userId!);
-        console.log('[API] 项目验证结果:', projectResult);
+        // console.log('[API] 项目验证结果:', projectResult);
         if (!projectResult.success || !projectResult.project) {
           return res.status(404).json({
             success: false,
             error: projectResult.error || '项目不存在',
           });
         }
+        project = projectResult.project;
       } catch (error) {
         console.error('[API] 验证项目失败:', error);
         console.error('[API] 错误堆栈:', error instanceof Error ? error.stack : error);
@@ -132,12 +135,14 @@ export function createConversationRoutes(
         });
       }
 
-      // 构建 projectInfo，ConversationManager 会进一步完善
+      // 构建完整的 projectInfo，传递给 ConversationManager 以减少数据库查询
       const projectInfo = {
         projectId,
-        projectName: '', // 将在 ConversationManager 中填充
-        gitRepositoryUrl: '', // 将在 ConversationManager 中填充
-        workDir: '', // 将在 ConversationManager 中填充
+        projectName: project.name,
+        gitRepositoryUrl: project.gitRepositoryUrl,
+        workDir: project.workDirectory || project.repoDir,
+        gitBranch: project.gitBranch || 'master',
+        relevantFiles: [], // 初始化为空数组
       };
 
       // 验证 mode 参数（如果提供）
@@ -153,15 +158,61 @@ export function createConversationRoutes(
         initialPrompt,
         projectInfo,
         mode,
-        req.userId
+        req.userId!
       );
 
-      // 只创建会话，不自动生成响应
-      // 前端需要调用 POST /api/conversations/:sessionId/messages 来流式获取响应
-      res.status(201).json({
-        success: true,
-        data: session,
-      });
+      // 发送第一条用户消息并生成AI回复
+      try {
+        console.log('[API] 发送第一条用户消息:', initialPrompt.substring(0, 50) + '...');
+        await messageRouter.handleUserMessage(session.id, initialPrompt);
+        console.log('[API] 第一条用户消息发送成功');
+
+        // 立即生成AI回复
+        console.log('[API] 开始生成AI回复...');
+        await conversationManager.updateSessionStatus(session.id, ConversationStatus.EXECUTING);
+
+        const updatedSession = await conversationManager.getSession(session.id);
+        if (updatedSession) {
+          const aiResponse = await aiService.generateResponse(
+            updatedSession.context,
+            initialPrompt,
+            session.id
+          );
+
+          // 解析 AI 响应内容，确保存入数据库的是干净的文本
+          const parsedContent = parseAIResponse(aiResponse.content);
+          const parsedAiResponse = {
+            ...aiResponse,
+            content: parsedContent
+          };
+
+          await messageRouter.handleAIResponse(session.id, parsedAiResponse);
+          await conversationManager.updateSessionStatus(session.id, ConversationStatus.COMPLETED);
+          // console.log('[API] AI回复生成完成');
+        }
+
+        // 获取最新的会话数据（包含刚生成的消息）
+        const finalSession = await conversationManager.getSession(session.id);
+
+        res.status(201).json({
+          success: true,
+          data: finalSession || session, // 如果获取失败，回退到原始 session
+        });
+      } catch (messageError) {
+        console.error('[API] 发送第一条消息或生成AI回复失败:', messageError);
+        await conversationManager.updateSessionStatus(
+          session.id,
+          ConversationStatus.FAILED,
+          messageError instanceof Error ? messageError.message : String(messageError)
+        );
+        // 即使失败也返回会话，但状态是 FAILED
+        // 获取最新的会话数据
+        const finalSession = await conversationManager.getSession(session.id);
+        res.status(201).json({
+          success: true,
+          data: finalSession || session,
+        });
+      }
     } catch (error) {
       res.status(500).json({
         success: false,
@@ -172,15 +223,41 @@ export function createConversationRoutes(
 
   /**
    * GET /api/conversations
-   * 获取所有对话会话列表
+   * 获取所有对话会话列表（简化版）
    */
   router.get('/', async (req: Request, res: Response) => {
     try {
       const sessions = await conversationManager.listSessions();
 
+      // 转换为简化版响应
+      const simplifiedSessions = sessions.map(session => {
+        // 使用 taskDescription 作为对话概览
+        const overview = session.context.taskDescription;
+
+        // 确保项目信息正确
+        const projectInfo = {
+          projectId: session.context.projectInfo.projectId,
+          projectName: session.context.projectInfo.projectName,
+          gitRepositoryUrl: session.context.projectInfo.gitRepositoryUrl,
+          workDir: session.context.projectInfo.workDir,
+          gitBranch: session.context.projectInfo.gitBranch,
+        };
+
+        return {
+          id: session.id,
+          taskId: session.taskId,
+          projectInfo: projectInfo,
+          mode: session.context.mode,
+          overview: overview,
+          status: session.status,
+          createdAt: session.createdAt,
+          updatedAt: session.updatedAt,
+        };
+      });
+
       res.json({
         success: true,
-        data: sessions,
+        data: simplifiedSessions,
         total: sessions.length,
       });
     } catch (error) {
@@ -220,100 +297,15 @@ export function createConversationRoutes(
   });
 
   /**
-   * POST /api/conversations/:sessionId/messages
-   * 发送用户消息（SSE 流式响应）
-   */
-  router.post('/:sessionId/messages', async (req: Request, res: Response) => {
-    try {
-      const { sessionId } = req.params;
-      const { content, branchId } = req.body;
-
-      if (!content) {
-        return res.status(400).json({
-          success: false,
-          error: '消息内容不能为空',
-        });
-      }
-
-      const session = await conversationManager.getSession(sessionId);
-      if (!session) {
-        return res.status(404).json({
-          success: false,
-          error: '会话不存在',
-        });
-      }
-
-      // 如果指定了分支,先切换分支
-      if (branchId && branchId !== session.context.currentBranchId) {
-        await conversationManager.switchBranch(sessionId, branchId);
-      }
-
-      // 处理用户消息
-      await messageRouter.handleUserMessage(sessionId, content);
-
-      // 设置 SSE 响应头
-      res.setHeader('Content-Type', 'text/event-stream');
-      res.setHeader('Cache-Control', 'no-cache');
-      res.setHeader('Connection', 'keep-alive');
-      res.setHeader('X-Accel-Buffering', 'no');
-
-      // 发送用户消息确认
-      res.write(`data: ${JSON.stringify({ type: 'user_message', content })}\n\n`);
-
-      // 生成 AI 响应（流式）
-      try {
-        const updatedSession = await conversationManager.getSession(sessionId);
-        if (updatedSession) {
-          console.log(`[conversationRoutes] 传递给AI的context - projectInfo.workDir: ${updatedSession.context?.projectInfo?.workDir}`);
-          console.log(`[conversationRoutes] 传递给AI的context - 完整projectInfo:`, JSON.stringify(updatedSession.context?.projectInfo, null, 2));
-          const aiResponse = await aiService.generateResponse(
-            updatedSession.context,
-            content,
-            sessionId
-          );
-
-          // 解析 AI 响应并流式发送
-          const parsedContent = parseAIResponse(aiResponse.content);
-
-          // 按较大的块发送（平衡流畅度和性能）
-          const chunkSize = 50; // 每次发送 50 个字符
-          for (let i = 0; i < parsedContent.length; i += chunkSize) {
-            const chunk = parsedContent.slice(i, i + chunkSize);
-            res.write(`data: ${JSON.stringify({ type: 'chunk', content: chunk })}\n\n`);
-
-            // 减少延迟，提高响应速度
-            await new Promise(resolve => setTimeout(resolve, 10));
-          }
-
-          // 保存 AI 响应
-          await messageRouter.handleAIResponse(sessionId, aiResponse);
-
-          // 发送完成信号
-          res.write(`data: ${JSON.stringify({ type: 'complete' })}\n\n`);
-        }
-      } catch (error) {
-        console.error('生成 AI 响应失败:', error);
-        res.write(`data: ${JSON.stringify({ type: 'error', message: '生成响应失败' })}\n\n`);
-      }
-
-      res.end();
-    } catch (error) {
-      res.status(500).json({
-        success: false,
-        error: error instanceof Error ? error.message : '发送消息失败',
-      });
-    }
-  });
-
-  /**
    * GET /api/conversations/:sessionId/messages
-   * 获取对话历史
+   * 获取会话消息历史
    */
   router.get('/:sessionId/messages', async (req: Request, res: Response) => {
     try {
       const { sessionId } = req.params;
-      const { branchId, since } = req.query;
+      const { branchId } = req.query;
 
+      // 验证会话是否存在
       const session = await conversationManager.getSession(sessionId);
       if (!session) {
         return res.status(404).json({
@@ -322,21 +314,15 @@ export function createConversationRoutes(
         });
       }
 
-      let messages = await conversationManager.getMessageHistory(
+      // 获取消息历史
+      const messages = await conversationManager.getMessageHistory(
         sessionId,
-        branchId as string | undefined
+        typeof branchId === 'string' ? branchId : undefined
       );
-
-      // 如果指定了 since 参数,只返回该时间之后的消息
-      if (since) {
-        const sinceDate = new Date(since as string);
-        messages = messages.filter(m => m.timestamp > sinceDate);
-      }
 
       res.json({
         success: true,
         data: messages,
-        total: messages.length,
       });
     } catch (error) {
       res.status(500).json({
@@ -347,42 +333,32 @@ export function createConversationRoutes(
   });
 
   /**
-   * GET /api/conversations/:sessionId/messages/:messageId
-   * 获取单条消息详情
+   * POST /api/conversations/:sessionId/messages
+   * 发送用户消息（SSE 流式响应）
    */
-  router.get('/:sessionId/messages/:messageId', async (req: Request, res: Response) => {
-    try {
-      const { sessionId, messageId } = req.params;
+  router.post('/:sessionId/messages', async (req: Request, res: Response) => {
+    const startTime = Date.now();
+    console.log(`[conversationRoutes] ========== 开始处理消息 ==========`);
 
-      const message = await conversationManager.getMessage(sessionId, messageId);
-      if (!message) {
-        return res.status(404).json({
+    try {
+      const { sessionId } = req.params;
+      const { content, branchId } = req.body;
+
+      console.log(`[conversationRoutes] sessionId: ${sessionId}, content 长度: ${content?.length || 0}`);
+
+      if (!content) {
+        return res.status(400).json({
           success: false,
-          error: '消息不存在',
+          error: '消息内容不能为空',
         });
       }
 
-      res.json({
-        success: true,
-        data: message,
-      });
-    } catch (error) {
-      res.status(500).json({
-        success: false,
-        error: error instanceof Error ? error.message : '获取消息详情失败',
-      });
-    }
-  });
-
-  /**
-   * GET /api/conversations/:sessionId/status
-   * 获取会话当前状态(用于轮询)
-   */
-  router.get('/:sessionId/status', async (req: Request, res: Response) => {
-    try {
-      const { sessionId } = req.params;
-
+      // 步骤1: 获取会话（只获取一次，后续复用）
+      const step1Start = Date.now();
       const session = await conversationManager.getSession(sessionId);
+      const step1Time = Date.now() - step1Start;
+      console.log(`[conversationRoutes] 步骤1: 获取会话完成，耗时 ${step1Time}ms`);
+
       if (!session) {
         return res.status(404).json({
           success: false,
@@ -390,106 +366,127 @@ export function createConversationRoutes(
         });
       }
 
-      const messages = await conversationManager.getMessageHistory(sessionId);
-      const lastMessage = messages.length > 0 ? messages[messages.length - 1] : null;
-
-      // 检查是否有待回答的问题
-      const pendingQuestion = await messageRouter.getPendingQuestion(sessionId);
-
-      res.json({
-        success: true,
-        data: {
-          status: session.status,
-          lastMessageId: lastMessage?.id,
-          hasNewMessages: messages.length > 0,
-          pendingQuestion,
-        },
-      });
-    } catch (error) {
-      res.status(500).json({
-        success: false,
-        error: error instanceof Error ? error.message : '获取状态失败',
-      });
-    }
-  });
-
-  /**
-   * POST /api/conversations/:sessionId/branches
-   * 创建新分支
-   */
-  router.post('/:sessionId/branches', async (req: Request, res: Response) => {
-    try {
-      const { sessionId } = req.params;
-      const { fromMessageId, branchName } = req.body;
-
-      if (!fromMessageId || !branchName) {
-        return res.status(400).json({
-          success: false,
-          error: '缺少必需参数: fromMessageId 和 branchName',
-        });
+      // 步骤2: 切换分支（如果需要）
+      if (branchId && branchId !== session.context.currentBranchId) {
+        const step2Start = Date.now();
+        await conversationManager.switchBranch(sessionId, branchId);
+        const step2Time = Date.now() - step2Start;
+        console.log(`[conversationRoutes] 步骤2: 切换分支完成，耗时 ${step2Time}ms`);
+        // 更新本地会话对象的分支ID，避免重新查询
+        session.context.currentBranchId = branchId;
       }
 
-      const branch = await conversationManager.createBranch(
-        sessionId,
-        fromMessageId,
-        branchName
-      );
+      // 步骤3: 设置 SSE 响应头（提前设置，让用户更快看到响应）
+      const step3Start = Date.now();
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Connection', 'keep-alive');
+      res.setHeader('X-Accel-Buffering', 'no');
 
-      res.status(201).json({
-        success: true,
-        data: branch,
-      });
+      // 发送用户消息确认
+      res.write(`data: ${JSON.stringify({ type: 'user_message', content })}\n\n`);
+      // 立即发送"正在思考"状态
+      res.write(`data: ${JSON.stringify({ type: 'thinking', message: 'AI 正在思考中...' })}\n\n`);
+      const step3Time = Date.now() - step3Start;
+      console.log(`[conversationRoutes] 步骤3: SSE 响应头设置完成，耗时 ${step3Time}ms`);
+
+      // 步骤4: 异步处理用户消息和AI响应（不阻塞响应）
+      const step4Start = Date.now();
+      console.log(`[conversationRoutes] 步骤4: 开始异步处理...`);
+
+      // 异步处理，不等待完成
+      (async () => {
+        try {
+          // 4a: 处理用户消息（传递已存在的会话对象）
+          const step4aStart = Date.now();
+          await messageRouter.handleUserMessage(sessionId, content, session);
+          const step4aTime = Date.now() - step4aStart;
+          console.log(`[conversationRoutes] 步骤4a: 处理用户消息完成，耗时 ${step4aTime}ms`);
+
+          // 4b: 生成 AI 响应（使用已有的会话对象，避免重新查询）
+          const step4bStart = Date.now();
+          console.log(`[conversationRoutes] 步骤4b: 开始生成 AI 响应...`);
+
+          // 设置 30 秒超时
+          const timeoutPromise = new Promise<never>((_, reject) => {
+            setTimeout(() => reject(new Error('AI 响应超时')), 30000);
+          });
+
+          const aiResponsePromise = aiService.generateResponse(
+            session.context, // 直接使用已获取的会话上下文
+            content,
+            sessionId
+          );
+
+          try {
+            const aiResponse = await Promise.race([aiResponsePromise, timeoutPromise]);
+            const step4bTime = Date.now() - step4bStart;
+            console.log(`[conversationRoutes] 步骤4b: AI 响应生成完成，耗时 ${step4bTime}ms`);
+
+            // 4c: 解析和发送响应
+            const step4cStart = Date.now();
+            const parsedContent = parseAIResponse(aiResponse.content);
+            console.log(`[conversationRoutes] 步骤4c: AI 响应解析完成，内容长度: ${parsedContent.length}`);
+
+            // 流式发送响应
+            const chunkSize = 100; // 增大块大小，减少网络开销
+            for (let i = 0; i < parsedContent.length; i += chunkSize) {
+              const chunk = parsedContent.slice(i, i + chunkSize);
+              res.write(`data: ${JSON.stringify({ type: 'chunk', content: chunk })}\n\n`);
+              // 减少延迟
+              if (i % 500 === 0) { // 每500字符暂停一次，减少CPU占用
+                await new Promise(resolve => setTimeout(resolve, 5));
+              }
+            }
+            const step4cTime = Date.now() - step4cStart;
+            console.log(`[conversationRoutes] 步骤4c: 流式发送完成，耗时 ${step4cTime}ms`);
+
+            // 4d: 异步保存 AI 响应（不阻塞用户体验，传递会话对象）
+            const step4dStart = Date.now();
+
+            // 使用解析后的内容保存，而不是原始的 stream-json
+            const parsedAiResponse = {
+              ...aiResponse,
+              content: parsedContent
+            };
+
+            messageRouter.handleAIResponse(sessionId, parsedAiResponse, session).then(() => {
+              const step4dTime = Date.now() - step4dStart;
+              // console.log(`[conversationRoutes] 步骤4d: 保存 AI 响应完成，耗时 ${step4dTime}ms`);
+            }).catch(error => {
+              console.error(`[conversationRoutes] 保存 AI 响应失败:`, error);
+            });
+
+            // 发送完成信号
+            res.write(`data: ${JSON.stringify({ type: 'complete' })}\n\n`);
+          } catch (timeoutError) {
+            const step4bTime = Date.now() - step4bStart;
+            console.error(`[conversationRoutes] AI 响应超时，耗时 ${step4bTime}ms:`, timeoutError);
+            res.write(`data: ${JSON.stringify({
+              type: 'chunk',
+              content: '抱歉，AI 响应时间较长，请稍后再试。您可以重新发送消息或等待系统处理完成。'
+            })}\n\n`);
+            res.write(`data: ${JSON.stringify({ type: 'complete' })}\n\n`);
+          }
+        } catch (error) {
+          console.error('[conversationRoutes] 异步处理失败:', error);
+          res.write(`data: ${JSON.stringify({ type: 'error', message: '处理失败' })}\n\n`);
+        } finally {
+          res.end();
+          const totalTime = Date.now() - startTime;
+          console.log(`[conversationRoutes] ========== 消息处理完成，总耗时: ${totalTime}ms ==========`);
+        }
+      })();
+
+      const step4Time = Date.now() - step4Start;
+      console.log(`[conversationRoutes] 步骤4: 异步处理启动完成，耗时 ${step4Time}ms`);
+
     } catch (error) {
-      res.status(400).json({
-        success: false,
-        error: error instanceof Error ? error.message : '创建分支失败',
-      });
-    }
-  });
-
-  /**
-   * PUT /api/conversations/:sessionId/branches/:branchId/activate
-   * 切换到指定分支
-   */
-  router.put('/:sessionId/branches/:branchId/activate', async (req: Request, res: Response) => {
-    try {
-      const { sessionId, branchId } = req.params;
-
-      await conversationManager.switchBranch(sessionId, branchId);
-
-      const session = await conversationManager.getSession(sessionId);
-
-      res.json({
-        success: true,
-        data: session,
-      });
-    } catch (error) {
-      res.status(400).json({
-        success: false,
-        error: error instanceof Error ? error.message : '切换分支失败',
-      });
-    }
-  });
-
-  /**
-   * GET /api/conversations/:sessionId/branches
-   * 获取所有分支
-   */
-  router.get('/:sessionId/branches', async (req: Request, res: Response) => {
-    try {
-      const { sessionId } = req.params;
-
-      const branches = await conversationManager.getBranches(sessionId);
-
-      res.json({
-        success: true,
-        data: branches,
-        total: branches.length,
-      });
-    } catch (error) {
+      const totalTime = Date.now() - startTime;
+      console.error(`[conversationRoutes] 消息处理失败，总耗时: ${totalTime}ms:`, error);
       res.status(500).json({
         success: false,
-        error: error instanceof Error ? error.message : '获取分支列表失败',
+        error: error instanceof Error ? error.message : '发送消息失败',
       });
     }
   });
@@ -498,10 +495,11 @@ export function createConversationRoutes(
    * DELETE /api/conversations/:sessionId
    * 删除对话会话
    */
-  router.delete('/:sessionId', async (req: Request, res: Response) => {
+  router.delete('/:sessionId', requireAuth, async (req: AuthRequest, res: Response) => {
     try {
       const { sessionId } = req.params;
 
+      // 验证会话是否存在
       const session = await conversationManager.getSession(sessionId);
       if (!session) {
         return res.status(404).json({
@@ -510,11 +508,20 @@ export function createConversationRoutes(
         });
       }
 
+      // 验证用户权限（只有会话创建者可以删除）
+      if (session.userId !== req.userId) {
+        return res.status(403).json({
+          success: false,
+          error: '无权限删除该会话',
+        });
+      }
+
+      // 删除会话
       await conversationManager.deleteSession(sessionId);
 
       res.json({
         success: true,
-        message: '会话已删除',
+        message: '会话删除成功',
       });
     } catch (error) {
       res.status(500).json({
@@ -526,39 +533,32 @@ export function createConversationRoutes(
 
   /**
    * POST /api/conversations/:sessionId/merge-request
-   * 为会话创建 Merge Request（编辑模式）
+   * 创建 Merge Request
    */
-  router.post('/:sessionId/merge-request', async (req: Request, res: Response) => {
+  router.post('/:sessionId/merge-request', requireAuth, async (req: AuthRequest, res: Response) => {
     try {
       const { sessionId } = req.params;
+      const { targetBranch } = req.body;
 
-      const session = await conversationManager.getSession(sessionId);
-      if (!session) {
-        return res.status(404).json({
+      const result = await conversationManager.createMergeRequest(sessionId, targetBranch);
+
+      if (result.success) {
+        res.json({
+          success: true,
+          data: {
+            mrUrl: result.mrUrl
+          }
+        });
+      } else {
+        res.status(400).json({
           success: false,
-          error: '会话不存在',
+          error: result.error || '创建 Merge Request 失败'
         });
       }
-
-      const result = await conversationManager.createMergeRequest(sessionId);
-
-      if (!result.success) {
-        return res.status(400).json({
-          success: false,
-          error: result.error,
-        });
-      }
-
-      res.json({
-        success: true,
-        data: {
-          mrUrl: result.mrUrl,
-        },
-      });
     } catch (error) {
       res.status(500).json({
         success: false,
-        error: error instanceof Error ? error.message : '创建 MR 失败',
+        error: error instanceof Error ? error.message : '创建 Merge Request 失败'
       });
     }
   });

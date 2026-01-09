@@ -69,9 +69,13 @@ export interface ConversationMessage {
   metadata?: MessageMetadata;
   timestamp: string;
   parentMessageId?: string;
+  isStreaming?: boolean;
 }
 
 export interface ProjectInfo {
+  projectId: string;
+  projectName: string;
+  gitRepositoryUrl: string;
   workDir: string;
   gitBranch?: string;
   relevantFiles?: string[];
@@ -99,6 +103,18 @@ export interface ConversationContext {
   previewInfo?: PreviewInfo;
 }
 
+export interface SimplifiedConversation {
+  id: string;
+  taskId: string;
+  projectInfo: ProjectInfo;
+  mode: ConversationMode;
+  overview: string;
+  status: ConversationStatus;
+  createdAt: string;
+  updatedAt: string;
+  title?: string; // 对话标题
+}
+
 export interface ConversationSession {
   id: string;
   taskId: string;
@@ -108,6 +124,7 @@ export interface ConversationSession {
   updatedAt: string;
   completedAt?: string;
   error?: string;
+  title?: string; // 对话标题
 }
 
 export interface PendingQuestion {

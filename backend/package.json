@@ -19,6 +19,7 @@
     "db:studio": "drizzle-kit studio",
     "db:test": "tsx src/db/init.ts",
     "db:clear": "tsx scripts/clear-database.ts",
+    "db:update-conversations": "tsx scripts/update-conversation-fields.js",
     "test:storage": "tsx scripts/test-storage.ts",
     "test:sse": "tsx scripts/test-sse.ts",
     "test:integration": "tsx scripts/test-integration.ts",

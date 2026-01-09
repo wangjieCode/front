@@ -43,9 +43,9 @@ export class ConversationAIService {
   ): Promise<AIResponse> {
     try {
       console.log(`[ConversationAIService] 生成响应 - sessionId: ${sessionId}`);
-      console.log(`[ConversationAIService] 模式: ${context.mode}`);
-      console.log(`[ConversationAIService] 用户消息: ${userMessage.substring(0, 100)}`);
-      
+      // console.log(`[ConversationAIService] 模式: ${context.mode}`);
+      // console.log(`[ConversationAIService] 用户消息: ${userMessage.substring(0, 100)}`);
+
       // 检查是否需要询问用户（现阶段总是返回 false）
       if (this.shouldAskUser(context, userMessage)) {
         const question = this.generateClarificationQuestion(context, userMessage);
@@ -65,9 +65,9 @@ export class ConversationAIService {
         const existingSessionId = await this.sessionManager.getSessionId(sessionId);
         if (existingSessionId) {
           neovateSessionId = existingSessionId;
-          console.log(`[ConversationAIService] ✅ 找到现有 Neovate 会话: ${existingSessionId}`);
+          // console.log(`[ConversationAIService] ✅ 找到现有 Neovate 会话: ${existingSessionId}`);
         } else {
-          console.log(`[ConversationAIService] ℹ️ 未找到现有会话，将创建新会话`);
+          // console.log(`[ConversationAIService] ℹ️ 未找到现有会话，将创建新会话`);
         }
       } catch (error) {
         console.error('[ConversationAIService] ❌ 查询会话 ID 失败:', error);
@@ -75,10 +75,10 @@ export class ConversationAIService {
 
       // 调用 AI 服务处理消息（传递 Neovate 会话 ID 和正确的工作目录）
       const projectWorkDir = context.projectInfo.workDir;
-      console.log(`[ConversationAIService] 调用 NeovateAIService - conversationId: ${sessionId}, neovateSessionId: ${neovateSessionId || '无'}`);
-      console.log(`[ConversationAIService] context.projectInfo:`, JSON.stringify(context.projectInfo, null, 2));
-      console.log(`[ConversationAIService] projectWorkDir: ${projectWorkDir}`);
-      console.log(`[ConversationAIService] context.workDir: ${context.workDir}`);
+      // console.log(`[ConversationAIService] 调用 NeovateAIService - conversationId: ${sessionId}, neovateSessionId: ${neovateSessionId || '无'}`);
+      // console.log(`[ConversationAIService] context.projectInfo:`, JSON.stringify(context.projectInfo, null, 2));
+      // console.log(`[ConversationAIService] projectWorkDir: ${projectWorkDir}`);
+      // console.log(`[ConversationAIService] context.workDir: ${context.workDir}`);
       const result = await this.neovateService.modifyCode(
         userMessage,
         sessionId,
@@ -138,7 +138,7 @@ export class ConversationAIService {
     userMessage: string
   ): Promise<void> {
     try {
-      console.log(`[ConversationAIService] 提交变更`);
+      // console.log(`[ConversationAIService] 提交变更`);
 
       // 添加所有变更
       await this.gitService.addAll();
@@ -150,7 +150,7 @@ export class ConversationAIService {
       if (commitResult.success && context.gitBranch) {
         // 推送到远程
         await this.gitService.push(context.gitBranch);
-        console.log(`[ConversationAIService] ✅ 变更已提交并推送`);
+        // console.log(`[ConversationAIService] ✅ 变更已提交并推送`);
       }
     } catch (error) {
       console.error(`[ConversationAIService] ❌ 提交变更失败:`, error);

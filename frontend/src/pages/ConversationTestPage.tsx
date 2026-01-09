@@ -2,22 +2,19 @@ import React, { useState, useEffect } from 'react';
 import { Layout, Button, message, Space, Card, List, Modal, Input } from 'antd';
 import { PlusOutlined, MessageOutlined } from '@ant-design/icons';
 import ConversationView from '../components/ConversationView';
+import { SimplifiedConversation } from '../types/conversation';
+import { conversationService } from '../services/conversationService';
 
 const { Content, Sider } = Layout;
 
-interface ConversationSession {
-  id: string;
-  taskId: string;
-  status: string;
-  createdAt: string;
-}
+
 
 /**
  * 对话测试页面
  * 用于测试多轮对话功能
  */
 const ConversationTestPage: React.FC = () => {
-  const [sessions, setSessions] = useState<ConversationSession[]>([]);
+  const [sessions, setSessions] = useState<SimplifiedConversation[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [isModalVisible, setIsModalVisible] = useState(false);
@@ -26,11 +23,8 @@ const ConversationTestPage: React.FC = () => {
   // 加载会话列表
   const loadSessions = async () => {
     try {
-      const response = await fetch('/api/conversations');
-      const data = await response.json();
-      if (data.success) {
-        setSessions(data.data);
-      }
+      const data = await conversationService.getSessions();
+      setSessions(data);
     } catch (error) {
       console.error('加载会话列表失败:', error);
       message.error('加载会话列表失败');
@@ -124,12 +118,64 @@ const ConversationTestPage: React.FC = () => {
                   }}
                   onClick={() => handleSelectSession(session.id)}
                 >
-                  <Space direction="vertical" size={0} style={{ width: '100%' }}>
-                    <div style={{ fontWeight: 500 }}>
-                      <MessageOutlined /> {session.taskId}
+                  <Space direction="vertical" size={4} style={{ width: '100%' }}>
+                    <div style={{ fontWeight: 500, fontSize: 14 }}>
+                      <MessageOutlined /> {session.title || session.overview || session.taskId}
                     </div>
-                    <div style={{ fontSize: 12, color: '#999' }}>
-                      {new Date(session.createdAt).toLocaleString('zh-CN')}
+                    
+                    {/* 项目信息 - 独立一行显示 */}
+                    {session.projectInfo?.projectName && (
+                      <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 4,
+                        marginTop: 2
+                      }}>
+                        <div style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 4,
+                          background: '#f8f9fa',
+                          padding: '2px 8px',
+                          borderRadius: 12,
+                          border: '1px solid #e9ecef'
+                        }}>
+                          <span style={{ fontSize: 10 }}>📁</span>
+                          <span style={{
+                            fontSize: 11,
+                            color: '#495057',
+                            fontWeight: 500
+                          }}>
+                            {session.projectInfo.projectName}
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                    
+                    {/* 模式和时间行 */}
+                    <div style={{ 
+                      display: 'flex', 
+                      alignItems: 'center', 
+                      justifyContent: 'space-between',
+                      marginTop: 4
+                    }}>
+                      <span style={{
+                        fontSize: 10,
+                        padding: '2px 6px',
+                        borderRadius: 4,
+                        background: session.mode === 'edit' ? 'rgba(124, 92, 255, 0.1)' : '#f0f0f0',
+                        color: session.mode === 'edit' ? '#7c5cff' : '#666',
+                        border: session.mode === 'edit' ? '1px solid rgba(124, 92, 255, 0.2)' : '1px solid #d9d9d9',
+                        fontWeight: 500
+                      }}>
+                        {session.mode === 'edit' ? '✏️ 编辑' : '👁️ 只读'}
+                      </span>
+                      
+                      <div style={{ fontSize: 10, color: '#999' }}>
+                        {new Date(session.createdAt).toLocaleString('zh-CN', {
+                          month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit'
+                        })}
+                      </div>
                     </div>
                   </Space>
                 </List.Item>

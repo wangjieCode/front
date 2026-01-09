@@ -86,24 +86,14 @@ export class WorktreeManager {
     try {
       console.log(`[WorktreeManager] 创建用户 worktree: ${userId}`);
       
-      // 创建 worktree（使用 --detach 创建分离的 HEAD，基于主分支）
+      // 创建 worktree 并直接切换到主分支
       const result = await this.executor.executeCommand(
-        `git worktree add --detach "${worktreePath}" ${baseBranch}`,
+        `git worktree add "${worktreePath}" ${baseBranch}`,
         this.baseRepoPath
       );
 
       if (result.exitCode !== 0) {
         throw new Error(`创建 worktree 失败: ${result.stderr}`);
-      }
-
-      // 在 worktree 中切换到主分支
-      const checkoutResult = await this.executor.executeCommand(
-        `git checkout -B ${baseBranch}`,
-        worktreePath
-      );
-
-      if (checkoutResult.exitCode !== 0) {
-        console.warn(`[WorktreeManager] ⚠️  切换分支失败: ${checkoutResult.stderr}`);
       }
 
       const now = new Date();
@@ -117,9 +107,10 @@ export class WorktreeManager {
       };
 
       // 缓存 worktree 信息
-      this.worktreeCache.set(userId, worktreeInfo);
+      const cacheKey = projectId ? `${userId}-${projectId}` : userId;
+      this.worktreeCache.set(cacheKey, worktreeInfo);
 
-      console.log(`[WorktreeManager] ✅ Worktree 创建成功: ${worktreePath}`);
+      console.log(`[WorktreeManager] Worktree 创建成功: ${worktreePath}`);
       return worktreeInfo;
     } catch (error) {
       throw new Error(
@@ -132,15 +123,15 @@ export class WorktreeManager {
    * 获取用户的 worktree 信息
    */
   async getWorktreeInfo(userId: string, projectId?: string): Promise<WorktreeInfo> {
-    // 先从缓存获取
     const cacheKey = projectId ? `${userId}-${projectId}` : userId;
+    
+    // 先从缓存获取
     if (this.worktreeCache.has(cacheKey)) {
       const info = this.worktreeCache.get(cacheKey)!;
       info.lastUsedAt = new Date();
       return info;
     }
 
-    // 从 git worktree list 获取
     const worktreePath = this.getUserWorktreePath(userId, projectId);
     const exists = await this.worktreeExists(userId, projectId);
 
@@ -157,13 +148,14 @@ export class WorktreeManager {
     const now = new Date();
     const worktreeInfo: WorktreeInfo = {
       userId,
+      projectId,
       worktreePath,
       mainBranch: branchResult.stdout.trim(),
       createdAt: now,
       lastUsedAt: now,
     };
 
-    this.worktreeCache.set(userId, worktreeInfo);
+    this.worktreeCache.set(cacheKey, worktreeInfo);
     return worktreeInfo;
   }
 
@@ -205,26 +197,29 @@ export class WorktreeManager {
     projectId?: string
   ): Promise<{ branchName: string; worktreePath: string }> {
     const worktreeInfo = await this.getOrCreateWorktree(userId, projectId);
-    const gitService = new GitService(this.executor, worktreeInfo.worktreePath);
 
     // 生成分支名称
     const shortSessionId = sessionId.substring(0, 8);
     const timestamp = Date.now();
     const branchName = `conversation-${shortSessionId}-${timestamp}`;
-
-    // 如果指定了基础分支，先切换
-    const targetBaseBranch = baseBranch || worktreeInfo.mainBranch;
     
-    console.log(`[WorktreeManager] 在 worktree ${worktreeInfo.worktreePath} 创建分支: ${branchName}`);
+    console.log(`[WorktreeManager] 创建对话分支: ${branchName}`);
     
-    // 先 stash 未提交的变更（如果有）
-    const stashResult = await this.executor.executeCommand(
-      'git stash push -m "auto-stash before creating conversation branch"',
+    // 检查是否有未提交的变更，只在必要时 stash
+    const statusResult = await this.executor.executeCommand(
+      'git status --porcelain',
       worktreeInfo.worktreePath
     );
-    console.log(`[WorktreeManager] Stash 结果: ${stashResult.exitCode === 0 ? '成功' : '无需 stash'}`);
+    
+    if (statusResult.stdout.trim()) {
+      // 有未提交变更，需要 stash
+      await this.executor.executeCommand(
+        'git stash push -m "auto-stash before creating conversation branch"',
+        worktreeInfo.worktreePath
+      );
+    }
 
-    // 在 worktree 中直接创建新分支（基于当前分支）
+    // 直接创建新分支
     const createResult = await this.executor.executeCommand(
       `git checkout -b ${branchName}`,
       worktreeInfo.worktreePath
@@ -234,14 +229,7 @@ export class WorktreeManager {
       throw new Error(`创建分支失败: ${createResult.stderr}`);
     }
 
-    // 推送分支到远程（暂时禁用以避免shallow更新问题）
-    // const pushResult = await gitService.push(branchName);
-    // if (!pushResult.success) {
-    //   throw new Error(`推送分支失败: ${pushResult.error}`);
-    // }
-    console.log(`[WorktreeManager] ⚠️  跳过推送分支以避免shallow更新问题`);
-
-    console.log(`[WorktreeManager] ✅ 对话分支创建成功: ${branchName}`);
+    console.log(`[WorktreeManager] 对话分支创建完成`);
 
     return {
       branchName,
@@ -250,8 +238,78 @@ export class WorktreeManager {
   }
 
   /**
-   * 切换用户 worktree 到主分支（只读模式）
+   * 提交所有更改
    */
+  async commitChanges(userId: string, message: string, projectId?: string): Promise<void> {
+    const worktreeInfo = await this.getWorktreeInfo(userId, projectId);
+    
+    // 检查是否有变更
+    const statusResult = await this.executor.executeCommand(
+      'git status --porcelain',
+      worktreeInfo.worktreePath
+    );
+
+    if (!statusResult.stdout.trim()) {
+      return; // 无变更
+    }
+
+    // 添加所有更改
+    await this.executor.executeCommand(
+      'git add .',
+      worktreeInfo.worktreePath
+    );
+
+    // 提交
+    await this.executor.executeCommand(
+      `git commit -m "${message}"`,
+      worktreeInfo.worktreePath
+    );
+    console.log(`[WorktreeManager] 已提交更改: ${message}`);
+  }
+
+  /**
+   * 推送分支
+   */
+  async pushBranch(userId: string, branchName: string, projectId?: string): Promise<void> {
+    const worktreeInfo = await this.getWorktreeInfo(userId, projectId);
+
+    console.log(`[WorktreeManager] 推送分支: ${branchName}`);
+    
+    const result = await this.executor.executeCommand(
+      `git push origin ${branchName}`,
+      worktreeInfo.worktreePath
+    );
+
+    if (result.exitCode !== 0) {
+       // 尝试 set-upstream
+       const upstreamResult = await this.executor.executeCommand(
+        `git push --set-upstream origin ${branchName}`,
+        worktreeInfo.worktreePath
+      );
+      
+      if (upstreamResult.exitCode !== 0) {
+        throw new Error(`推送分支失败: ${upstreamResult.stderr}`);
+      }
+    }
+  }
+
+  /**
+   * 从当前 HEAD 创建新分支 (保留未提交更改)
+   */
+  async createBranchFromHead(userId: string, branchName: string, projectId?: string): Promise<void> {
+    const worktreeInfo = await this.getWorktreeInfo(userId, projectId);
+    
+    console.log(`[WorktreeManager] 从当前 HEAD 创建分支: ${branchName}`);
+
+    const result = await this.executor.executeCommand(
+      `git checkout -b ${branchName}`,
+      worktreeInfo.worktreePath
+    );
+
+    if (result.exitCode !== 0) {
+      throw new Error(`创建分支失败: ${result.stderr}`);
+    }
+  }
   async switchToMainBranch(userId: string): Promise<void> {
     const worktreeInfo = await this.getWorktreeInfo(userId);
     // @ts-ignore - GitService 接受 ICommandExecutor

@@ -32,6 +32,22 @@ const MessageList: React.FC<MessageListProps> = ({
   onMessageClick,
 }) => {
 
+  // 添加打字机光标动画样式
+  React.useEffect(() => {
+    const style = document.createElement('style');
+    style.textContent = `
+      @keyframes blink {
+        0%, 50% { opacity: 1; }
+        51%, 100% { opacity: 0; }
+      }
+    `;
+    document.head.appendChild(style);
+    
+    return () => {
+      document.head.removeChild(style);
+    };
+  }, []);
+
 
   /**
    * 获取代码变更图标
@@ -277,57 +293,74 @@ const MessageList: React.FC<MessageListProps> = ({
                 <span>思考中...</span>
               </div>
             ) : (
-              <ReactMarkdown
-                components={{
-                  code({ className, children }: any) {
-                    const match = /language-(\w+)/.exec(className || '');
-                    const inline = !match;
-                    return !inline && match ? (
-                      <SyntaxHighlighter
-                        style={vscDarkPlus as any}
-                        language={match[1]}
-                        PreTag="div"
-                        customStyle={{
-                          margin: '12px 0',
-                          borderRadius: 8,
-                          fontSize: 13,
-                          border: '1px solid rgba(0,0,0,0.05)',
-                        }}
-                      >
-                        {String(children).replace(/\n$/, '')}
-                      </SyntaxHighlighter>
-                    ) : (
-                      <code
-                        className={className}
-                        style={{
-                          background: isUser ? 'rgba(255,255,255,0.2)' : '#ebebeb',
-                          color: isUser ? '#fff' : '#c7254e',
-                          padding: '2px 6px',
-                          borderRadius: 4,
-                          fontSize: 13,
-                          fontFamily: 'monospace'
-                        }}
-                      >
-                        {children}
-                      </code>
-                    );
-                  },
-                  p({ children }: any) {
-                    return <p style={{ margin: '0 0 8px 0', lineHeight: 1.6 }}>{children}</p>;
-                  },
-                  ul({ children }: any) {
-                    return <ul style={{ margin: '8px 0', paddingLeft: 24 }}>{children}</ul>;
-                  },
-                  ol({ children }: any) {
-                    return <ol style={{ margin: '8px 0', paddingLeft: 24 }}>{children}</ol>;
-                  },
-                  a({ href, children }: any) {
-                    return <a href={href} style={{ color: isUser ? '#fff' : '#7c5cff', textDecoration: 'underline' }} target="_blank" rel="noopener noreferrer">{children}</a>;
-                  },
-                }}
-              >
-                {displayContent}
-              </ReactMarkdown>
+              <>
+                <ReactMarkdown
+                  components={{
+                    code({ className, children }: any) {
+                      const match = /language-(\w+)/.exec(className || '');
+                      const inline = !match;
+                      return !inline && match ? (
+                        <SyntaxHighlighter
+                          style={vscDarkPlus as any}
+                          language={match[1]}
+                          PreTag="div"
+                          customStyle={{
+                            margin: '12px 0',
+                            borderRadius: 8,
+                            fontSize: 13,
+                            border: '1px solid rgba(0,0,0,0.05)',
+                          }}
+                        >
+                          {String(children).replace(/\n$/, '')}
+                        </SyntaxHighlighter>
+                      ) : (
+                        <code
+                          className={className}
+                          style={{
+                            background: isUser ? 'rgba(255,255,255,0.2)' : '#ebebeb',
+                            color: isUser ? '#fff' : '#c7254e',
+                            padding: '2px 6px',
+                            borderRadius: 4,
+                            fontSize: 13,
+                            fontFamily: 'monospace'
+                          }}
+                        >
+                          {children}
+                        </code>
+                      );
+                    },
+                    p({ children }: any) {
+                      return <p style={{ margin: '0 0 8px 0', lineHeight: 1.6 }}>{children}</p>;
+                    },
+                    ul({ children }: any) {
+                      return <ul style={{ margin: '8px 0', paddingLeft: 24 }}>{children}</ul>;
+                    },
+                    ol({ children }: any) {
+                      return <ol style={{ margin: '8px 0', paddingLeft: 24 }}>{children}</ol>;
+                    },
+                    a({ href, children }: any) {
+                      return <a href={href} style={{ color: isUser ? '#fff' : '#7c5cff', textDecoration: 'underline' }} target="_blank" rel="noopener noreferrer">{children}</a>;
+                    },
+                  }}
+                >
+                  {displayContent}
+                </ReactMarkdown>
+                
+                {/* 流式消息的打字机效果指示器 */}
+                {(message as any).isStreaming && (
+                  <span 
+                    style={{ 
+                      display: 'inline-block',
+                      width: '8px',
+                      height: '16px',
+                      backgroundColor: '#7c5cff',
+                      marginLeft: '2px',
+                      animation: 'blink 1s infinite',
+                      verticalAlign: 'text-bottom'
+                    }}
+                  />
+                )}
+              </>
             )}
           </div>
 

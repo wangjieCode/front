@@ -43,12 +43,22 @@ export class ConversationStorageAdapter implements IConversationStorage {
    * 保存会话
    */
   async saveSession(session: ConversationSession): Promise<void> {
+    // 提取对话标题和概览
+    const title = this.extractTitle(session.context.taskDescription);
+    const summary = session.context.taskDescription;
+    const projectName = session.context.projectInfo.projectName || '';
+
     // 转换为数据库格式
     await this.storage.saveSession({
       id: session.id,
       sessionId: session.id, // 使用 id 作为 sessionId
       taskId: session.taskId,
+      userId: session.userId,
+      projectId: session.context.projectInfo.projectId,
       status: session.status,
+      title,
+      summary,
+      projectName,
       createdAt: session.createdAt,
       updatedAt: session.updatedAt,
       completedAt: session.completedAt || null,
@@ -84,6 +94,32 @@ export class ConversationStorageAdapter implements IConversationStorage {
   }
 
   /**
+   * 从任务描述中提取标题（取前50个字符）
+   */
+  private extractTitle(taskDescription: string): string {
+    if (!taskDescription) return '';
+
+    // 移除多余的空白字符
+    const cleaned = taskDescription.trim().replace(/\s+/g, ' ');
+
+    // 如果长度小于等于50，直接返回
+    if (cleaned.length <= 50) {
+      return cleaned;
+    }
+
+    // 截取前50个字符，并在合适的位置断开
+    let title = cleaned.substring(0, 50);
+    const lastSpace = title.lastIndexOf(' ');
+
+    // 如果在前40个字符内找到空格，在空格处断开
+    if (lastSpace > 30) {
+      title = title.substring(0, lastSpace);
+    }
+
+    return title + '...';
+  }
+
+  /**
    * 加载会话
    */
   async loadSession(sessionId: string): Promise<ConversationSession | null> {
@@ -93,13 +129,13 @@ export class ConversationStorageAdapter implements IConversationStorage {
     }
 
     // 如果 DrizzleConversationStorage 已经返回了完整的 session（包含 context），直接使用
-    if (dbSession.context) {
-      console.log(`[ConversationStorageAdapter] 使用 DrizzleConversationStorage 返回的完整 context，projectInfo.workDir: ${dbSession.context.projectInfo?.workDir}`);
-      return dbSession;
+    if ((dbSession as any).context) {
+      // console.log(`[ConversationStorageAdapter] 使用 DrizzleConversationStorage 返回的完整 context，projectInfo.workDir: ${dbSession.context.projectInfo?.workDir}`);
+      return dbSession as unknown as ConversationSession;
     }
 
     // 兼容性处理：如果没有 context，则手动构建
-    console.log(`[ConversationStorageAdapter] DrizzleConversationStorage 没有返回 context，手动构建`);
+    // console.log(`[ConversationStorageAdapter] DrizzleConversationStorage 没有返回 context，手动构建`);
     const dbContext = await this.storage.loadContext(sessionId);
     if (!dbContext) {
       return null;
@@ -119,13 +155,15 @@ export class ConversationStorageAdapter implements IConversationStorage {
     }));
 
     // 获取每个分支的消息 ID 列表
-    for (const branch of branches) {
-      const messages = await this.storage.loadMessages(sessionId, branch.id);
-      branch.messageIds = messages.map((m) => m.id);
-    }
-
+    // 优化：不再全量加载消息ID，按需加载
+    // for (const branch of branches) {
+    //   const messages = await this.storage.loadMessages(sessionId, branch.id);
+    //   branch.messageIds = messages.map((m) => m.id);
+    // } 
     const context: ConversationContext = {
       projectInfo: {
+        projectId: dbSession.projectId || undefined,
+        projectName: dbSession.projectName || '',
         workDir: dbContext.workDir,
         gitBranch: dbContext.gitBranch || undefined,
         relevantFiles: dbContext.relevantFiles || [],
@@ -141,10 +179,14 @@ export class ConversationStorageAdapter implements IConversationStorage {
       previewInfo: dbContext.previewInfo || undefined,
     };
 
-    // 获取当前分支的消息历史
+    // 获取当前分支的消息历史（仅加载当前活跃分支）
     const currentBranch = branches.find((b) => b.id === context.currentBranchId);
     if (currentBranch) {
-      context.messageHistory = currentBranch.messageIds;
+      // 在这里按需加载当前分支的消息
+      const messages = await this.storage.loadMessages(sessionId, currentBranch.id);
+      context.messageHistory = messages.map((m) => m.id);
+      // 同时也填充到 branch 对象中，保证数据一致性
+      currentBranch.messageIds = context.messageHistory;
     }
 
     return {
@@ -162,19 +204,44 @@ export class ConversationStorageAdapter implements IConversationStorage {
 
   /**
    * 获取所有会话列表
+   * 使用新的字段：title, summary, projectName
    */
   async listSessions(): Promise<ConversationSession[]> {
-    const dbSessions = await this.storage.listSessions();
-    const sessions: ConversationSession[] = [];
+    try {
+      const dbSessions = await this.storage.listSessions();
 
-    for (const dbSession of dbSessions) {
-      const session = await this.loadSession(dbSession.id);
-      if (session) {
-        sessions.push(session);
-      }
+      // 使用数据库中的新字段构建会话信息
+      const sessions: ConversationSession[] = dbSessions.map(dbSession => ({
+        id: dbSession.id,
+        taskId: dbSession.taskId,
+        userId: dbSession.userId || undefined,
+        status: dbSession.status as ConversationStatus,
+        // 极简化的 context，只包含列表展示需要的核心信息
+        context: {
+          projectInfo: {
+            projectId: dbSession.projectId || undefined,
+            projectName: dbSession.projectName || '', // 使用数据库中的项目名称
+          },
+          taskDescription: dbSession.summary || '', // 使用数据库中的对话概览
+          mode: ConversationMode.EDIT, // 对话模式
+          messageHistory: [],
+          currentBranchId: '',
+          branches: [],
+          variables: {},
+        } as ConversationContext,
+        createdAt: dbSession.createdAt,
+        updatedAt: dbSession.updatedAt,
+        completedAt: dbSession.completedAt || undefined,
+        error: dbSession.error || undefined,
+        // 添加展示用的字段
+        title: dbSession.title || '', // 对话标题
+      }));
+
+      return sessions;
+    } catch (error) {
+      console.error('[ConversationStorageAdapter] listSessions 错误:', error);
+      throw error;
     }
-
-    return sessions;
   }
 
   /**
@@ -326,6 +393,12 @@ export class ConversationStorageAdapter implements IConversationStorage {
       return null;
     }
 
+    // 加载会话信息以获取项目数据
+    const dbSession = await this.storage.loadSession(sessionId);
+    if (!dbSession) {
+      return null;
+    }
+
     // 加载分支
     const dbBranches = await this.storage.listBranches(sessionId);
 
@@ -339,13 +412,15 @@ export class ConversationStorageAdapter implements IConversationStorage {
     }));
 
     // 获取每个分支的消息 ID 列表
-    for (const branch of branches) {
-      const messages = await this.storage.loadMessages(sessionId, branch.id);
-      branch.messageIds = messages.map((m) => m.id);
-    }
-
+    // 优化：不再全量加载消息ID，按需加载
+    // for (const branch of branches) {
+    //   const messages = await this.storage.loadMessages(sessionId, branch.id);
+    //   branch.messageIds = messages.map((m) => m.id);
+    // } 
     const context: ConversationContext = {
       projectInfo: {
+        projectId: dbSession.projectId || undefined,
+        projectName: dbSession.projectName || '',
         workDir: dbContext.workDir,
         gitBranch: dbContext.gitBranch || undefined,
         relevantFiles: dbContext.relevantFiles || [],
@@ -361,10 +436,14 @@ export class ConversationStorageAdapter implements IConversationStorage {
       previewInfo: dbContext.previewInfo || undefined,
     };
 
-    // 获取当前分支的消息历史
+    // 获取当前分支的消息历史（仅加载当前活跃分支）
     const currentBranch = branches.find((b) => b.id === context.currentBranchId);
     if (currentBranch) {
-      context.messageHistory = currentBranch.messageIds;
+      // 在这里按需加载当前分支的消息
+      const messages = await this.storage.loadMessages(sessionId, currentBranch.id);
+      context.messageHistory = messages.map((m) => m.id);
+      // 同时也填充到 branch 对象中，保证数据一致性
+      currentBranch.messageIds = context.messageHistory;
     }
 
     return context;
