@@ -762,8 +762,13 @@ export class ConversationManager {
    * 为会话创建 Merge Request
    * 编辑模式下，由用户手动触发
    */
+  /**
+   * 为会话创建 Merge Request
+   * 编辑模式下，由用户手动触发
+   */
   async createMergeRequest(
-    sessionId: string
+    sessionId: string,
+    targetBranch?: string
   ): Promise<{ success: boolean; mrUrl?: string; error?: string }> {
     if (!this.gitlabService) {
       return { success: false, error: "GitLab 服务未初始化" };
@@ -794,15 +799,148 @@ export class ConversationManager {
 
     try {
       console.log(`[ConversationManager] 为会话 ${sessionId} 创建 MR`);
-      const targetBranch = process.env.GIT_DEFAULT_BRANCH || "main";
+      const finalTargetBranch = targetBranch || process.env.GIT_DEFAULT_BRANCH || "main";
 
+      // 获取项目详细信息 (不仅为了 GitLab ID，也为了 Worktree 管理)
+      let dbProjectId = session.context.projectInfo.projectId;
+      console.log(`[ConversationManager] 获取项目详情: ${dbProjectId}, 用户: ${session.userId}`);
+      
+      let gitlabProjectId: string | undefined;
+      let projectWorktreeManager: WorktreeManager | undefined;
+      let project = null;
+
+      // 尝试获取项目信息
+      if (dbProjectId) {
+         const projectResult = await this.projectService.getProject(dbProjectId, session.userId!);
+         if (projectResult.success && projectResult.project) {
+           project = projectResult.project;
+         }
+      } 
+      
+      // 如果没有 ID 或未找到，尝试从 workDir 路径解析 Project ID (这是唯一保留的重试逻辑)
+      // workDir 格式通常为 .../worktrees/project-<UUID>/user-<UUID>
+      if (!project && session.context.projectInfo.workDir) {
+         const workDir = session.context.projectInfo.workDir;
+         const match = workDir.match(/project-([a-f0-9-]{36})/);
+         if (match && match[1]) {
+            const extractedId = match[1];
+            console.log(`[ConversationManager] ⚠️ 从 workDir 路径解析到 Project ID: ${extractedId}`);
+            
+            const projectResult = await this.projectService.getProject(extractedId, session.userId!);
+            if (projectResult.success && projectResult.project) {
+                project = projectResult.project;
+                dbProjectId = extractedId;
+                // 修复 session
+                session.context.projectInfo.projectId = extractedId;
+                await this.storage.saveContext(sessionId, session.context);
+                console.log(`[ConversationManager] ✅ 已通过路径恢复项目关联`);
+            }
+         }
+      }
+      
+      if (!project) {
+         console.warn(`[ConversationManager] ⚠️ 无法找到关联项目。ProjectInfo:`, JSON.stringify(session.context.projectInfo));
+      }
+
+      if (project) {
+        gitlabProjectId = project.gitlabProjectId || undefined;
+        console.log(`[ConversationManager] 关联的 GitLab Project ID: ${gitlabProjectId}`);
+
+        // 初始化特定于项目的 WorktreeManager
+        if (this.projectService && (this.projectService as any).executor) {
+          const executor = (this.projectService as any).executor;
+          const repoDir = project.workDirectory || project.repoDir;
+          const worktreeDir = `${repoDir}/../worktrees`;
+          
+          projectWorktreeManager = new WorktreeManager(executor, repoDir, worktreeDir);
+        }
+      }
+
+      // 如果无法初始化特定的 WorktreeManager，回退到全局的
+      if (!projectWorktreeManager) {
+        console.warn(`[ConversationManager] ⚠️ 无法初始化项目特定的 WorktreeManager，回退到全局管理器`);
+        projectWorktreeManager = this.worktreeManager;
+      }
+
+      // 1. 同步当前实际分支 & 确保 Worktree 存在
+      if (projectWorktreeManager && session.userId) {
+        try {
+          // 使用 getOrCreateWorktree 确保 worktree 存在
+          const worktreeInfo = await projectWorktreeManager.getOrCreateWorktree(session.userId, dbProjectId);
+          const actualBranch = worktreeInfo.mainBranch;
+
+          if (actualBranch && actualBranch !== session.context.gitBranch) {
+            console.log(`[ConversationManager] ⚠️ 检测到分支不一致，更新会话分支: ${session.context.gitBranch} -> ${actualBranch}`);
+            session.context.gitBranch = actualBranch;
+            await this.storage.saveContext(sessionId, session.context);
+          }
+        } catch (syncError) {
+          // 如果 worktree 不存在，这里会捕获到错误
+          console.warn(`[ConversationManager] ⚠️ 无法同步 Worktree 分支信息:`, syncError);
+          // 如果是项目特定的 worktree 失败，且 dbProjectId 存在，说明可能路径有问题
+          // 但我们不中断，尝试继续
+        }
+      }
+
+      // 2. 自动解决 "源分支与目标分支相同" 的问题
+      if (session.context.gitBranch === finalTargetBranch) {
+        if (!projectWorktreeManager) {
+           return { success: false, error: "Worktree 管理器未初始化，无法自动创建功能分支" };
+        }
+
+        console.log(`[ConversationManager] ⚠️ 源分支与目标分支相同 (${finalTargetBranch})，尝试自动创建功能分支...`);
+        
+        try {
+          const shortSessionId = sessionId.substring(0, 8);
+          const timestamp = Date.now();
+          const featureBranchName = `auto-feature-${shortSessionId}-${timestamp}`;
+          
+          // a. 提交当前更改
+          await projectWorktreeManager.commitChanges(session.userId!, "Auto-commit before creating MR", dbProjectId);
+          
+          // b. 从当前位置创建新分支
+          await projectWorktreeManager.createBranchFromHead(session.userId!, featureBranchName, dbProjectId);
+          
+          // c. 推送新分支
+          await projectWorktreeManager.pushBranch(session.userId!, featureBranchName, dbProjectId);
+          
+          // d. 更新上下文
+          session.context.gitBranch = featureBranchName;
+          await this.storage.saveContext(sessionId, session.context);
+          
+          console.log(`[ConversationManager] ✅ 已自动切换到新功能分支: ${featureBranchName}`);
+          
+        } catch (err) {
+           console.error(`[ConversationManager] ❌ 自动创建分支失败:`, err);
+           return {
+            success: false,
+            error: `无法创建 MR: 当前处于主分支，且自动创建功能分支失败: ${err instanceof Error ? err.message : String(err)}`
+          };
+        }
+      }
+      
+      // 3. 提交并推送当前分支 (确保远程有最新代码)
+      if (projectWorktreeManager && session.userId) {
+        try {
+          console.log(`[ConversationManager] 正在提交并推送分支: ${session.context.gitBranch}`);
+          
+          await projectWorktreeManager.commitChanges(session.userId, "Auto-commit before creating Merge Request", dbProjectId);
+          await projectWorktreeManager.pushBranch(session.userId, session.context.gitBranch, dbProjectId);
+          
+          console.log(`[ConversationManager] ✅ 分支推送成功`);
+        } catch (gitError) {
+          console.warn(`[ConversationManager] ⚠️ Git 操作 (提交/推送) 失败，尝试继续创建 MR:`, gitError);
+        }
+      }
+      
       // 先检查 GitLab 上是否已存在 MR
       console.log(
-        `[ConversationManager] 检查是否已存在 MR: ${session.context.gitBranch} -> ${targetBranch}`
+        `[ConversationManager] 检查是否已存在 MR: ${session.context.gitBranch} -> ${finalTargetBranch} (Project: ${gitlabProjectId || 'DEFAULT'})`
       );
       const existingMR = await this.gitlabService.findExistingMR(
         session.context.gitBranch,
-        targetBranch
+        finalTargetBranch,
+        gitlabProjectId
       );
 
       let mrUrl: string;
@@ -818,7 +956,8 @@ export class ConversationManager {
           sessionId,
           session.context.taskDescription,
           session.context.gitBranch,
-          targetBranch
+          finalTargetBranch,
+          gitlabProjectId
         );
         mrUrl = mrResult.webUrl;
         console.log(`[ConversationManager] ✅ MR 已创建: ${mrUrl}`);
@@ -832,7 +971,7 @@ export class ConversationManager {
         success: true,
         mrUrl,
       };
-    } catch (error) {
+    } catch (error: any) {
       return {
         success: false,
         error: error instanceof Error ? error.message : String(error),

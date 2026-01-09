@@ -238,8 +238,78 @@ export class WorktreeManager {
   }
 
   /**
-   * 切换用户 worktree 到主分支（只读模式）
+   * 提交所有更改
    */
+  async commitChanges(userId: string, message: string, projectId?: string): Promise<void> {
+    const worktreeInfo = await this.getWorktreeInfo(userId, projectId);
+    
+    // 检查是否有变更
+    const statusResult = await this.executor.executeCommand(
+      'git status --porcelain',
+      worktreeInfo.worktreePath
+    );
+
+    if (!statusResult.stdout.trim()) {
+      return; // 无变更
+    }
+
+    // 添加所有更改
+    await this.executor.executeCommand(
+      'git add .',
+      worktreeInfo.worktreePath
+    );
+
+    // 提交
+    await this.executor.executeCommand(
+      `git commit -m "${message}"`,
+      worktreeInfo.worktreePath
+    );
+    console.log(`[WorktreeManager] 已提交更改: ${message}`);
+  }
+
+  /**
+   * 推送分支
+   */
+  async pushBranch(userId: string, branchName: string, projectId?: string): Promise<void> {
+    const worktreeInfo = await this.getWorktreeInfo(userId, projectId);
+
+    console.log(`[WorktreeManager] 推送分支: ${branchName}`);
+    
+    const result = await this.executor.executeCommand(
+      `git push origin ${branchName}`,
+      worktreeInfo.worktreePath
+    );
+
+    if (result.exitCode !== 0) {
+       // 尝试 set-upstream
+       const upstreamResult = await this.executor.executeCommand(
+        `git push --set-upstream origin ${branchName}`,
+        worktreeInfo.worktreePath
+      );
+      
+      if (upstreamResult.exitCode !== 0) {
+        throw new Error(`推送分支失败: ${upstreamResult.stderr}`);
+      }
+    }
+  }
+
+  /**
+   * 从当前 HEAD 创建新分支 (保留未提交更改)
+   */
+  async createBranchFromHead(userId: string, branchName: string, projectId?: string): Promise<void> {
+    const worktreeInfo = await this.getWorktreeInfo(userId, projectId);
+    
+    console.log(`[WorktreeManager] 从当前 HEAD 创建分支: ${branchName}`);
+
+    const result = await this.executor.executeCommand(
+      `git checkout -b ${branchName}`,
+      worktreeInfo.worktreePath
+    );
+
+    if (result.exitCode !== 0) {
+      throw new Error(`创建分支失败: ${result.stderr}`);
+    }
+  }
   async switchToMainBranch(userId: string): Promise<void> {
     const worktreeInfo = await this.getWorktreeInfo(userId);
     // @ts-ignore - GitService 接受 ICommandExecutor

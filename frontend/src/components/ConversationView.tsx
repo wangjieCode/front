@@ -794,8 +794,8 @@ const ConversationView: React.FC<ConversationViewProps> = ({
                     )
                   )}
 
-                  {/* 预览按钮 */}
-                  {session.context?.gitBranch && (() => {
+            {/* 预览按钮 */}
+            {session.context?.gitBranch && (() => {
                     const buttonProps = getPreviewButtonProps();
                     return (
                       <Button

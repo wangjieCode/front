@@ -531,5 +531,37 @@ export function createConversationRoutes(
     }
   });
 
+  /**
+   * POST /api/conversations/:sessionId/merge-request
+   * 创建 Merge Request
+   */
+  router.post('/:sessionId/merge-request', requireAuth, async (req: AuthRequest, res: Response) => {
+    try {
+      const { sessionId } = req.params;
+      const { targetBranch } = req.body;
+
+      const result = await conversationManager.createMergeRequest(sessionId, targetBranch);
+
+      if (result.success) {
+        res.json({
+          success: true,
+          data: {
+            mrUrl: result.mrUrl
+          }
+        });
+      } else {
+        res.status(400).json({
+          success: false,
+          error: result.error || '创建 Merge Request 失败'
+        });
+      }
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : '创建 Merge Request 失败'
+      });
+    }
+  });
+
   return router;
 }
