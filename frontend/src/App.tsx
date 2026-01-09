@@ -1,18 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { Layout, Typography, Button, message, List, Spin, Popconfirm, Dropdown, Space } from 'antd';
 import { BrowserRouter as Router, Routes, Route, Link, useLocation, useNavigate, useParams } from 'react-router-dom';
-import { v4 as uuidv4 } from 'uuid';
+
 import {
   PlusOutlined,
   MessageOutlined,
-  EditOutlined,
-  EyeOutlined,
   DeleteOutlined,
-  UserOutlined,
   LogoutOutlined,
   FolderOutlined,
-  TeamOutlined,
+  InfoCircleOutlined,
 } from '@ant-design/icons';
+import IntroPage from './pages/IntroPage';
 import ConversationView from './components/ConversationView';
 import LoginModal from './components/LoginModal';
 import ProjectsPage from './pages/ProjectsPage';
@@ -26,6 +24,7 @@ import './App.css';
 enum PageType {
   CONVERSATIONS = 'conversations',
   PROJECTS = 'projects',
+  INTRO = 'intro',
 }
 
 // 包装 ConversationView 以获取 URL 参数
@@ -62,7 +61,12 @@ const AppContent: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<{ userId: string; username: string } | null>(null);
 
   // 根据路径确定当前页面
-  const currentPage = location.pathname === '/projects' ? PageType.PROJECTS : PageType.CONVERSATIONS;
+  let currentPage = PageType.CONVERSATIONS;
+  if (location.pathname === '/projects') {
+    currentPage = PageType.PROJECTS;
+  } else if (location.pathname === '/intro') {
+    currentPage = PageType.INTRO;
+  }
 
   // 从 URL 获取当前会话 ID
   const activeSessionId = location.pathname.match(/\/chat\/(.+)/)?.[1] || null;
@@ -172,9 +176,14 @@ const AppContent: React.FC = () => {
   };
 
   // 取消登录
+  // 取消登录
   const handleLoginCancel = () => {
     setShowLoginModal(false);
   };
+
+  if (location.pathname === '/intro') {
+    return <IntroPage />;
+  }
 
   return (
     <Layout style={{ minHeight: '100vh', background: '#f5f5f5' }}>
@@ -437,10 +446,12 @@ const AppContent: React.FC = () => {
         }}>
           <div>
             <Title level={3} style={{ margin: 0, color: '#1a1a1a' }}>
-              {currentPage === PageType.PROJECTS ? '项目管理' : '对话'}
+              {currentPage === PageType.PROJECTS ? '项目管理' : 
+               currentPage === PageType.INTRO ? '项目介绍' : '对话'}
             </Title>
             <Text type="secondary" style={{ fontSize: 14 }}>
-              {currentPage === PageType.PROJECTS ? '管理您的Git项目和团队成员' : '与AI助手进行对话'}
+            {currentPage === PageType.PROJECTS ? '管理您的Git项目和团队成员' : 
+             currentPage === PageType.INTRO ? '了解前端小秘的功能与优势' : '与AI助手进行对话'}
             </Text>
           </div>
           <Space size={16}>
@@ -475,6 +486,22 @@ const AppContent: React.FC = () => {
                   }}
                 >
                   项目
+                </Button>
+              </Link>
+              <Link to="/intro">
+                <Button
+                  type={currentPage === PageType.INTRO ? 'text' : 'text'}
+                  icon={<InfoCircleOutlined />}
+                  style={{
+                    background: currentPage === PageType.INTRO ? '#fff' : 'transparent',
+                    boxShadow: currentPage === PageType.INTRO ? '0 2px 8px rgba(0,0,0,0.1)' : 'none',
+                    borderRadius: '6px',
+                    color: currentPage === PageType.INTRO ? '#1a1a1a' : '#666',
+                    height: 32,
+                    border: 'none'
+                  }}
+                >
+                  介绍
                 </Button>
               </Link>
             </div>
