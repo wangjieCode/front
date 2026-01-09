@@ -48,7 +48,6 @@ const ConversationView: React.FC<ConversationViewProps> = ({
   // New conversation state
   const [prompt, setPrompt] = useState('');
   const [selectedProjectId, setSelectedProjectId] = useState<string>('');
-  const [selectedProject, setSelectedProject] = useState<any>(null);
 
   // 预览相关状态
   const [isDeploying, setIsDeploying] = useState(false);
@@ -395,7 +394,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
 
     setCreatingMR(true);
     try {
-      const result = await conversationService.createMergeRequest(sessionId);
+      await conversationService.createMergeRequest(sessionId);
       message.success('MR 已创建');
 
       // 重新加载会话以获取最新的 MR URL
@@ -493,9 +492,8 @@ const ConversationView: React.FC<ConversationViewProps> = ({
             </Text>
             <ProjectSelector
               value={selectedProjectId}
-              onChange={(projectId, project) => {
+              onChange={(projectId) => {
                 setSelectedProjectId(projectId);
-                setSelectedProject(project);
               }}
               placeholder="请选择要操作的项目"
             />

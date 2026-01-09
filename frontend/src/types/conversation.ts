@@ -69,6 +69,7 @@ export interface ConversationMessage {
   metadata?: MessageMetadata;
   timestamp: string;
   parentMessageId?: string;
+  isStreaming?: boolean;
 }
 
 export interface ProjectInfo {

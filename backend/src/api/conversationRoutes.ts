@@ -113,17 +113,19 @@ export function createConversationRoutes(
         });
       }
 
+      let project;
       // 验证项目是否存在
       try {
-        console.log('[API] 验证项目:', projectId, '用户:', req.userId);
+        // console.log('[API] 验证项目:', projectId, '用户:', req.userId);
         const projectResult = await projectService.getProject(projectId, req.userId!);
-        console.log('[API] 项目验证结果:', projectResult);
+        // console.log('[API] 项目验证结果:', projectResult);
         if (!projectResult.success || !projectResult.project) {
           return res.status(404).json({
             success: false,
             error: projectResult.error || '项目不存在',
           });
         }
+        project = projectResult.project;
       } catch (error) {
         console.error('[API] 验证项目失败:', error);
         console.error('[API] 错误堆栈:', error instanceof Error ? error.stack : error);
@@ -133,12 +135,14 @@ export function createConversationRoutes(
         });
       }
 
-      // 构建 projectInfo，ConversationManager 会进一步完善
+      // 构建完整的 projectInfo，传递给 ConversationManager 以减少数据库查询
       const projectInfo = {
         projectId,
-        projectName: '', // 将在 ConversationManager 中填充
-        gitRepositoryUrl: '', // 将在 ConversationManager 中填充
-        workDir: '', // 将在 ConversationManager 中填充
+        projectName: project.name,
+        gitRepositoryUrl: project.gitRepositoryUrl,
+        workDir: project.workDirectory || project.repoDir,
+        gitBranch: project.gitBranch || 'master',
+        relevantFiles: [], // 初始化为空数组
       };
 
       // 验证 mode 参数（如果提供）
@@ -175,10 +179,25 @@ export function createConversationRoutes(
             session.id
           );
 
-          await messageRouter.handleAIResponse(session.id, aiResponse);
+          // 解析 AI 响应内容，确保存入数据库的是干净的文本
+          const parsedContent = parseAIResponse(aiResponse.content);
+          const parsedAiResponse = {
+            ...aiResponse,
+            content: parsedContent
+          };
+
+          await messageRouter.handleAIResponse(session.id, parsedAiResponse);
           await conversationManager.updateSessionStatus(session.id, ConversationStatus.COMPLETED);
-          console.log('[API] AI回复生成完成');
+          // console.log('[API] AI回复生成完成');
         }
+
+        // 获取最新的会话数据（包含刚生成的消息）
+        const finalSession = await conversationManager.getSession(session.id);
+
+        res.status(201).json({
+          success: true,
+          data: finalSession || session, // 如果获取失败，回退到原始 session
+        });
       } catch (messageError) {
         console.error('[API] 发送第一条消息或生成AI回复失败:', messageError);
         await conversationManager.updateSessionStatus(
@@ -186,13 +205,14 @@ export function createConversationRoutes(
           ConversationStatus.FAILED,
           messageError instanceof Error ? messageError.message : String(messageError)
         );
-        // 不阻断会话创建，只记录错误
+        // 即使失败也返回会话，但状态是 FAILED
+        // 获取最新的会话数据
+        const finalSession = await conversationManager.getSession(session.id);
+        res.status(201).json({
+          success: true,
+          data: finalSession || session,
+        });
       }
-
-      res.status(201).json({
-        success: true,
-        data: session,
-      });
     } catch (error) {
       res.status(500).json({
         success: false,
@@ -423,9 +443,16 @@ export function createConversationRoutes(
 
             // 4d: 异步保存 AI 响应（不阻塞用户体验，传递会话对象）
             const step4dStart = Date.now();
-            messageRouter.handleAIResponse(sessionId, aiResponse, session).then(() => {
+
+            // 使用解析后的内容保存，而不是原始的 stream-json
+            const parsedAiResponse = {
+              ...aiResponse,
+              content: parsedContent
+            };
+
+            messageRouter.handleAIResponse(sessionId, parsedAiResponse, session).then(() => {
               const step4dTime = Date.now() - step4dStart;
-              console.log(`[conversationRoutes] 步骤4d: 保存 AI 响应完成，耗时 ${step4dTime}ms`);
+              // console.log(`[conversationRoutes] 步骤4d: 保存 AI 响应完成，耗时 ${step4dTime}ms`);
             }).catch(error => {
               console.error(`[conversationRoutes] 保存 AI 响应失败:`, error);
             });

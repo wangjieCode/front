@@ -86,34 +86,47 @@ export class ConversationManager {
       throw new Error("项目ID不能为空，必须选择一个项目");
     }
 
-    // 获取完整的项目信息
-    const projectResult = await this.projectService.getProject(
-      projectInfo.projectId,
-      userId
-    );
-    if (!projectResult.success || !projectResult.project) {
-      throw new Error(
-        `获取项目信息失败: ${projectResult.error || "项目不存在"}`
+    // 检查 projectInfo 是否已经包含必要信息，如果是则直接使用，避免重复查询数据库
+    let completeProjectInfo: ProjectInfo;
+    
+    if (projectInfo.projectName && projectInfo.gitRepositoryUrl && projectInfo.workDir) {
+      completeProjectInfo = {
+        ...projectInfo,
+        // 确保所有必要字段都有值
+        gitBranch: projectInfo.gitBranch || "master",
+        relevantFiles: projectInfo.relevantFiles,
+        workDir: projectInfo.workDir
+      };
+    } else {
+      // 获取完整的项目信息
+      const projectResult = await this.projectService.getProject(
+        projectInfo.projectId,
+        userId
       );
+      if (!projectResult.success || !projectResult.project) {
+        throw new Error(
+          `获取项目信息失败: ${projectResult.error || "项目不存在"}`
+        );
+      }
+
+      const project = projectResult.project;
+
+      // 构建完整的 ProjectInfo
+      completeProjectInfo = {
+        projectId: project.id,
+        projectName: project.name,
+        gitRepositoryUrl: project.gitRepositoryUrl,
+        workDir: project.workDirectory || project.repoDir,
+        gitBranch: project.gitBranch || "master",
+        relevantFiles: projectInfo.relevantFiles,
+      };
     }
 
-    const project = projectResult.project;
-
-    // 构建完整的 ProjectInfo
-    const completeProjectInfo: ProjectInfo = {
-      projectId: project.id,
-      projectName: project.name,
-      gitRepositoryUrl: project.gitRepositoryUrl,
-      workDir: project.workDirectory || project.repoDir,
-      gitBranch: project.gitBranch || "master",
-      relevantFiles: projectInfo.relevantFiles,
-    };
-
-    console.log(`[ConversationManager] 创建会话 - 项目信息:`, {
-      projectId: completeProjectInfo.projectId,
-      projectName: completeProjectInfo.projectName,
-      workDir: completeProjectInfo.workDir
-    });
+    // console.log(`[ConversationManager] 创建会话 - 项目信息:`, {
+    //   projectId: completeProjectInfo.projectId,
+    //   projectName: completeProjectInfo.projectName,
+    //   workDir: completeProjectInfo.workDir
+    // });
 
     const sessionId = uuidv4();
     const mainBranchId = uuidv4(); // 使用 UUID 作为分支 ID
@@ -179,7 +192,7 @@ export class ConversationManager {
         };
       }
 
-      console.log(`[ConversationManager] Git 分支已创建: ${gitResult.branchName}`);
+      // console.log(`[ConversationManager] Git 分支已创建: ${gitResult.branchName}`);
     } else if (mode === ConversationMode.READONLY) {
       if (!this.worktreeManager) {
         throw new Error('只读模式需要 Worktree 管理器，但服务未初始化');
@@ -212,11 +225,11 @@ export class ConversationManager {
     // 保存会话（会自动保存上下文和分支）
     await this.storage.saveSession(session);
 
-    console.log(`[ConversationManager] 会话已保存 - 最终项目信息:`, {
-      projectId: session.context.projectInfo.projectId,
-      projectName: session.context.projectInfo.projectName,
-      workDir: session.context.projectInfo.workDir
-    });
+    // console.log(`[ConversationManager] 会话已保存 - 最终项目信息:`, {
+    //   projectId: session.context.projectInfo.projectId,
+    //   projectName: session.context.projectInfo.projectName,
+    //   workDir: session.context.projectInfo.workDir
+    // });
 
     return session;
   }
@@ -408,11 +421,9 @@ export class ConversationManager {
         // 并行执行数据库写入操作
         await Promise.all([
           this.storage.saveMessage(message),
-          branch ? this.storage.saveBranch(sessionId, branch) : Promise.resolve(),
-          this.storage.saveContext(sessionId, context),
           this.storage.saveSession(session)
         ]);
-        console.log(`[ConversationManager] 消息 ${messageId} 批量保存完成`);
+        // console.log(`[ConversationManager] 消息 ${messageId} 批量保存完成`);
       } catch (error) {
         console.error(`[ConversationManager] 批量保存消息失败:`, error);
         throw error;
@@ -558,8 +569,6 @@ export class ConversationManager {
       }
 
       session.context.variables[key] = value;
-      await this.storage.saveContext(sessionId, session.context);
-
       session.updatedAt = new Date();
       await this.storage.saveSession(session);
     } finally {
@@ -617,10 +626,6 @@ export class ConversationManager {
       // 添加到上下文
       session.context.branches.push(newBranch);
 
-      // 保存分支和上下文
-      await this.storage.saveBranch(sessionId, newBranch);
-      await this.storage.saveContext(sessionId, session.context);
-
       session.updatedAt = now;
       await this.storage.saveSession(session);
 
@@ -658,9 +663,6 @@ export class ConversationManager {
 
       // 更新消息历史为该分支的消息
       session.context.messageHistory = [...branch.messageIds];
-
-      // 保存上下文
-      await this.storage.saveContext(sessionId, session.context);
 
       session.updatedAt = new Date();
       await this.storage.saveSession(session);
