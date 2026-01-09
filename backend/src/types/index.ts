@@ -363,6 +363,7 @@ export interface ConversationSession {
   updatedAt: Date;            // 更新时间
   completedAt?: Date;         // 完成时间
   error?: string;             // 错误信息
+  title?: string;             // 对话标题（用于展示）
 }
 
 /**

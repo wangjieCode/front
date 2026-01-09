@@ -72,11 +72,11 @@ export class DrizzleConversationStorage {
    */
   async saveSession(session: NewConversation): Promise<void> {
     const db = this.getDb();
-    
+
     if (!session.id) {
       throw new Error('Session ID is required');
     }
-    
+
     // 检查会话是否已存在
     const existing = await db
       .select()
@@ -90,6 +90,10 @@ export class DrizzleConversationStorage {
         .update(conversations)
         .set({
           status: session.status,
+          title: session.title,
+          summary: session.summary,
+          projectId: session.projectId,
+          projectName: session.projectName,
           updatedAt: session.updatedAt,
           completedAt: session.completedAt,
           error: session.error,
@@ -99,7 +103,7 @@ export class DrizzleConversationStorage {
       // 插入新会话
       await db.insert(conversations).values(session);
     }
-    
+
     // 清除相关缓存
     this.deleteCache(`session:${session.id}`);
     this.deleteCache(`session:${session.sessionId}`);
@@ -110,8 +114,8 @@ export class DrizzleConversationStorage {
    * 通过 ID 加载会话
    */
   async loadSession(sessionId: string): Promise<Conversation | null> {
-    console.log(`[DrizzleConversationStorage] loadSession - sessionId: ${sessionId}`);
-    
+    // console.log(`[DrizzleConversationStorage] loadSession - sessionId: ${sessionId}`);
+
     // 暂时禁用缓存以确保context正确加载
     // const cached = this.getCached<Conversation>(`session:${sessionId}`);
     // if (cached) {
@@ -120,7 +124,7 @@ export class DrizzleConversationStorage {
     // }
 
     const db = this.getDb();
-    
+
     const result = await db
       .select()
       .from(conversations)
@@ -128,22 +132,22 @@ export class DrizzleConversationStorage {
       .limit(1);
 
     const rawSession = result[0] || null;
-    
+
     if (rawSession) {
-      console.log(`[DrizzleConversationStorage] loadSession - 找到session，加载context`);
+      // console.log(`[DrizzleConversationStorage] loadSession - 找到session，加载context`);
       // 加载关联的上下文
       const context = await this.loadContext(sessionId);
       if (context) {
-        console.log(`[DrizzleConversationStorage] loadSession - context已设置，projectInfo.workDir: ${context.projectInfo?.workDir}`);
+        // console.log(`[DrizzleConversationStorage] loadSession - context已设置，projectInfo.workDir: ${context.projectInfo?.workDir}`);
         // 创建一个新的session对象，确保包含context字段
         const session = {
           ...rawSession,
           context: context
         };
-        console.log(`[DrizzleConversationStorage] loadSession - 返回session，context.projectInfo.workDir: ${session.context?.projectInfo?.workDir}`);
+        // console.log(`[DrizzleConversationStorage] loadSession - 返回session，context.projectInfo.workDir: ${session.context?.projectInfo?.workDir}`);
         return session;
       } else {
-        console.log(`[DrizzleConversationStorage] loadSession - context为空`);
+        // console.log(`[DrizzleConversationStorage] loadSession - context为空`);
         const session = {
           ...rawSession,
           context: null
@@ -151,7 +155,7 @@ export class DrizzleConversationStorage {
         return session;
       }
     } else {
-      console.log(`[DrizzleConversationStorage] loadSession - session未找到`);
+      // console.log(`[DrizzleConversationStorage] loadSession - session未找到`);
       return null;
     }
   }
@@ -167,7 +171,7 @@ export class DrizzleConversationStorage {
     }
 
     const db = this.getDb();
-    
+
     const result = await db
       .select()
       .from(conversations)
@@ -175,7 +179,7 @@ export class DrizzleConversationStorage {
       .limit(1);
 
     const session = result[0] || null;
-    
+
     // 缓存结果
     if (session) {
       this.setCache(`agent-session:${agentSessionId}`, session);
@@ -186,7 +190,7 @@ export class DrizzleConversationStorage {
   }
 
   /**
-   * 列出所有会话
+   * 列出所有会话（优化版，包含项目名称和第一条消息）
    */
   async listSessions(): Promise<Conversation[]> {
     // 检查缓存
@@ -196,7 +200,8 @@ export class DrizzleConversationStorage {
     }
 
     const db = this.getDb();
-    
+
+    // 直接查询 conversations 表，现在包含了 title, summary, projectName 字段
     const sessions = await db
       .select()
       .from(conversations)
@@ -213,7 +218,7 @@ export class DrizzleConversationStorage {
    */
   async updateSession(sessionId: string, updates: Partial<NewConversation>): Promise<void> {
     const db = this.getDb();
-    
+
     await db
       .update(conversations)
       .set({
@@ -269,7 +274,7 @@ export class DrizzleConversationStorage {
    */
   async saveMessage(message: NewMessage): Promise<void> {
     const db = this.getDb();
-    
+
     await db.insert(messages).values(message);
 
     // 清除相关缓存
@@ -298,7 +303,7 @@ export class DrizzleConversationStorage {
     }
 
     const db = this.getDb();
-    
+
     let query = db
       .select()
       .from(messages)
@@ -342,7 +347,7 @@ export class DrizzleConversationStorage {
    */
   async loadMessage(conversationId: string, messageId: string): Promise<Message | null> {
     const db = this.getDb();
-    
+
     const result = await db
       .select()
       .from(messages)
@@ -366,7 +371,7 @@ export class DrizzleConversationStorage {
     isComplete: boolean
   ): Promise<void> {
     const db = this.getDb();
-    
+
     await db
       .update(messages)
       .set({ content, isComplete })
@@ -381,7 +386,7 @@ export class DrizzleConversationStorage {
    */
   async getMessageCount(conversationId: string, branchId?: string): Promise<number> {
     const db = this.getDb();
-    
+
     let query = db
       .select()
       .from(messages)
@@ -425,11 +430,11 @@ export class DrizzleConversationStorage {
       mrUrl: context.mrUrl,
       previewInfo: context.previewInfo,
     };
-    
-    console.log(`[DrizzleConversationStorage] saveContext - conversationId: ${conversationId}`);
-    console.log(`[DrizzleConversationStorage] saveContext - context.gitBranch: ${context.gitBranch}`);
-    console.log(`[DrizzleConversationStorage] saveContext - contextData.contextGitBranch: ${contextData.contextGitBranch}`);
-    console.log(`[DrizzleConversationStorage] saveContext - contextData.gitBranch: ${contextData.gitBranch}`);
+
+    // console.log(`[DrizzleConversationStorage] saveContext - conversationId: ${conversationId}`);
+    // console.log(`[DrizzleConversationStorage] saveContext - context.gitBranch: ${context.gitBranch}`);
+    // console.log(`[DrizzleConversationStorage] saveContext - contextData.contextGitBranch: ${contextData.contextGitBranch}`);
+    // console.log(`[DrizzleConversationStorage] saveContext - contextData.gitBranch: ${contextData.gitBranch}`);
 
     // 检查是否已存在
     const existing = await db
@@ -501,15 +506,15 @@ export class DrizzleConversationStorage {
       mrUrl: rawContext.mrUrl,
       previewInfo: rawContext.previewInfo,
     };
-    
-    console.log(`[DrizzleConversationStorage] loadContext - rawContext.contextGitBranch: ${rawContext.contextGitBranch}`);
-    console.log(`[DrizzleConversationStorage] loadContext - context.gitBranch: ${context.gitBranch}`);
-    console.log(`[DrizzleConversationStorage] loadContext - rawContext.mrUrl: ${rawContext.mrUrl}`);
-    console.log(`[DrizzleConversationStorage] loadContext - context.mrUrl: ${context.mrUrl}`);
-    
-    console.log(`[DrizzleConversationStorage] loadContext - conversationId: ${conversationId}`);
-    console.log(`[DrizzleConversationStorage] rawContext.workDir: ${rawContext.workDir}`);
-    console.log(`[DrizzleConversationStorage] context.projectInfo.workDir: ${context.projectInfo.workDir}`);
+
+    // console.log(`[DrizzleConversationStorage] loadContext - rawContext.contextGitBranch: ${rawContext.contextGitBranch}`);
+    // console.log(`[DrizzleConversationStorage] loadContext - context.gitBranch: ${context.gitBranch}`);
+    // console.log(`[DrizzleConversationStorage] loadContext - rawContext.mrUrl: ${rawContext.mrUrl}`);
+    // console.log(`[DrizzleConversationStorage] loadContext - context.mrUrl: ${context.mrUrl}`);
+
+    // console.log(`[DrizzleConversationStorage] loadContext - conversationId: ${conversationId}`);
+    // console.log(`[DrizzleConversationStorage] rawContext.workDir: ${rawContext.workDir}`);
+    // console.log(`[DrizzleConversationStorage] context.projectInfo.workDir: ${context.projectInfo.workDir}`);
 
     // 缓存结果
     this.setCache(`context:${conversationId}`, context);
@@ -526,8 +531,8 @@ export class DrizzleConversationStorage {
     const db = this.getDb();
 
     // 确保 parentMessageId 为 null 而不是空字符串
-    const parentMessageId = branch.parentMessageId === '' || branch.parentMessageId === null || branch.parentMessageId === undefined 
-      ? null 
+    const parentMessageId = branch.parentMessageId === '' || branch.parentMessageId === null || branch.parentMessageId === undefined
+      ? null
       : branch.parentMessageId;
 
     const branchData = {

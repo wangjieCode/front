@@ -28,7 +28,11 @@ export const conversations = pgTable(
     sessionId: varchar('session_id', { length: 255 }).notNull().unique(),
     taskId: varchar('task_id', { length: 255 }).notNull(),
     userId: uuid('user_id').notNull(),
+    projectId: uuid('project_id'), // 关联的项目ID
     status: varchar('status', { length: 50 }).notNull(),
+    title: varchar('title', { length: 500 }), // 对话标题（从初始提示词提取）
+    summary: text('summary'), // 对话概览（初始提示词内容）
+    projectName: varchar('project_name', { length: 255 }), // 项目名称（用于展示）
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
     completedAt: timestamp('completed_at', { withTimezone: true }),
@@ -38,8 +42,10 @@ export const conversations = pgTable(
     sessionIdIdx: index('idx_conversations_session_id').on(table.sessionId),
     taskIdIdx: index('idx_conversations_task_id').on(table.taskId),
     userIdIdx: index('idx_conversations_user_id').on(table.userId),
+    projectIdIdx: index('idx_conversations_project_id').on(table.projectId),
     statusIdx: index('idx_conversations_status').on(table.status),
     createdAtIdx: index('idx_conversations_created_at').on(table.createdAt),
+    titleIdx: index('idx_conversations_title').on(table.title),
   })
 );
 

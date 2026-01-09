@@ -45,9 +45,9 @@ export class LocalExecutor {
    * @returns 命令执行结果
    */
   async executeCommand(command: string, workDir?: string): Promise<CommandResult> {
-    console.log('[LocalExecutor] 执行命令:', command.substring(0, 100) + '...');
-    console.log('[LocalExecutor] 工作目录:', workDir || '(当前目录)');
-    
+    // console.log('[LocalExecutor] 执行命令:', command.substring(0, 100) + '...');
+    // console.log('[LocalExecutor] 工作目录:', workDir || '(当前目录)');
+
     try {
       const options = {
         cwd: workDir,
@@ -57,15 +57,15 @@ export class LocalExecutor {
           IFLOW_API_KEY: process.env.IFLOW_API_KEY,
         }
       };
-      
-      console.log('[LocalExecutor] IFLOW_API_KEY 已传递:', !!options.env.IFLOW_API_KEY);
-      
+
+      // console.log('[LocalExecutor] IFLOW_API_KEY 已传递:', !!options.env.IFLOW_API_KEY);
+
       const { stdout, stderr } = await execAsync(command, options);
 
-      console.log('[LocalExecutor] ✅ 命令执行完成');
-      console.log('[LocalExecutor] stdout 长度:', stdout.length);
-      console.log('[LocalExecutor] stdout 最后50字符:', JSON.stringify(stdout.slice(-50)));
-      console.log('[LocalExecutor] stderr 长度:', stderr.length);
+      // console.log('[LocalExecutor] ✅ 命令执行完成');
+      // console.log('[LocalExecutor] stdout 长度:', stdout.length);
+      // console.log('[LocalExecutor] stdout 最后50字符:', JSON.stringify(stdout.slice(-50)));
+      // console.log('[LocalExecutor] stderr 长度:', stderr.length);
 
       return {
         stdout: stdout,
@@ -98,9 +98,9 @@ export class LocalExecutor {
     onData: (data: string) => void,
     onError?: (data: string) => void
   ): Promise<CommandResult> {
-    console.log('[LocalExecutor] 流式执行命令:', command.substring(0, 100) + '...');
-    console.log('[LocalExecutor] 工作目录:', workDir || '(当前目录)');
-    
+    // console.log('[LocalExecutor] 流式执行命令:', command.substring(0, 100) + '...');
+    // console.log('[LocalExecutor] 工作目录:', workDir || '(当前目录)');
+
     try {
       const { spawn } = require('child_process');
       const options = {
@@ -111,13 +111,13 @@ export class LocalExecutor {
           IFLOW_API_KEY: process.env.IFLOW_API_KEY,
         }
       };
-      
-      console.log('[LocalExecutor] IFLOW_API_KEY 已传递:', !!options.env.IFLOW_API_KEY);
-      
+
+      // console.log('[LocalExecutor] IFLOW_API_KEY 已传递:', !!options.env.IFLOW_API_KEY);
+
       return new Promise((resolve, reject) => {
-        console.log('[LocalExecutor] 启动子进程...');
+        // console.log('[LocalExecutor] 启动子进程...');
         const child = spawn('sh', ['-c', command], options);
-        
+
         let stdout = '';
         let stderr = '';
         let exitCode = 0;
@@ -141,9 +141,9 @@ export class LocalExecutor {
         // 进程结束
         child.on('close', (code: number) => {
           exitCode = code || 0;
-          console.log('[LocalExecutor] 子进程结束，退出码:', exitCode);
-          console.log('[LocalExecutor] stdout 总长度:', stdout.length);
-          console.log('[LocalExecutor] stderr 总长度:', stderr.length);
+          // console.log('[LocalExecutor] 子进程结束，退出码:', exitCode);
+          // console.log('[LocalExecutor] stdout 总长度:', stdout.length);
+          // console.log('[LocalExecutor] stderr 总长度:', stderr.length);
           resolve({
             stdout: stdout.trim(),
             stderr: stderr.trim(),

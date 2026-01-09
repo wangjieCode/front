@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Layout, Typography, Button, message, List, Spin, Popconfirm, Dropdown, Space } from 'antd';
-import { BrowserRouter as Router, Routes, Route, Link, useLocation } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { v4 as uuidv4 } from 'uuid';
 import {
   PlusOutlined,
@@ -16,7 +16,8 @@ import {
 import ConversationView from './components/ConversationView';
 import LoginModal from './components/LoginModal';
 import ProjectsPage from './pages/ProjectsPage';
-import { conversationService } from './services/conversationService';
+import { conversationService, setLoginModalCallback } from './services/conversationService';
+import { setLoginModalCallback as setProjectLoginModalCallback } from './services/projectService';
 import { ConversationMode } from './types/conversation';
 import { authUtils } from './utils/auth';
 import './App.css';
@@ -27,15 +28,34 @@ enum PageType {
   PROJECTS = 'projects',
 }
 
+// 包装 ConversationView 以获取 URL 参数
+const ChatRoute: React.FC<{
+  onNewConversation: (prompt: string, mode: ConversationMode, projectId: string) => Promise<void>;
+  mode: ConversationMode;
+  onModeChange: (mode: ConversationMode) => void;
+}> = ({ onNewConversation, mode, onModeChange }) => {
+  const { sessionId } = useParams();
+  const { state } = useLocation();
+
+  return (
+    <ConversationView
+      sessionId={sessionId}
+      initialSession={state?.session}
+      onNewConversation={onNewConversation}
+      mode={mode}
+      onModeChange={onModeChange}
+    />
+  );
+};
+
 // AppContent组件处理路由逻辑
 const AppContent: React.FC = () => {
   const { Title, Text } = Typography;
   const { Content } = Layout;
   const location = useLocation();
+  const navigate = useNavigate();
   const [conversations, setConversations] = useState<any[]>([]);
   const [isConversationsLoading, setIsConversationsLoading] = useState(true);
-  const [currentConversation, setCurrentConversation] = useState<any | null>(null);
-  const [hoveredConvId, setHoveredConvId] = useState<string | null>(null);
   const [mode, setMode] = useState<ConversationMode>(ConversationMode.EDIT);
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -43,6 +63,9 @@ const AppContent: React.FC = () => {
 
   // 根据路径确定当前页面
   const currentPage = location.pathname === '/projects' ? PageType.PROJECTS : PageType.CONVERSATIONS;
+
+  // 从 URL 获取当前会话 ID
+  const activeSessionId = location.pathname.match(/\/chat\/(.+)/)?.[1] || null;
 
   // 加载对话列表
   const loadConversations = async () => {
@@ -67,6 +90,17 @@ const AppContent: React.FC = () => {
       setIsLoggedIn(true);
       setCurrentUser(userInfo);
     }
+    
+    // 设置登录回调
+    const showLogin = () => {
+      setIsLoggedIn(false);
+      setCurrentUser(null);
+      setShowLoginModal(true);
+    };
+    
+    setLoginModalCallback(showLogin);
+    setProjectLoginModalCallback(showLogin);
+    
     loadConversations();
   }, []);
 
@@ -98,9 +132,10 @@ const AppContent: React.FC = () => {
       });
 
       if (response.success) {
-        const initialPrompt = promptText;
-        setCurrentConversation({ ...response.data, initialPrompt });
-        setConversations(prev => [response.data, ...prev]);
+        // 刷新列表
+        loadConversations();
+        // 跳转到新会话，通过 state 传递初始会话数据，避免前端再次请求可能出现的竞态条件
+        navigate(`/chat/${response.data.id}`, { state: { session: response.data } });
       }
     } catch (error) {
       console.error('创建对话失败:', error);
@@ -110,13 +145,13 @@ const AppContent: React.FC = () => {
 
   // 点击历史对话
   const handleConversationClick = (conversation: any) => {
-    setCurrentConversation(conversation);
+    navigate(`/chat/${conversation.id}`);
   };
 
   // 新建对话
   const handleNewConversation = () => {
-    setCurrentConversation(null);
     setMode(ConversationMode.EDIT); // 重置为默认模式
+    navigate('/');
   };
 
   // 登录成功
@@ -179,7 +214,6 @@ const AppContent: React.FC = () => {
                 前端小秘
               </Title>
             </Link>
-
           </div>
           <Button
             type="primary"
@@ -202,14 +236,12 @@ const AppContent: React.FC = () => {
               dataSource={conversations}
               renderItem={(conv: any) => {
                 const mode = conv.context?.mode || ConversationMode.EDIT;
-                const projectName = conv.context?.projectInfo?.name || conv.context?.projectInfo?.workDir?.split('/').pop();
+                const projectName = conv.projectInfo?.projectName || conv.context?.projectInfo?.projectName || conv.context?.projectInfo?.name || conv.context?.projectInfo?.workDir?.split('/').pop();
 
                 return (
                   <List.Item
                     key={conv.id}
-                    className={`conversation-item ${currentConversation?.id === conv.id ? 'active' : ''}`}
-                    onMouseEnter={() => setHoveredConvId(conv.id)}
-                    onMouseLeave={() => setHoveredConvId(null)}
+                    className={`conversation-item ${activeSessionId === conv.id ? 'active' : ''}`}
                     style={{
                       cursor: 'pointer',
                       padding: '12px 16px',
@@ -217,7 +249,7 @@ const AppContent: React.FC = () => {
                       alignItems: 'flex-start',
                       gap: 12,
                       borderBottom: '1px solid #f0f0f0',
-                      background: currentConversation?.id === conv.id ? '#e6f7ff' : 'transparent',
+                      background: activeSessionId === conv.id ? '#e6f7ff' : 'transparent',
                       transition: 'all 0.2s',
                     }}
                   >
@@ -252,105 +284,139 @@ const AppContent: React.FC = () => {
                             textOverflow: 'ellipsis',
                             whiteSpace: 'nowrap'
                           }}>
-                            {conv.context?.taskDescription || '未命名对话'}
+                            {conv.title || conv.overview || conv.context?.taskDescription || '未命名对话'}
                           </div>
 
                           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            {/* 项目信息行 - 更突出的显示 */}
+                            {projectName && (
+                              <div style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 6,
+                                marginBottom: 2
+                              }}>
+                                <div style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: 4,
+                                  background: '#f8f9fa',
+                                  padding: '2px 8px',
+                                  borderRadius: 12,
+                                  border: '1px solid #e9ecef'
+                                }}>
+                                  <FolderOutlined style={{ 
+                                    fontSize: 10, 
+                                    color: '#6c757d',
+                                    flexShrink: 0 
+                                  }} />
+                                  <span style={{
+                                    fontSize: 11,
+                                    color: '#495057',
+                                    fontWeight: 500,
+                                    overflow: 'hidden',
+                                    textOverflow: 'ellipsis',
+                                    whiteSpace: 'nowrap',
+                                    maxWidth: 120
+                                  }}>
+                                    {projectName}
+                                  </span>
+                                </div>
+                              </div>
+                            )}
+                            
+                            {/* 模式和时间行 */}
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                               <span style={{
                                 fontSize: 10,
-                                padding: '1px 6px',
+                                padding: '2px 6px',
                                 borderRadius: 4,
                                 background: mode === ConversationMode.EDIT ? 'rgba(124, 92, 255, 0.1)' : '#f0f0f0',
                                 color: mode === ConversationMode.EDIT ? '#7c5cff' : '#666',
                                 border: mode === ConversationMode.EDIT ? '1px solid rgba(124, 92, 255, 0.2)' : '1px solid #d9d9d9',
-                                whiteSpace: 'nowrap'
+                                whiteSpace: 'nowrap',
+                                fontWeight: 500
                               }}>
-                                {mode === ConversationMode.EDIT ? '编辑' : '只读'}
+                                {mode === ConversationMode.EDIT ? '✏️ 编辑' : '👁️ 只读'}
                               </span>
 
-                              {projectName && (
-                                <span style={{
-                                  fontSize: 12,
-                                  color: '#666',
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  gap: 4,
-                                  minWidth: 0
-                                }}>
-                                  <FolderOutlined style={{ fontSize: 10, flexShrink: 0 }} />
-                                  <span style={{
-                                    overflow: 'hidden',
-                                    textOverflow: 'ellipsis',
-                                    whiteSpace: 'nowrap',
-                                    maxWidth: 90
-                                  }}>
-                                    {projectName}
-                                  </span>
-                                </span>
-                              )}
-                            </div>
-
-                            <div style={{ fontSize: 11, color: '#999' }}>
-                              {new Date(conv.createdAt).toLocaleString('zh-CN', {
-                                month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit'
-                              })}
+                              <div style={{ fontSize: 10, color: '#999' }}>
+                                {new Date(conv.createdAt).toLocaleString('zh-CN', {
+                                  month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit'
+                                })}
+                              </div>
                             </div>
                           </div>
                         </div>
                       </div>
                     </div>
 
-                    {hoveredConvId === conv.id && (
-                      <Popconfirm
-                        title="确认删除"
-                        description="确定要删除这个对话吗？"
-                        onConfirm={async (e) => {
-                          e?.stopPropagation();
-                          try {
-                            const response = await fetch(`/api/conversations/${conv.id}`, {
-                              method: 'DELETE',
-                            });
-                            const data = await response.json();
-
-                            if (data.success) {
-                              message.success('对话已删除');
-                              setConversations(prev => prev.filter(c => c.id !== conv.id));
-                              if (currentConversation?.id === conv.id) {
-                                setCurrentConversation(null);
-                              }
-                            } else {
-                              message.error(data.error || '删除失败');
+                    <Popconfirm
+                      title="确认删除"
+                      description="确定要删除这个对话吗？"
+                      onConfirm={async (e) => {
+                        e?.stopPropagation();
+                        try {
+                          const userId = localStorage.getItem('user_id');
+                          const username = localStorage.getItem('username');
+                          
+                          const headers: Record<string, string> = {
+                            'Content-Type': 'application/json',
+                          };
+                          
+                          if (userId) {
+                            headers['x-user-id'] = userId;
+                            if (username) {
+                              headers['x-username'] = username;
                             }
-                          } catch (error) {
-                            console.error('删除对话失败:', error);
-                            message.error('删除失败');
                           }
-                        }}
-                        okText="删除"
-                        cancelText="取消"
-                        okButtonProps={{ danger: true }}
-                      >
-                        <Button
-                          type="text"
-                          danger
-                          size="small"
-                          icon={<DeleteOutlined />}
-                          onClick={(e) => e.stopPropagation()}
-                          style={{
-                            marginTop: 8,
-                            opacity: 0.6,
-                            transition: 'opacity 0.2s'
-                          }}
-                          onMouseEnter={(e) => {
-                            e.currentTarget.style.opacity = '1';
-                          }}
-                          onMouseLeave={(e) => {
-                            e.currentTarget.style.opacity = '0.6';
-                          }}
-                        />
-                      </Popconfirm>
-                    )}
+
+                          const response = await fetch(`/api/conversations/${conv.id}`, {
+                            method: 'DELETE',
+                            headers,
+                          });
+
+                          if (response.status === 401) {
+                            localStorage.removeItem('user_id');
+                            localStorage.removeItem('username');
+                            setIsLoggedIn(false);
+                            setCurrentUser(null);
+                            setShowLoginModal(true);
+                            return;
+                          }
+
+                          const data = await response.json();
+
+                          if (data.success) {
+                            message.success('对话已删除');
+                            setConversations(prev => prev.filter(c => c.id !== conv.id));
+                            if (activeSessionId === conv.id) {
+                              navigate('/');
+                            }
+                          } else {
+                            message.error(data.error || '删除失败');
+                          }
+                        } catch (error) {
+                          console.error('删除对话失败:', error);
+                          message.error('删除失败');
+                        }
+                      }}
+                      okText="删除"
+                      cancelText="取消"
+                      okButtonProps={{ danger: true }}
+                    >
+                      <Button
+                        type="text"
+                        danger
+                        size="small"
+                        icon={<DeleteOutlined />}
+                        onClick={(e) => e.stopPropagation()}
+                        className="delete-btn"
+                        style={{ opacity: 0.6 }}
+                        onMouseEnter={(e) => e.currentTarget.style.opacity = '1'}
+                        onMouseLeave={(e) => e.currentTarget.style.opacity = '0.6'}
+                      />
+                    </Popconfirm>
                   </List.Item>
                 );
               }}
@@ -458,15 +524,16 @@ const AppContent: React.FC = () => {
         <Content className="main-content" style={{ height: 'calc(100% - 73px)', overflow: 'hidden' }}>
           <Routes>
             <Route path="/projects" element={<ProjectsPage />} />
+            <Route path="/chat/:sessionId" element={
+              <ChatRoute
+                onNewConversation={handleSubmit}
+                mode={mode}
+                onModeChange={setMode}
+              />
+            } />
             <Route path="/" element={
-              <ConversationView
-                sessionId={currentConversation?.id}
-                initialPrompt={currentConversation?.initialPrompt}
-                initialSession={currentConversation}
-                onNewConversation={async (prompt, mode, projectId) => {
-                  setMode(mode);
-                  await handleSubmit(prompt, mode, projectId);
-                }}
+              <ChatRoute
+                onNewConversation={handleSubmit}
                 mode={mode}
                 onModeChange={setMode}
               />

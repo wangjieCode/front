@@ -48,7 +48,6 @@ const ConversationView: React.FC<ConversationViewProps> = ({
   // New conversation state
   const [prompt, setPrompt] = useState('');
   const [selectedProjectId, setSelectedProjectId] = useState<string>('');
-  const [selectedProject, setSelectedProject] = useState<any>(null);
 
   // 预览相关状态
   const [isDeploying, setIsDeploying] = useState(false);
@@ -105,12 +104,12 @@ const ConversationView: React.FC<ConversationViewProps> = ({
     }
   }, [sessionId, initialSession, initialPrompt]);
 
-  // 自动发送初始消息
+  // 自动加载消息
   useEffect(() => {
-    if (initialPrompt && messages.length === 0 && !sending && session) {
-      handleSendMessage(initialPrompt);
+    if (sessionId && !initialPrompt) {
+      loadMessages();
     }
-  }, [initialPrompt, messages.length, session]);
+  }, [sessionId, initialPrompt]);
 
   // 自动滚动到最新消息
   useEffect(() => {
@@ -157,7 +156,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
 
     // 立即添加用户消息到界面
     const userMessage: ConversationMessage = {
-      id: `temp-${Date.now()}`,
+      id: `temp-user-${Date.now()}`,
       sessionId,
       branchId: session?.context?.currentBranchId || 'main',
       role: 'user' as any,
@@ -166,28 +165,38 @@ const ConversationView: React.FC<ConversationViewProps> = ({
     };
     setMessages(prev => [...prev, userMessage]);
 
-    // 创建临时 AI 消息用于流式更新
+    // 创建临时 AI 消息用于流式更新，显示"正在思考"状态
     const aiMessageId = `ai-${Date.now()}`;
     const aiMessage: ConversationMessage = {
       id: aiMessageId,
       sessionId,
       branchId: session?.context?.currentBranchId || 'main',
       role: 'assistant' as any,
-      content: '',
+      content: '🤔 正在思考中...',
       timestamp: new Date().toISOString(),
+      isStreaming: true, // 标记为流式消息
     };
     setMessages(prev => [...prev, aiMessage]);
+
+    // 立即滚动到底部
+    setTimeout(scrollToBottom, 100);
 
     try {
       const response = await fetch(`/api/conversations/${sessionId}/messages`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'x-user-id': localStorage.getItem('user_id') || '',
+          'x-username': localStorage.getItem('username') || '',
         },
         body: JSON.stringify({ content }),
       });
 
       if (!response.ok) {
+        if (response.status === 401) {
+          message.error('请先登录');
+          return;
+        }
         throw new Error('发送消息失败');
       }
 
@@ -199,6 +208,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
       }
 
       let buffer = '';
+      let hasStartedStreaming = false;
 
       while (true) {
         const { done, value } = await reader.read();
@@ -214,20 +224,61 @@ const ConversationView: React.FC<ConversationViewProps> = ({
             try {
               const data = JSON.parse(line.slice(6));
 
-              if (data.type === 'chunk') {
-                // 更新 AI 消息内容
+              if (data.type === 'user_message') {
+                // 用户消息确认，可以显示发送成功状态
+                console.log('用户消息已确认');
+              } else if (data.type === 'thinking') {
+                // AI 开始思考，更新状态
                 setMessages(prev =>
                   prev.map(msg =>
                     msg.id === aiMessageId
-                      ? { ...msg, content: msg.content + data.content }
+                      ? { ...msg, content: '🧠 AI 正在分析您的需求...' }
                       : msg
                   )
                 );
+              } else if (data.type === 'chunk') {
+                // 第一次收到内容时，清空"正在思考"状态
+                if (!hasStartedStreaming) {
+                  hasStartedStreaming = true;
+                  setMessages(prev =>
+                    prev.map(msg =>
+                      msg.id === aiMessageId
+                        ? { ...msg, content: data.content, isStreaming: true }
+                        : msg
+                    )
+                  );
+                } else {
+                  // 后续内容追加
+                  setMessages(prev =>
+                    prev.map(msg =>
+                      msg.id === aiMessageId
+                        ? { ...msg, content: msg.content + data.content }
+                        : msg
+                    )
+                  );
+                }
+                // 实时滚动到底部
+                setTimeout(scrollToBottom, 50);
               } else if (data.type === 'complete') {
-                // 流式传输完成，重新加载消息获取完整数据
-                await loadMessages();
+                // 流式传输完成
+                setMessages(prev =>
+                  prev.map(msg =>
+                    msg.id === aiMessageId
+                      ? { ...msg, isStreaming: false }
+                      : msg
+                  )
+                );
+                // 重新加载消息获取完整数据（包含元数据）
+                setTimeout(() => loadMessages(), 500);
               } else if (data.type === 'error') {
                 console.error('AI 响应错误:', data.message);
+                setMessages(prev =>
+                  prev.map(msg =>
+                    msg.id === aiMessageId
+                      ? { ...msg, content: `❌ ${data.message}`, isStreaming: false }
+                      : msg
+                  )
+                );
               }
             } catch (e) {
               console.error('解析 SSE 数据失败:', e);
@@ -237,8 +288,15 @@ const ConversationView: React.FC<ConversationViewProps> = ({
       }
     } catch (error) {
       console.error('发送消息失败:', error);
-      // 移除临时消息
-      setMessages(prev => prev.filter(msg => msg.id !== aiMessageId));
+      // 更新 AI 消息显示错误
+      setMessages(prev =>
+        prev.map(msg =>
+          msg.id === aiMessageId
+            ? { ...msg, content: `❌ 发送失败: ${error instanceof Error ? error.message : '未知错误'}`, isStreaming: false }
+            : msg
+        )
+      );
+      message.error('发送消息失败，请重试');
     } finally {
       setSending(false);
     }
@@ -336,7 +394,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
 
     setCreatingMR(true);
     try {
-      const result = await conversationService.createMergeRequest(sessionId);
+      await conversationService.createMergeRequest(sessionId);
       message.success('MR 已创建');
 
       // 重新加载会话以获取最新的 MR URL
@@ -434,9 +492,8 @@ const ConversationView: React.FC<ConversationViewProps> = ({
             </Text>
             <ProjectSelector
               value={selectedProjectId}
-              onChange={(projectId, project) => {
+              onChange={(projectId) => {
                 setSelectedProjectId(projectId);
-                setSelectedProject(project);
               }}
               placeholder="请选择要操作的项目"
             />
@@ -563,6 +620,25 @@ const ConversationView: React.FC<ConversationViewProps> = ({
           </div>
         ) : (
           <>
+            {/* 状态栏 */}
+            {sending && (
+              <div style={{
+                padding: '8px 16px',
+                background: 'rgba(124, 92, 255, 0.1)',
+                borderLeft: '3px solid #7c5cff',
+                margin: '0 16px 8px 16px',
+                borderRadius: '0 4px 4px 0',
+                fontSize: 13,
+                color: '#7c5cff',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8
+              }}>
+                <Spin size="small" />
+                <span>AI 正在处理您的消息...</span>
+              </div>
+            )}
+            
             <MessageList messages={messages} onMessageClick={handleMessageClick} />
             <div ref={messagesEndRef} />
           </>
@@ -718,8 +794,8 @@ const ConversationView: React.FC<ConversationViewProps> = ({
                     )
                   )}
 
-                  {/* 预览按钮 */}
-                  {session.context?.gitBranch && (() => {
+            {/* 预览按钮 */}
+            {session.context?.gitBranch && (() => {
                     const buttonProps = getPreviewButtonProps();
                     return (
                       <Button

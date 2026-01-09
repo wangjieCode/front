@@ -132,9 +132,10 @@ export class SSHExecutor {
    * 执行命令
    * @param command 要执行的命令
    * @param workDir 工作目录（可选）
+   * @param timeout 超时时间（毫秒，默认 30 秒）
    * @returns 命令执行结果
    */
-  async executeCommand(command: string, workDir?: string): Promise<CommandResult> {
+  async executeCommand(command: string, workDir?: string, timeout: number = 30000): Promise<CommandResult> {
     if (!this.isConnected() || !this.client) {
       throw new Error('SSH 未连接');
     }
@@ -153,8 +154,14 @@ export class SSHExecutor {
     const shellCommand = `$SHELL -l -c 'source ~/.zshrc 2>/dev/null || true; eval "$(fnm env --use-on-cd)" 2>/dev/null || true; ${fullCommand.replace(/'/g, "'\\''")}'`;
 
     return new Promise((resolve, reject) => {
+      // 设置超时
+      const timeoutId = setTimeout(() => {
+        reject(new Error(`命令执行超时 (${timeout}ms): ${command}`));
+      }, timeout);
+
       this.client!.exec(shellCommand, (err, channel: ClientChannel) => {
         if (err) {
+          clearTimeout(timeoutId);
           reject(err);
           return;
         }
@@ -189,6 +196,7 @@ export class SSHExecutor {
 
         // 命令执行完成
         channel.on('close', (code: number) => {
+          clearTimeout(timeoutId);
           exitCode = code || 0;
           resolve({
             stdout: stdout.trim(),
@@ -198,8 +206,9 @@ export class SSHExecutor {
         });
 
         // 错误处理
-        channel.on('error', (error: Error) => {
-          reject(error);
+        channel.on('error', (err) => {
+          clearTimeout(timeoutId);
+          reject(err);
         });
       });
     });
