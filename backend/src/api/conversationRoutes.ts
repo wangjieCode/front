@@ -228,7 +228,7 @@ export function createConversationRoutes(
   router.get('/', async (req: Request, res: Response) => {
     try {
       const sessions = await conversationManager.listSessions();
-
+      console.log('[API] 获取会话列表:', sessions);
       // 转换为简化版响应
       const simplifiedSessions = sessions.map(session => {
         // 使用 taskDescription 作为对话概览

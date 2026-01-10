@@ -84,11 +84,39 @@ export class WorktreeManager {
     }
 
     try {
-      console.log(`[WorktreeManager] 创建用户 worktree: ${userId}`);
+      console.log(`[WorktreeManager] 创建用户 worktree: ${userId}, 基础分支: ${baseBranch}`);
       
+      // 验证分支是否存在，如果不存在尝试切换 'main'/'master'
+      let targetBranch = baseBranch;
+      try {
+        await this.executor.executeCommand(`git rev-parse --verify ${targetBranch}`, this.baseRepoPath);
+      } catch (e) {
+        console.warn(`[WorktreeManager] 分支 ${targetBranch} 不存在，尝试自动探测默认分支`);
+        if (targetBranch === 'master') {
+          targetBranch = 'main';
+        } else if (targetBranch === 'main') {
+          targetBranch = 'master';
+        }
+        
+        // 再次检查
+        try {
+          await this.executor.executeCommand(`git rev-parse --verify ${targetBranch}`, this.baseRepoPath);
+          console.log(`[WorktreeManager] 自动切换到分支: ${targetBranch}`);
+        } catch (e2) {
+          // 如果还是失败，尝试获取 HEAD 指向的分支
+          try {
+             const headResult = await this.executor.executeCommand('git symbolic-ref --short HEAD', this.baseRepoPath);
+             targetBranch = headResult.stdout.trim();
+             console.log(`[WorktreeManager] 使用 HEAD 分支: ${targetBranch}`);
+          } catch (e3) {
+             throw new Error(`无法找到有效的基础分支: ${baseBranch}`);
+          }
+        }
+      }
+
       // 创建 worktree 并直接切换到主分支
       const result = await this.executor.executeCommand(
-        `git worktree add "${worktreePath}" ${baseBranch}`,
+        `git worktree add "${worktreePath}" ${targetBranch}`,
         this.baseRepoPath
       );
 
@@ -101,7 +129,7 @@ export class WorktreeManager {
         userId,
         projectId,
         worktreePath,
-        mainBranch: baseBranch,
+        mainBranch: targetBranch,
         createdAt: now,
         lastUsedAt: now,
       };

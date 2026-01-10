@@ -178,7 +178,7 @@ export class ConversationManager {
       }
 
       // 编辑模式：在用户 worktree 中创建对话分支
-      const gitResult = await this.handleEditModeSetup(sessionId, initialPrompt, userId);
+      const gitResult = await this.handleEditModeSetup(sessionId, initialPrompt, userId, completeProjectInfo.gitBranch);
       if (!gitResult.success) {
         throw new Error(`Git 操作失败: ${gitResult.error}`);
       }
@@ -194,29 +194,15 @@ export class ConversationManager {
 
       // console.log(`[ConversationManager] Git 分支已创建: ${gitResult.branchName}`);
     } else if (mode === ConversationMode.READONLY) {
-      if (!this.worktreeManager) {
-        throw new Error('只读模式需要 Worktree 管理器，但服务未初始化');
-      }
-
+      // 只读模式不需要独立 worktree，直接使用项目主目录
       if (!userId) {
         throw new Error('只读模式需要用户 ID');
       }
 
-      // 只读模式：切换用户 worktree 到主分支
-      const gitResult = await this.handleReadonlyModeSetup(userId);
-      if (!gitResult.success) {
-        throw new Error(`Git 操作失败: ${gitResult.error}`);
-      }
-
-      if (gitResult.worktreePath) {
-        // 只更新 workDir，保留其他项目信息
-        context.projectInfo = {
-          ...context.projectInfo,
-          workDir: gitResult.worktreePath
-        };
-      }
-
-      console.log(`[ConversationManager] 已切换到主分支`);
+      console.log(`[ConversationManager] 只读模式：直接使用项目主目录 ${completeProjectInfo.workDir}`);
+      context.gitBranch = completeProjectInfo.gitBranch || "master";
+      
+      // 不进行 worktree 操作，使用 completeProjectInfo 中的默认 workDir
     }
 
     // 更新会话信息
@@ -240,7 +226,8 @@ export class ConversationManager {
   private async handleEditModeSetup(
     sessionId: string,
     _taskDescription: string,
-    userId: string
+    userId: string,
+    defaultBranch: string = "master"
   ): Promise<{
     success: boolean;
     branchName?: string;
@@ -272,7 +259,7 @@ export class ConversationManager {
       const result = await projectWorktreeManager.createConversationBranch(
         userId,
         sessionId,
-        process.env.GIT_DEFAULT_BRANCH || "master",
+        projectResult.project.gitBranch || defaultBranch,
         this.getCurrentProjectId()
       );
 
@@ -291,43 +278,7 @@ export class ConversationManager {
     }
   }
 
-  /**
-   * 处理只读模式的 Git 设置（使用 WorktreeManager）
-   */
-  private async handleReadonlyModeSetup(
-    userId: string
-  ): Promise<{ success: boolean; worktreePath?: string; error?: string }> {
-    if (!this.worktreeManager) {
-      return { success: false, error: "Worktree 管理器未初始化" };
-    }
 
-    try {
-      console.log(
-        `[ConversationManager] 只读模式：切换用户 ${userId} worktree 到主分支`
-      );
-
-      const worktreeInfo = await this.worktreeManager.getOrCreateWorktree(
-        userId,
-        process.env.GIT_DEFAULT_BRANCH || "master"
-      );
-
-      await this.worktreeManager.switchToMainBranch(userId);
-
-      console.log(
-        `[ConversationManager] Worktree 路径: ${worktreeInfo.worktreePath}`
-      );
-
-      return {
-        success: true,
-        worktreePath: worktreeInfo.worktreePath,
-      };
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : String(error),
-      };
-    }
-  }
 
   /**
    * 获取对话会话

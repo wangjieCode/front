@@ -6,6 +6,7 @@ import {
   branches,
   messages,
   messageMetadata,
+  projects,
   type Conversation,
   type NewConversation,
   type Message,
@@ -70,12 +71,29 @@ export class DrizzleConversationStorage {
   /**
    * 保存会话（插入或更新）
    */
-  async saveSession(session: NewConversation): Promise<void> {
+  async saveSession(session: any): Promise<void> {
     const db = this.getDb();
 
     if (!session.id) {
       throw new Error('Session ID is required');
     }
+
+    // 1. 构建对话数据
+    const conversationData = {
+      id: session.id,
+      sessionId: session.sessionId || session.id, // 确保有 sessionId
+      taskId: session.taskId,
+      userId: session.userId,
+      projectId: session.projectId || session.context?.projectInfo?.projectId,
+      status: session.status,
+      title: session.title,
+      summary: session.summary,
+      projectName: session.projectName || session.context?.projectInfo?.projectName,
+      createdAt: session.createdAt,
+      updatedAt: session.updatedAt,
+      completedAt: session.completedAt,
+      error: session.error,
+    };
 
     // 检查会话是否已存在
     const existing = await db
@@ -89,24 +107,36 @@ export class DrizzleConversationStorage {
       await db
         .update(conversations)
         .set({
-          status: session.status,
-          title: session.title,
-          summary: session.summary,
-          projectId: session.projectId,
-          projectName: session.projectName,
-          updatedAt: session.updatedAt,
-          completedAt: session.completedAt,
-          error: session.error,
+          status: conversationData.status,
+          title: conversationData.title,
+          summary: conversationData.summary,
+          projectId: conversationData.projectId,
+          projectName: conversationData.projectName,
+          updatedAt: conversationData.updatedAt,
+          completedAt: conversationData.completedAt,
+          error: conversationData.error,
         })
         .where(eq(conversations.id, session.id));
     } else {
       // 插入新会话
-      await db.insert(conversations).values(session);
+      await db.insert(conversations).values(conversationData);
+    }
+
+    // 2. 保存上下文（如果存在）
+    if (session.context) {
+      await this.saveContext(session.id, session.context);
+
+      // 3. 保存分支（如果存在于上下文中）
+      if (Array.isArray(session.context.branches)) {
+        for (const branch of session.context.branches) {
+          await this.saveBranch(session.id, branch);
+        }
+      }
     }
 
     // 清除相关缓存
     this.deleteCache(`session:${session.id}`);
-    this.deleteCache(`session:${session.sessionId}`);
+    this.deleteCache(`session:${session.sessionId || session.id}`);
     this.deleteCache('sessions:list');
   }
 
@@ -114,48 +144,50 @@ export class DrizzleConversationStorage {
    * 通过 ID 加载会话
    */
   async loadSession(sessionId: string): Promise<Conversation | null> {
-    // console.log(`[DrizzleConversationStorage] loadSession - sessionId: ${sessionId}`);
-
-    // 暂时禁用缓存以确保context正确加载
-    // const cached = this.getCached<Conversation>(`session:${sessionId}`);
-    // if (cached) {
-    //   console.log(`[DrizzleConversationStorage] loadSession - 返回缓存结果`);
-    //   return cached;
-    // }
-
     const db = this.getDb();
 
+    // Join with projects table to get project details
     const result = await db
-      .select()
+      .select({
+        conversation: conversations,
+        projectRepoUrl: projects.gitRepositoryUrl,
+        projectNameJoined: projects.name,
+      })
       .from(conversations)
+      .leftJoin(projects, eq(conversations.projectId, projects.id))
       .where(eq(conversations.id, sessionId))
       .limit(1);
 
-    const rawSession = result[0] || null;
+    const row = result[0];
 
-    if (rawSession) {
-      // console.log(`[DrizzleConversationStorage] loadSession - 找到session，加载context`);
+    if (row) {
+      const rawSession = row.conversation;
+      // Attach joined data to session object (as non-enumerable or just properties)
+      // We cast to any to avoid type issues, but ideally we should extend the type
+      const sessionWithExtra = {
+        ...rawSession,
+        projectRepoUrl: row.projectRepoUrl,
+        projectNameJoined: row.projectNameJoined,
+        projectName: rawSession.projectName || row.projectNameJoined || null, // Use joined name if saved name is missing
+      };
+
       // 加载关联的上下文
       const context = await this.loadContext(sessionId);
       if (context) {
-        // console.log(`[DrizzleConversationStorage] loadSession - context已设置，projectInfo.workDir: ${context.projectInfo?.workDir}`);
         // 创建一个新的session对象，确保包含context字段
         const session = {
-          ...rawSession,
+          ...sessionWithExtra,
           context: context
         };
-        // console.log(`[DrizzleConversationStorage] loadSession - 返回session，context.projectInfo.workDir: ${session.context?.projectInfo?.workDir}`);
-        return session;
+        return session as unknown as Conversation;
       } else {
-        // console.log(`[DrizzleConversationStorage] loadSession - context为空`);
         const session = {
-          ...rawSession,
+          ...sessionWithExtra,
           context: null
         };
-        return session;
+        return session as unknown as Conversation;
       }
     } else {
-      // console.log(`[DrizzleConversationStorage] loadSession - session未找到`);
       return null;
     }
   }
@@ -201,11 +233,32 @@ export class DrizzleConversationStorage {
 
     const db = this.getDb();
 
-    // 直接查询 conversations 表，现在包含了 title, summary, projectName 字段
-    const sessions = await db
-      .select()
+    // 直接查询 conversations 表，并关联 projects 表获取最新的项目名称，以及 conversationContexts 获取 mode 和其他必要信息
+    const results = await db
+      .select({
+        conversation: conversations,
+        projectNameJoined: projects.name,
+        mode: conversationContexts.mode,
+        taskDescription: conversationContexts.taskDescription,
+        workDir: conversationContexts.workDir,
+      })
       .from(conversations)
+      .leftJoin(projects, eq(conversations.projectId, projects.id))
+      .leftJoin(conversationContexts, eq(conversations.id, conversationContexts.conversationId))
       .orderBy(desc(conversations.createdAt));
+
+    // 使用关联查询的项目名称作为备选，并构造 context 对象包含 mode
+    const sessions = results.map(row => ({
+      ...row.conversation,
+      projectName: row.conversation.projectName || row.projectNameJoined || null,
+      context: {
+        mode: row.mode || 'edit', // Default to edit if missing
+        taskDescription: row.taskDescription,
+        projectInfo: {
+          workDir: row.workDir
+        }
+      }
+    }));
 
     // 缓存结果
     this.setCache('sessions:list', sessions);

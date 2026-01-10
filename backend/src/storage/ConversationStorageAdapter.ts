@@ -221,9 +221,11 @@ export class ConversationStorageAdapter implements IConversationStorage {
           projectInfo: {
             projectId: dbSession.projectId || undefined,
             projectName: dbSession.projectName || '', // 使用数据库中的项目名称
+            workDir: (dbSession as any).context?.projectInfo?.workDir || '',
+            gitRepositoryUrl: '', // 列表视图不需要仓库地址，但类型要求
           },
-          taskDescription: dbSession.summary || '', // 使用数据库中的对话概览
-          mode: ConversationMode.EDIT, // 对话模式
+          taskDescription: (dbSession as any).context?.taskDescription || dbSession.summary || '', // 使用数据库中的对话概览
+          mode: (dbSession as any).context?.mode || ConversationMode.EDIT, // 对话模式
           messageHistory: [],
           currentBranchId: '',
           branches: [],
@@ -422,6 +424,7 @@ export class ConversationStorageAdapter implements IConversationStorage {
         projectId: dbSession.projectId || undefined,
         projectName: dbSession.projectName || '',
         workDir: dbContext.workDir,
+        gitRepositoryUrl: (dbSession as any).projectRepoUrl || '',
         gitBranch: dbContext.gitBranch || undefined,
         relevantFiles: dbContext.relevantFiles || [],
       },
