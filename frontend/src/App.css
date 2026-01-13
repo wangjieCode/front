@@ -86,7 +86,6 @@ body {
 .conversation-item:hover {
   background: #fafafa !important;
   border-color: #e8e8e8 !important;
-  transform: translateX(4px) !important;
 }
 
 .conversation-item.active {
@@ -106,7 +105,8 @@ body {
 .delete-action {
   position: absolute;
   right: 8px;
-  bottom: 8px;
+  top: 50%;
+  transform: translateY(-50%);
   z-index: 2;
 }
 
@@ -176,6 +176,7 @@ body {
   gap: 8px;
   width: 100%;
   margin-top: auto;
+  padding-right: 32px; /* 为删除按钮留出空间 */
 }
 
 .project-pill {
