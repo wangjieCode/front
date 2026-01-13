@@ -467,19 +467,11 @@ export interface OperationResult {
 // ==================== 项目管理相关类型定义 ====================
 
 // 导入数据库类型
-import type { projects, projectMembers, users } from '../db/schema';
+import type { projects, users } from '../db/schema';
 export type Project = typeof projects.$inferSelect;
-export type ProjectMember = typeof projectMembers.$inferSelect;
 export type User = typeof users.$inferSelect;
 
-/**
- * 项目成员角色枚举
- */
-export enum MemberRole {
-  OWNER = 'owner',    // 项目所有者：所有权限
-  ADMIN = 'admin',    // 管理员：管理成员、修改项目
-  MEMBER = 'member'   // 成员：查看项目、创建对话
-}
+// 移除复杂的角色枚举，简化权限控制
 
 /**
  * 创建项目请求接口
@@ -516,13 +508,7 @@ export interface ProjectFilters {
   search?: string; // 搜索项目名称或描述
 }
 
-/**
- * 添加成员请求接口
- */
-export interface AddMemberRequest {
-  userId: string;
-  role: MemberRole;
-}
+// 移除成员管理相关接口
 
 /**
  * 项目结果接口
@@ -539,21 +525,9 @@ export interface ProjectListResult extends OperationResult {
   total?: number;
 }
 
-/**
- * 成员列表结果接口
- */
-export interface MemberListResult extends OperationResult {
-  members?: (ProjectMember & { user: User })[];
-}
+// 移除成员列表结果接口
 
-/**
- * 权限验证结果接口
- */
-export interface PermissionResult {
-  hasPermission: boolean;
-  memberRole?: MemberRole;
-  isOwner: boolean;
-}
+// 移除权限验证结果接口
 
 /**
  * 仓库验证结果接口

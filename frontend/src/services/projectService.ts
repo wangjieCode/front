@@ -1,12 +1,9 @@
 import {
   Project,
-  ProjectMember,
   CreateProjectRequest,
   UpdateProjectRequest,
   ProjectFilters,
-  AddMemberRequest,
   ApiResponse,
-  MemberRole,
 } from '../types/project';
 import { authUtils } from '../utils/auth';
 
@@ -185,120 +182,7 @@ class ProjectService {
     }
   }
 
-  /**
-   * 获取项目成员列表
-   * @param projectId 项目ID
-   * @returns 成员列表
-   */
-  async getMembers(projectId: string): Promise<ApiResponse<ProjectMember[]>> {
-    try {
-      const response = await fetchWithAuth(`${this.baseUrl}/${projectId}/members`);
-
-      const result: ApiResponse<ProjectMember[]> = await response.json();
-      return result;
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : '获取成员列表失败',
-      };
-    }
-  }
-
-  /**
-   * 添加项目成员
-   * @param projectId 项目ID
-   * @param data 成员数据
-   * @returns 添加结果
-   */
-  async addMember(projectId: string, data: AddMemberRequest): Promise<ApiResponse> {
-    try {
-      const response = await fetchWithAuth(`${this.baseUrl}/${projectId}/members`, {
-        method: 'POST',
-        body: JSON.stringify(data),
-      });
-
-      const result: ApiResponse = await response.json();
-      return result;
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : '添加成员失败',
-      };
-    }
-  }
-
-  /**
-   * 移除项目成员
-   * @param projectId 项目ID
-   * @param userId 用户ID
-   * @returns 移除结果
-   */
-  async removeMember(projectId: string, userId: string): Promise<ApiResponse> {
-    try {
-      const response = await fetchWithAuth(`${this.baseUrl}/${projectId}/members/${userId}`, {
-        method: 'DELETE',
-      });
-
-      const result: ApiResponse = await response.json();
-      return result;
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : '移除成员失败',
-      };
-    }
-  }
-
-  /**
-   * 更新成员角色
-   * @param projectId 项目ID
-   * @param userId 用户ID
-   * @param role 新角色
-   * @returns 更新结果
-   */
-  async updateMemberRole(
-    projectId: string,
-    userId: string,
-    role: MemberRole
-  ): Promise<ApiResponse> {
-    try {
-      const response = await fetchWithAuth(`${this.baseUrl}/${projectId}/members/${userId}`, {
-        method: 'PUT',
-        body: JSON.stringify({ role }),
-      });
-
-      const result: ApiResponse = await response.json();
-      return result;
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : '更新成员角色失败',
-      };
-    }
-  }
-
-  /**
-   * 检查用户权限
-   * @param projectId 项目ID
-   * @param requiredRole 需要的角色
-   * @returns 权限检查结果
-   */
-  async checkPermission(
-    projectId: string,
-    requiredRole: MemberRole
-  ): Promise<ApiResponse<{ hasPermission: boolean; memberRole?: MemberRole; isOwner: boolean }>> {
-    try {
-      const response = await fetchWithAuth(`${this.baseUrl}/${projectId}/permissions/${requiredRole}`);
-
-      const result: ApiResponse<{ hasPermission: boolean; memberRole?: MemberRole; isOwner: boolean }> = await response.json();
-      return result;
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : '权限检查失败',
-      };
-    }
-  }
+  // 移除所有成员管理方法
 }
 
 // 创建单例实例

@@ -26,18 +26,16 @@ import {
   SearchOutlined,
   EditOutlined,
   DeleteOutlined,
-  TeamOutlined,
   GithubOutlined,
   BranchesOutlined,
   FolderOutlined,
   ReloadOutlined,
   SettingOutlined,
 } from '@ant-design/icons';
-import { Project, ProjectFilters, MemberRole, RepositoryStatus } from '../types/project';
+import { Project, ProjectFilters, RepositoryStatus } from '../types/project';
 import { projectService } from '../services/projectService';
 import CreateProjectModal from '../components/CreateProjectModal';
 import ProjectDetailModal from '../components/ProjectDetailModal';
-import MemberManageModal from '../components/MemberManageModal';
 import './ProjectsPage.css';
 
 const { Content } = Layout;
@@ -54,7 +52,6 @@ const ProjectsPage: React.FC = () => {
   // 模态框状态
   const [createModalVisible, setCreateModalVisible] = useState(false);
   const [detailModalVisible, setDetailModalVisible] = useState(false);
-  const [memberModalVisible, setMemberModalVisible] = useState(false);
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
 
   // 过滤和分页状态
@@ -146,10 +143,7 @@ const ProjectsPage: React.FC = () => {
   };
 
   // 打开成员管理
-  const handleManageMembers = (project: Project) => {
-    setSelectedProject(project);
-    setMemberModalVisible(true);
-  };
+  // 移除成员管理功能
 
   // 创建项目成功回调
   const handleCreateSuccess = () => {
@@ -167,19 +161,7 @@ const ProjectsPage: React.FC = () => {
     }
   };
 
-  // 获取角色标签颜色
-  const getRoleTagColor = (role: MemberRole) => {
-    switch (role) {
-      case MemberRole.OWNER:
-        return 'red';
-      case MemberRole.ADMIN:
-        return 'orange';
-      case MemberRole.MEMBER:
-        return 'blue';
-      default:
-        return 'default';
-    }
-  };
+  // 移除角色标签功能
 
   // 渲染项目卡片
   const renderProjectCard = (project: Project) => (
@@ -194,13 +176,6 @@ const ProjectsPage: React.FC = () => {
               type="text"
               icon={<EditOutlined />}
               onClick={() => handleViewProject(project)}
-            />
-          </Tooltip>,
-          <Tooltip title="成员管理">
-            <Button
-              type="text"
-              icon={<TeamOutlined />}
-              onClick={() => handleManageMembers(project)}
             />
           </Tooltip>,
           <Tooltip title={project.isActive ? '停用项目' : '启用项目'}>
@@ -315,7 +290,7 @@ const ProjectsPage: React.FC = () => {
               <Statistic
                 title="我的项目"
                 value={projects.length}
-                prefix={<TeamOutlined style={{ color: '#faad14', background: 'rgba(250, 173, 20, 0.1)', padding: 8, borderRadius: 8 }} />}
+                prefix={<GithubOutlined style={{ color: '#faad14', background: 'rgba(250, 173, 20, 0.1)', padding: 8, borderRadius: 8 }} />}
               />
             </Card>
           </Col>
@@ -425,13 +400,6 @@ const ProjectsPage: React.FC = () => {
         visible={detailModalVisible}
         project={selectedProject}
         onCancel={() => setDetailModalVisible(false)}
-        onUpdate={() => loadProjects()}
-      />
-
-      <MemberManageModal
-        visible={memberModalVisible}
-        project={selectedProject}
-        onCancel={() => setMemberModalVisible(false)}
         onUpdate={() => loadProjects()}
       />
     </Layout>

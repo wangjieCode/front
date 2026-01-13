@@ -224,25 +224,7 @@ export const projects = pgTable(
   })
 );
 
-/**
- * project_members 表
- * 存储项目成员信息
- */
-export const projectMembers = pgTable(
-  'project_members',
-  {
-    id: uuid('id').primaryKey().defaultRandom(),
-    projectId: uuid('project_id').notNull(),
-    userId: uuid('user_id').notNull(),
-    role: varchar('role', { length: 50 }).notNull().default('member'), // owner, admin, member
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  },
-  (table) => ({
-    projectIdIdx: index('idx_project_members_project_id').on(table.projectId),
-    userIdIdx: index('idx_project_members_user_id').on(table.userId),
-    projectUserUnique: index('unique_project_members_project_user').on(table.projectId, table.userId),
-  })
-);
+// 移除项目成员表，简化权限控制
 
 // 导出类型
 export type User = typeof users.$inferSelect;
@@ -251,5 +233,4 @@ export type NewUser = typeof users.$inferInsert;
 export type Project = typeof projects.$inferSelect;
 export type NewProject = typeof projects.$inferInsert;
 
-export type ProjectMember = typeof projectMembers.$inferSelect;
-export type NewProjectMember = typeof projectMembers.$inferInsert;
+// 移除项目成员相关类型

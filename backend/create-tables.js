@@ -25,16 +25,7 @@ async function createTables() {
       )
     `;
 
-    // 创建project_members表
-    await sql`
-      CREATE TABLE IF NOT EXISTS project_members (
-        id uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
-        project_id uuid NOT NULL,
-        user_id uuid NOT NULL,
-        role varchar(50) DEFAULT 'member' NOT NULL,
-        created_at timestamp with time zone DEFAULT now() NOT NULL
-      )
-    `;
+    // 移除project_members表创建逻辑
 
     console.log('✅ 数据库表创建成功');
   } catch (error) {
