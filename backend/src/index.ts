@@ -243,8 +243,11 @@ async function startServer() {
   app.use(errorHandler);
 
   // 3. 启动服务器
-  server.listen(PORT, async () => {
-    console.log(`🚀 后端服务器运行在 http://localhost:${PORT}`);
+  const HOST = process.env.HOST || '0.0.0.0'; // 监听所有网络接口
+  server.listen(PORT, HOST, async () => {
+    console.log(`🚀 后端服务器运行在:`);
+    console.log(`   - 本地访问: http://localhost:${PORT}`);
+    console.log(`   - 局域网访问: http://<your-ip>:${PORT}`);
     console.log(`📝 环境: ${process.env.NODE_ENV || 'development'}`);
     console.log(`🌊 SSE 流式响应端点: http://localhost:${PORT}/api/streaming`);
     

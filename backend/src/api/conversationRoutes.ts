@@ -216,7 +216,7 @@ export function createConversationRoutes(
    * GET /api/conversations
    * 获取所有对话会话列表（简化版）
    */
-  router.get('/', async (req: Request, res: Response) => {
+  router.get('/', requireAuth, async (req: AuthRequest, res: Response) => {
     try {
       const sessions = await conversationManager.listSessions();
       console.log('[API] 获取会话列表:', sessions);
@@ -263,7 +263,7 @@ export function createConversationRoutes(
    * GET /api/conversations/:sessionId
    * 获取对话会话详情
    */
-  router.get('/:sessionId', async (req: Request, res: Response) => {
+  router.get('/:sessionId', requireAuth, async (req: AuthRequest, res: Response) => {
     try {
       const { sessionId } = req.params;
       const session = await conversationManager.getSession(sessionId);
@@ -291,7 +291,7 @@ export function createConversationRoutes(
    * GET /api/conversations/:sessionId/messages
    * 获取会话消息历史
    */
-  router.get('/:sessionId/messages', async (req: Request, res: Response) => {
+  router.get('/:sessionId/messages', requireAuth, async (req: AuthRequest, res: Response) => {
     try {
       const { sessionId } = req.params;
 
