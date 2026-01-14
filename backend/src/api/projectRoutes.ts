@@ -176,7 +176,34 @@ export function createProjectRoutes(executor?: ICommandExecutor): Router {
     }
   });
 
-  // 移除所有成员管理路由
+  /**
+   * POST /api/projects/:id/pull
+   * 更新项目代码（git pull）
+   */
+  router.post('/:id/pull', requireAuth, async (req: AuthRequest, res: Response) => {
+    try {
+      const { id } = req.params;
+
+      const result = await projectService.pullRepository(id, req.userId!);
+
+      if (!result.success) {
+        return res.status(400).json({
+          success: false,
+          error: result.error,
+        });
+      }
+
+      res.json({
+        success: true,
+        message: result.message,
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : '更新代码失败',
+      });
+    }
+  });
 
   return router;
 }

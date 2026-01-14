@@ -136,6 +136,25 @@ const ProjectsPage: React.FC = () => {
     }
   };
 
+  // 更新项目代码
+  const handlePullRepository = async (project: Project) => {
+    const hide = message.loading(`正在更新 ${project.name} 的代码...`, 0);
+    try {
+      const response = await projectService.pullRepository(project.id);
+
+      hide();
+      if (response.success) {
+        message.success('代码更新成功');
+      } else {
+        message.error(response.error || '更新失败');
+      }
+    } catch (error) {
+      hide();
+      console.error('更新代码失败:', error);
+      message.error('更新失败');
+    }
+  };
+
   // 打开项目详情
   const handleViewProject = (project: Project) => {
     setSelectedProject(project);
@@ -176,6 +195,13 @@ const ProjectsPage: React.FC = () => {
               type="text"
               icon={<EditOutlined />}
               onClick={() => handleViewProject(project)}
+            />
+          </Tooltip>,
+          <Tooltip title="更新代码">
+            <Button
+              type="text"
+              icon={<ReloadOutlined />}
+              onClick={() => handlePullRepository(project)}
             />
           </Tooltip>,
           <Tooltip title={project.isActive ? '停用项目' : '启用项目'}>
@@ -248,6 +274,14 @@ const ProjectsPage: React.FC = () => {
               创建于 {new Date(project.createdAt).toLocaleDateString()}
             </Text>
           </div>
+
+          {project.lastPulledAt && (
+            <div className="info-item">
+              <Text type="secondary" className="info-text">
+                更新于 {new Date(project.lastPulledAt).toLocaleString()}
+              </Text>
+            </div>
+          )}
         </div>
       </Card>
     </List.Item>
