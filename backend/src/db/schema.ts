@@ -25,22 +25,18 @@ export const conversations = pgTable(
   'conversations',
   {
     id: uuid('id').primaryKey().defaultRandom(),
-    sessionId: varchar('session_id', { length: 255 }).notNull().unique(),
-    taskId: varchar('task_id', { length: 255 }).notNull(),
     userId: uuid('user_id').notNull(),
-    projectId: uuid('project_id'), // 关联的项目ID
+    projectId: uuid('project_id'),
     status: varchar('status', { length: 50 }).notNull(),
-    title: varchar('title', { length: 500 }), // 对话标题（从初始提示词提取）
-    summary: text('summary'), // 对话概览（初始提示词内容）
-    projectName: varchar('project_name', { length: 255 }), // 项目名称（用于展示）
+    title: varchar('title', { length: 500 }),
+    summary: text('summary'),
+    projectName: varchar('project_name', { length: 255 }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
     completedAt: timestamp('completed_at', { withTimezone: true }),
     error: text('error'),
   },
   (table) => ({
-    sessionIdIdx: index('idx_conversations_session_id').on(table.sessionId),
-    taskIdIdx: index('idx_conversations_task_id').on(table.taskId),
     userIdIdx: index('idx_conversations_user_id').on(table.userId),
     projectIdIdx: index('idx_conversations_project_id').on(table.projectId),
     statusIdx: index('idx_conversations_status').on(table.status),
@@ -63,12 +59,11 @@ export const conversationContexts = pgTable(
     gitBranch: varchar('git_branch', { length: 255 }),
     relevantFiles: jsonb('relevant_files'),
     taskDescription: text('task_description').notNull(),
-    currentBranchId: uuid('current_branch_id').notNull(),
     variables: jsonb('variables').default({}),
     mode: varchar('mode', { length: 50 }).notNull().default('edit'), // 对话模式
     contextGitBranch: varchar('context_git_branch', { length: 255 }), // 编辑模式下创建的 Git 分支
     mrUrl: text('mr_url'), // 编辑模式下创建的 MR URL
-    previewInfo: jsonb('preview_info'), // 预览部署信息（包含镇像 ID、容器 ID、运行状态等）
+    previewInfo: jsonb('preview_info'), // 预览部署信息（包含镜像 ID、容器 ID、运行状态等）
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -79,26 +74,7 @@ export const conversationContexts = pgTable(
   })
 );
 
-/**
- * branches 表
- * 存储对话分支信息
- */
-export const branches = pgTable(
-  'branches',
-  {
-    id: uuid('id').primaryKey().defaultRandom(),
-    conversationId: uuid('conversation_id').notNull(),
-    name: varchar('name', { length: 255 }).notNull(),
-    parentMessageId: uuid('parent_message_id'),
-    isActive: boolean('is_active').notNull().default(false),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  },
-  (table) => ({
-    conversationIdIdx: index('idx_branches_conversation_id').on(table.conversationId),
-    parentMessageIdIdx: index('idx_branches_parent_message_id').on(table.parentMessageId),
-    isActiveIdx: index('idx_branches_is_active').on(table.isActive),
-  })
-);
+
 
 /**
  * messages 表
@@ -109,7 +85,6 @@ export const messages = pgTable(
   {
     id: uuid('id').primaryKey().defaultRandom(),
     conversationId: uuid('conversation_id').notNull(),
-    branchId: uuid('branch_id').notNull(),
     role: varchar('role', { length: 50 }).notNull(),
     content: text('content').notNull(),
     isComplete: boolean('is_complete').notNull().default(true),
@@ -118,7 +93,6 @@ export const messages = pgTable(
   },
   (table) => ({
     conversationIdIdx: index('idx_messages_conversation_id').on(table.conversationId),
-    branchIdIdx: index('idx_messages_branch_id').on(table.branchId),
     timestampIdx: index('idx_messages_timestamp').on(table.timestamp),
     parentMessageIdIdx: index('idx_messages_parent_message_id').on(table.parentMessageId),
   })
@@ -182,9 +156,6 @@ export type NewConversation = typeof conversations.$inferInsert;
 export type ConversationContext = typeof conversationContexts.$inferSelect;
 export type NewConversationContext = typeof conversationContexts.$inferInsert;
 
-export type Branch = typeof branches.$inferSelect;
-export type NewBranch = typeof branches.$inferInsert;
-
 export type Message = typeof messages.$inferSelect;
 export type NewMessage = typeof messages.$inferInsert;
 
@@ -224,25 +195,7 @@ export const projects = pgTable(
   })
 );
 
-/**
- * project_members 表
- * 存储项目成员信息
- */
-export const projectMembers = pgTable(
-  'project_members',
-  {
-    id: uuid('id').primaryKey().defaultRandom(),
-    projectId: uuid('project_id').notNull(),
-    userId: uuid('user_id').notNull(),
-    role: varchar('role', { length: 50 }).notNull().default('member'), // owner, admin, member
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  },
-  (table) => ({
-    projectIdIdx: index('idx_project_members_project_id').on(table.projectId),
-    userIdIdx: index('idx_project_members_user_id').on(table.userId),
-    projectUserUnique: index('unique_project_members_project_user').on(table.projectId, table.userId),
-  })
-);
+// 移除项目成员表，简化权限控制
 
 // 导出类型
 export type User = typeof users.$inferSelect;
@@ -251,5 +204,4 @@ export type NewUser = typeof users.$inferInsert;
 export type Project = typeof projects.$inferSelect;
 export type NewProject = typeof projects.$inferInsert;
 
-export type ProjectMember = typeof projectMembers.$inferSelect;
-export type NewProjectMember = typeof projectMembers.$inferInsert;
+// 移除项目成员相关类型

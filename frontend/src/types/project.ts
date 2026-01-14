@@ -1,11 +1,4 @@
-/**
- * 项目成员角色枚举
- */
-export enum MemberRole {
-  OWNER = 'owner',    // 项目所有者：所有权限
-  ADMIN = 'admin',    // 管理员：管理成员、修改项目
-  MEMBER = 'member'   // 成员：查看项目、创建对话
-}
+// 移除复杂的角色枚举，简化权限控制
 
 /**
  * 项目接口
@@ -18,28 +11,13 @@ export interface Project {
   gitBranch: string;
   gitlabProjectId?: string;
   gitlabUrl?: string;
-  ownerId: string;
+  createdBy: string; // 项目创建者
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
 }
 
-/**
- * 项目成员接口
- */
-export interface ProjectMember {
-  id: string;
-  projectId: string;
-  userId: string;
-  role: MemberRole;
-  createdAt: string;
-  user?: {
-    id: string;
-    username: string;
-    createdAt: string;
-    lastLoginAt: string;
-  };
-}
+// 移除项目成员相关接口
 
 /**
  * 创建项目请求接口
@@ -76,13 +54,7 @@ export interface ProjectFilters {
   search?: string;
 }
 
-/**
- * 添加成员请求接口
- */
-export interface AddMemberRequest {
-  userId: string;
-  role: MemberRole;
-}
+// 移除成员管理相关接口
 
 /**
  * API响应接口

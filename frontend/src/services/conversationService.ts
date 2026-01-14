@@ -2,7 +2,6 @@ import {
   ConversationSession,
   ConversationMessage,
   ConversationStatus,
-  ConversationBranch,
   PreviewResult,
   PreviewStatusResponse,
   SimplifiedConversation,
@@ -135,10 +134,10 @@ class ConversationService {
   /**
    * 创建新的对话会话
    */
-  async createSession(taskId: string, initialPrompt: string): Promise<ConversationSession> {
+  async createSession(initialPrompt: string): Promise<ConversationSession> {
     const response = await fetchWithAuth(`${this.baseUrl}/api/conversations`, {
       method: 'POST',
-      body: JSON.stringify({ taskId, initialPrompt }),
+      body: JSON.stringify({ initialPrompt }),
     });
 
     if (!response.ok) {
@@ -190,10 +189,9 @@ class ConversationService {
    * 创建新对话
    */
   async createConversation(params: {
-    taskId: string;
     initialPrompt: string;
     projectId: string;
-    mode?: string; // 对话模式：'edit' 或 'readonly'
+    mode?: string;
   }): Promise<{ success: boolean; data: ConversationSession }> {
     const response = await fetchWithAuth(`${this.baseUrl}/api/conversations`, {
       method: 'POST',
@@ -214,12 +212,11 @@ class ConversationService {
    */
   async sendMessage(
     sessionId: string,
-    content: string,
-    branchId?: string
+    content: string
   ): Promise<{ userMessage: ConversationMessage; aiMessage?: ConversationMessage }> {
     const response = await fetchWithAuth(`${this.baseUrl}/api/conversations/${sessionId}/messages`, {
       method: 'POST',
-      body: JSON.stringify({ content, branchId }),
+      body: JSON.stringify({ content }),
     });
 
     if (!response.ok) {
@@ -240,11 +237,9 @@ class ConversationService {
    */
   async getMessages(
     sessionId: string,
-    branchId?: string,
     since?: string
   ): Promise<ConversationMessage[]> {
     const params = new URLSearchParams();
-    if (branchId) params.append('branchId', branchId);
     if (since) params.append('since', since);
 
     const url = `${this.baseUrl}/api/conversations/${sessionId}/messages${
@@ -292,68 +287,12 @@ class ConversationService {
   }
 
   /**
-   * 创建新分支
-   */
-  async createBranch(
-    sessionId: string,
-    fromMessageId: string,
-    branchName: string
-  ): Promise<ConversationBranch> {
-    const response = await fetchWithAuth(`${this.baseUrl}/api/conversations/${sessionId}/branches`, {
-      method: 'POST',
-      body: JSON.stringify({ fromMessageId, branchName }),
-    });
-
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({ error: '创建分支失败' }));
-      throw new Error(error.error || '创建分支失败');
-    }
-
-    const result = await response.json();
-    return result.data;
-  }
-
-  /**
-   * 切换到指定分支
-   */
-  async switchBranch(sessionId: string, branchId: string): Promise<ConversationSession> {
-    const response = await fetchWithAuth(
-      `${this.baseUrl}/api/conversations/${sessionId}/branches/${branchId}/activate`,
-      {
-        method: 'PUT',
-      }
-    );
-
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({ error: '切换分支失败' }));
-      throw new Error(error.error || '切换分支失败');
-    }
-
-    const result = await response.json();
-    return result.data;
-  }
-
-  /**
-   * 获取所有分支
-   */
-  async getBranches(sessionId: string): Promise<ConversationBranch[]> {
-    const response = await fetchWithAuth(`${this.baseUrl}/api/conversations/${sessionId}/branches`);
-
-    if (!response.ok) {
-      throw new Error('获取分支列表失败');
-    }
-
-    const result = await response.json();
-    return result.data || [];
-  }
-
-  /**
    * 为会话创建 Merge Request
    */
   async createMergeRequest(sessionId: string, targetBranch?: string): Promise<{ mrUrl: string }> {
     const response = await fetchWithAuth(`${this.baseUrl}/api/conversations/${sessionId}/merge-request`, {
       method: 'POST',
-      body: JSON.stringify({ targetBranch }), // 传递目标分支
+      body: JSON.stringify({ targetBranch }),
     });
 
     if (!response.ok) {

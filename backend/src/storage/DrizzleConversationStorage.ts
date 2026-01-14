@@ -3,9 +3,9 @@ import { DatabaseManager } from '../db/DatabaseManager';
 import {
   conversations,
   conversationContexts,
-  branches,
   messages,
   messageMetadata,
+  projects,
   type Conversation,
   type NewConversation,
   type Message,
@@ -70,12 +70,29 @@ export class DrizzleConversationStorage {
   /**
    * 保存会话（插入或更新）
    */
-  async saveSession(session: NewConversation): Promise<void> {
+  async saveSession(session: any): Promise<void> {
     const db = this.getDb();
 
     if (!session.id) {
       throw new Error('Session ID is required');
     }
+
+    // 1. 构建对话数据
+    const conversationData = {
+      id: session.id,
+      sessionId: session.sessionId || session.id, // 确保有 sessionId
+      taskId: session.taskId,
+      userId: session.userId,
+      projectId: session.projectId || session.context?.projectInfo?.projectId,
+      status: session.status,
+      title: session.title,
+      summary: session.summary,
+      projectName: session.projectName || session.context?.projectInfo?.projectName,
+      createdAt: session.createdAt,
+      updatedAt: session.updatedAt,
+      completedAt: session.completedAt,
+      error: session.error,
+    };
 
     // 检查会话是否已存在
     const existing = await db
@@ -89,24 +106,29 @@ export class DrizzleConversationStorage {
       await db
         .update(conversations)
         .set({
-          status: session.status,
-          title: session.title,
-          summary: session.summary,
-          projectId: session.projectId,
-          projectName: session.projectName,
-          updatedAt: session.updatedAt,
-          completedAt: session.completedAt,
-          error: session.error,
+          status: conversationData.status,
+          title: conversationData.title,
+          summary: conversationData.summary,
+          projectId: conversationData.projectId,
+          projectName: conversationData.projectName,
+          updatedAt: conversationData.updatedAt,
+          completedAt: conversationData.completedAt,
+          error: conversationData.error,
         })
         .where(eq(conversations.id, session.id));
     } else {
       // 插入新会话
-      await db.insert(conversations).values(session);
+      await db.insert(conversations).values(conversationData);
+    }
+
+    // 2. 保存上下文（如果存在）
+    if (session.context) {
+      await this.saveContext(session.id, session.context);
     }
 
     // 清除相关缓存
     this.deleteCache(`session:${session.id}`);
-    this.deleteCache(`session:${session.sessionId}`);
+    this.deleteCache(`session:${session.sessionId || session.id}`);
     this.deleteCache('sessions:list');
   }
 
@@ -114,48 +136,50 @@ export class DrizzleConversationStorage {
    * 通过 ID 加载会话
    */
   async loadSession(sessionId: string): Promise<Conversation | null> {
-    // console.log(`[DrizzleConversationStorage] loadSession - sessionId: ${sessionId}`);
-
-    // 暂时禁用缓存以确保context正确加载
-    // const cached = this.getCached<Conversation>(`session:${sessionId}`);
-    // if (cached) {
-    //   console.log(`[DrizzleConversationStorage] loadSession - 返回缓存结果`);
-    //   return cached;
-    // }
-
     const db = this.getDb();
 
+    // Join with projects table to get project details
     const result = await db
-      .select()
+      .select({
+        conversation: conversations,
+        projectRepoUrl: projects.gitRepositoryUrl,
+        projectNameJoined: projects.name,
+      })
       .from(conversations)
+      .leftJoin(projects, eq(conversations.projectId, projects.id))
       .where(eq(conversations.id, sessionId))
       .limit(1);
 
-    const rawSession = result[0] || null;
+    const row = result[0];
 
-    if (rawSession) {
-      // console.log(`[DrizzleConversationStorage] loadSession - 找到session，加载context`);
+    if (row) {
+      const rawSession = row.conversation;
+      // Attach joined data to session object (as non-enumerable or just properties)
+      // We cast to any to avoid type issues, but ideally we should extend the type
+      const sessionWithExtra = {
+        ...rawSession,
+        projectRepoUrl: row.projectRepoUrl,
+        projectNameJoined: row.projectNameJoined,
+        projectName: rawSession.projectName || row.projectNameJoined || null, // Use joined name if saved name is missing
+      };
+
       // 加载关联的上下文
       const context = await this.loadContext(sessionId);
       if (context) {
-        // console.log(`[DrizzleConversationStorage] loadSession - context已设置，projectInfo.workDir: ${context.projectInfo?.workDir}`);
         // 创建一个新的session对象，确保包含context字段
         const session = {
-          ...rawSession,
+          ...sessionWithExtra,
           context: context
         };
-        // console.log(`[DrizzleConversationStorage] loadSession - 返回session，context.projectInfo.workDir: ${session.context?.projectInfo?.workDir}`);
-        return session;
+        return session as unknown as Conversation;
       } else {
-        // console.log(`[DrizzleConversationStorage] loadSession - context为空`);
         const session = {
-          ...rawSession,
+          ...sessionWithExtra,
           context: null
         };
-        return session;
+        return session as unknown as Conversation;
       }
     } else {
-      // console.log(`[DrizzleConversationStorage] loadSession - session未找到`);
       return null;
     }
   }
@@ -201,11 +225,32 @@ export class DrizzleConversationStorage {
 
     const db = this.getDb();
 
-    // 直接查询 conversations 表，现在包含了 title, summary, projectName 字段
-    const sessions = await db
-      .select()
+    // 直接查询 conversations 表，并关联 projects 表获取最新的项目名称，以及 conversationContexts 获取 mode 和其他必要信息
+    const results = await db
+      .select({
+        conversation: conversations,
+        projectNameJoined: projects.name,
+        mode: conversationContexts.mode,
+        taskDescription: conversationContexts.taskDescription,
+        workDir: conversationContexts.workDir,
+      })
       .from(conversations)
+      .leftJoin(projects, eq(conversations.projectId, projects.id))
+      .leftJoin(conversationContexts, eq(conversations.id, conversationContexts.conversationId))
       .orderBy(desc(conversations.createdAt));
+
+    // 使用关联查询的项目名称作为备选，并构造 context 对象包含 mode
+    const sessions = results.map(row => ({
+      ...row.conversation,
+      projectName: row.conversation.projectName || row.projectNameJoined || null,
+      context: {
+        mode: row.mode || 'edit', // Default to edit if missing
+        taskDescription: row.taskDescription,
+        projectInfo: {
+          workDir: row.workDir
+        }
+      }
+    }));
 
     // 缓存结果
     this.setCache('sessions:list', sessions);
@@ -253,13 +298,10 @@ export class DrizzleConversationStorage {
       // 2. 删除消息
       await tx.delete(messages).where(eq(messages.conversationId, sessionId));
 
-      // 3. 删除分支
-      await tx.delete(branches).where(eq(branches.conversationId, sessionId));
-
-      // 4. 删除上下文
+      // 3. 删除上下文
       await tx.delete(conversationContexts).where(eq(conversationContexts.conversationId, sessionId));
 
-      // 5. 删除会话
+      // 4. 删除会话
       await tx.delete(conversations).where(eq(conversations.id, sessionId));
     });
 
@@ -287,12 +329,9 @@ export class DrizzleConversationStorage {
    */
   async loadMessages(
     conversationId: string,
-    branchId?: string,
     options?: PaginationOptions
   ): Promise<Message[]> {
-    const cacheKey = branchId
-      ? `messages:${conversationId}:${branchId}`
-      : `messages:${conversationId}`;
+    const cacheKey = `messages:${conversationId}`;
 
     // 检查缓存（仅当没有分页时）
     if (!options) {
@@ -309,20 +348,6 @@ export class DrizzleConversationStorage {
       .from(messages)
       .where(eq(messages.conversationId, conversationId))
       .orderBy(asc(messages.timestamp));
-
-    // 如果指定了分支
-    if (branchId) {
-      query = db
-        .select()
-        .from(messages)
-        .where(
-          and(
-            eq(messages.conversationId, conversationId),
-            eq(messages.branchId, branchId)
-          )
-        )
-        .orderBy(asc(messages.timestamp));
-    }
 
     // 应用分页
     if (options?.limit) {
@@ -384,27 +409,14 @@ export class DrizzleConversationStorage {
   /**
    * 获取消息数量
    */
-  async getMessageCount(conversationId: string, branchId?: string): Promise<number> {
+  async getMessageCount(conversationId: string): Promise<number> {
     const db = this.getDb();
 
-    let query = db
+    const result = await db
       .select()
       .from(messages)
       .where(eq(messages.conversationId, conversationId));
 
-    if (branchId) {
-      query = db
-        .select()
-        .from(messages)
-        .where(
-          and(
-            eq(messages.conversationId, conversationId),
-            eq(messages.branchId, branchId)
-          )
-        );
-    }
-
-    const result = await query;
     return result.length;
   }
 
@@ -420,21 +432,15 @@ export class DrizzleConversationStorage {
     const contextData = {
       workDir: context.projectInfo?.workDir || context.workDir,
       worktreePath: context.projectInfo?.worktreePath || context.worktreePath,
-      gitBranch: context.gitBranch || context.projectInfo?.gitBranch, // 优先使用 context.gitBranch
+      gitBranch: context.gitBranch || context.projectInfo?.gitBranch,
       relevantFiles: context.projectInfo?.relevantFiles || context.relevantFiles,
       taskDescription: context.taskDescription,
-      currentBranchId: context.currentBranchId,
       variables: context.variables || {},
       mode: context.mode || 'edit',
       contextGitBranch: context.gitBranch,
       mrUrl: context.mrUrl,
       previewInfo: context.previewInfo,
     };
-
-    // console.log(`[DrizzleConversationStorage] saveContext - conversationId: ${conversationId}`);
-    // console.log(`[DrizzleConversationStorage] saveContext - context.gitBranch: ${context.gitBranch}`);
-    // console.log(`[DrizzleConversationStorage] saveContext - contextData.contextGitBranch: ${contextData.contextGitBranch}`);
-    // console.log(`[DrizzleConversationStorage] saveContext - contextData.gitBranch: ${contextData.gitBranch}`);
 
     // 检查是否已存在
     const existing = await db
@@ -497,176 +503,18 @@ export class DrizzleConversationStorage {
         relevantFiles: rawContext.relevantFiles || [],
       },
       taskDescription: rawContext.taskDescription,
-      messageHistory: [], // 需要从其他地方加载
-      currentBranchId: rawContext.currentBranchId,
-      branches: [], // 需要从其他地方加载
+      messageHistory: [],
       variables: rawContext.variables || {},
       mode: rawContext.mode || 'edit',
-      gitBranch: rawContext.contextGitBranch, // 这里是关键！
+      gitBranch: rawContext.contextGitBranch,
       mrUrl: rawContext.mrUrl,
       previewInfo: rawContext.previewInfo,
     };
-
-    // console.log(`[DrizzleConversationStorage] loadContext - rawContext.contextGitBranch: ${rawContext.contextGitBranch}`);
-    // console.log(`[DrizzleConversationStorage] loadContext - context.gitBranch: ${context.gitBranch}`);
-    // console.log(`[DrizzleConversationStorage] loadContext - rawContext.mrUrl: ${rawContext.mrUrl}`);
-    // console.log(`[DrizzleConversationStorage] loadContext - context.mrUrl: ${context.mrUrl}`);
-
-    // console.log(`[DrizzleConversationStorage] loadContext - conversationId: ${conversationId}`);
-    // console.log(`[DrizzleConversationStorage] rawContext.workDir: ${rawContext.workDir}`);
-    // console.log(`[DrizzleConversationStorage] context.projectInfo.workDir: ${context.projectInfo.workDir}`);
 
     // 缓存结果
     this.setCache(`context:${conversationId}`, context);
 
     return context;
-  }
-
-  // ==================== 分支管理方法 ====================
-
-  /**
-   * 保存分支（插入或更新）
-   */
-  async saveBranch(conversationId: string, branch: any): Promise<void> {
-    const db = this.getDb();
-
-    // 确保 parentMessageId 为 null 而不是空字符串
-    const parentMessageId = branch.parentMessageId === '' || branch.parentMessageId === null || branch.parentMessageId === undefined
-      ? null
-      : branch.parentMessageId;
-
-    const branchData = {
-      id: branch.id,
-      conversationId,
-      name: branch.name,
-      parentMessageId,
-      isActive: branch.isActive,
-      createdAt: branch.createdAt,
-    };
-
-    // 检查分支是否已存在
-    const existing = await db
-      .select()
-      .from(branches)
-      .where(eq(branches.id, branch.id))
-      .limit(1);
-
-    if (existing.length > 0) {
-      // 更新现有分支
-      await db
-        .update(branches)
-        .set({
-          name: branch.name,
-          parentMessageId,
-          isActive: branch.isActive,
-        })
-        .where(eq(branches.id, branch.id));
-    } else {
-      // 插入新分支
-      await db.insert(branches).values(branchData);
-    }
-
-    // 清除缓存
-    this.deleteCache(`branches:${conversationId}`);
-  }
-
-  /**
-   * 加载分支
-   */
-  async loadBranch(conversationId: string, branchId: string): Promise<any | null> {
-    const db = this.getDb();
-
-    const result = await db
-      .select()
-      .from(branches)
-      .where(
-        and(
-          eq(branches.conversationId, conversationId),
-          eq(branches.id, branchId)
-        )
-      )
-      .limit(1);
-
-    return result[0] || null;
-  }
-
-  /**
-   * 列出会话的所有分支
-   */
-  async listBranches(conversationId: string): Promise<any[]> {
-    // 检查缓存
-    const cached = this.getCached<any[]>(`branches:${conversationId}`);
-    if (cached) {
-      return cached;
-    }
-
-    const db = this.getDb();
-
-    const result = await db
-      .select()
-      .from(branches)
-      .where(eq(branches.conversationId, conversationId))
-      .orderBy(desc(branches.createdAt));
-
-    // 缓存结果
-    this.setCache(`branches:${conversationId}`, result);
-
-    return result;
-  }
-
-  /**
-   * 更新分支
-   */
-  async updateBranch(branchId: string, updates: any): Promise<void> {
-    const db = this.getDb();
-
-    await db
-      .update(branches)
-      .set(updates)
-      .where(eq(branches.id, branchId));
-
-    // 清除缓存
-    this.clearCache();
-  }
-
-  /**
-   * 删除分支
-   */
-  async deleteBranch(conversationId: string, branchId: string): Promise<void> {
-    const db = this.getDb();
-
-    await db.transaction(async (tx) => {
-      // 1. 删除该分支的所有消息的元数据
-      const messagesToDelete = await tx
-        .select({ id: messages.id })
-        .from(messages)
-        .where(
-          and(
-            eq(messages.conversationId, conversationId),
-            eq(messages.branchId, branchId)
-          )
-        );
-
-      for (const msg of messagesToDelete) {
-        await tx.delete(messageMetadata).where(eq(messageMetadata.messageId, msg.id));
-      }
-
-      // 2. 删除该分支的所有消息
-      await tx
-        .delete(messages)
-        .where(
-          and(
-            eq(messages.conversationId, conversationId),
-            eq(messages.branchId, branchId)
-          )
-        );
-
-      // 3. 删除分支
-      await tx.delete(branches).where(eq(branches.id, branchId));
-    });
-
-    // 清除缓存
-    this.clearCache();
   }
 
   // ==================== 消息元数据管理方法 ====================
@@ -761,33 +609,6 @@ export class DrizzleConversationStorage {
   }
 
   /**
-   * 清理孤立的分支
-   */
-  async cleanupOrphanedBranches(): Promise<number> {
-    const db = this.getDb();
-
-    // 查找所有孤立的分支
-    const orphanedBranches = await db
-      .select({ id: branches.id })
-      .from(branches)
-      .leftJoin(conversations, eq(branches.conversationId, conversations.id))
-      .where(eq(conversations.id, null as any));
-
-    let count = 0;
-
-    // 删除孤立的分支
-    for (const branch of orphanedBranches) {
-      await db.delete(branches).where(eq(branches.id, branch.id));
-      count++;
-    }
-
-    // 清除缓存
-    this.clearCache();
-
-    return count;
-  }
-
-  /**
    * 清理孤立的元数据
    */
   async cleanupOrphanedMetadata(): Promise<number> {
@@ -821,7 +642,6 @@ export class DrizzleConversationStorage {
     valid: boolean;
     issues: string[];
   }> {
-    const db = this.getDb();
     const issues: string[] = [];
 
     // 1. 检查会话是否存在
@@ -837,24 +657,10 @@ export class DrizzleConversationStorage {
       issues.push(`Context for conversation ${conversationId} not found`);
     }
 
-    // 3. 检查分支
-    const branchList = await this.listBranches(conversationId);
-    if (branchList.length === 0) {
-      issues.push(`No branches found for conversation ${conversationId}`);
-    }
-
-    // 4. 检查消息
+    // 3. 检查消息
     const messageList = await this.loadMessages(conversationId);
     if (messageList.length === 0) {
       issues.push(`No messages found for conversation ${conversationId}`);
-    }
-
-    // 5. 检查消息的分支是否存在
-    const branchIds = new Set(branchList.map((b) => b.id));
-    for (const msg of messageList) {
-      if (!branchIds.has(msg.branchId)) {
-        issues.push(`Message ${msg.id} references non-existent branch ${msg.branchId}`);
-      }
     }
 
     return {

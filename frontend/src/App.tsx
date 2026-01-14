@@ -1,18 +1,19 @@
 import React, { useState, useEffect } from 'react';
 import { Layout, Typography, Button, message, List, Spin, Popconfirm, Dropdown, Space } from 'antd';
 import { BrowserRouter as Router, Routes, Route, Link, useLocation, useNavigate, useParams } from 'react-router-dom';
-import { v4 as uuidv4 } from 'uuid';
+
 import {
   PlusOutlined,
   MessageOutlined,
-  EditOutlined,
-  EyeOutlined,
   DeleteOutlined,
-  UserOutlined,
   LogoutOutlined,
   FolderOutlined,
-  TeamOutlined,
+  InfoCircleOutlined,
+  FolderOpenOutlined,
+  EditOutlined,
+  ReadOutlined,
 } from '@ant-design/icons';
+import IntroPage from './pages/IntroPage';
 import ConversationView from './components/ConversationView';
 import LoginModal from './components/LoginModal';
 import ProjectsPage from './pages/ProjectsPage';
@@ -26,6 +27,7 @@ import './App.css';
 enum PageType {
   CONVERSATIONS = 'conversations',
   PROJECTS = 'projects',
+  INTRO = 'intro',
 }
 
 // 包装 ConversationView 以获取 URL 参数
@@ -56,13 +58,18 @@ const AppContent: React.FC = () => {
   const navigate = useNavigate();
   const [conversations, setConversations] = useState<any[]>([]);
   const [isConversationsLoading, setIsConversationsLoading] = useState(true);
-  const [mode, setMode] = useState<ConversationMode>(ConversationMode.EDIT);
+  const [mode, setMode] = useState<ConversationMode>(ConversationMode.READONLY);
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [currentUser, setCurrentUser] = useState<{ userId: string; username: string } | null>(null);
 
   // 根据路径确定当前页面
-  const currentPage = location.pathname === '/projects' ? PageType.PROJECTS : PageType.CONVERSATIONS;
+  let currentPage = PageType.CONVERSATIONS;
+  if (location.pathname === '/projects') {
+    currentPage = PageType.PROJECTS;
+  } else if (location.pathname === '/intro') {
+    currentPage = PageType.INTRO;
+  }
 
   // 从 URL 获取当前会话 ID
   const activeSessionId = location.pathname.match(/\/chat\/(.+)/)?.[1] || null;
@@ -125,7 +132,6 @@ const AppContent: React.FC = () => {
       console.log('创建对话 - projectId:', projectId); // 调试日志
 
       const response = await conversationService.createConversation({
-        taskId: `task-${Date.now()}`,
         initialPrompt: promptText,
         projectId: projectId,
         mode: conversationMode,
@@ -145,6 +151,7 @@ const AppContent: React.FC = () => {
 
   // 点击历史对话
   const handleConversationClick = (conversation: any) => {
+    setMode(conversation.mode);
     navigate(`/chat/${conversation.id}`);
   };
 
@@ -172,9 +179,14 @@ const AppContent: React.FC = () => {
   };
 
   // 取消登录
+  // 取消登录
   const handleLoginCancel = () => {
     setShowLoginModal(false);
   };
+
+  if (location.pathname === '/intro') {
+    return <IntroPage />;
+  }
 
   return (
     <Layout style={{ minHeight: '100vh', background: '#f5f5f5' }}>
@@ -235,188 +247,117 @@ const AppContent: React.FC = () => {
             <List
               dataSource={conversations}
               renderItem={(conv: any) => {
-                const mode = conv.context?.mode || ConversationMode.EDIT;
+                const mode = conv?.mode || ConversationMode.EDIT;
                 const projectName = conv.projectInfo?.projectName || conv.context?.projectInfo?.projectName || conv.context?.projectInfo?.name || conv.context?.projectInfo?.workDir?.split('/').pop();
+                const isActive = activeSessionId === conv.id;
+                
+                // Date formatting
+                const date = new Date(conv.createdAt);
+                const dateStr = `${date.getMonth() + 1}/${date.getDate()} ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
 
                 return (
                   <List.Item
                     key={conv.id}
-                    className={`conversation-item ${activeSessionId === conv.id ? 'active' : ''}`}
+                    className={`conversation-item ${isActive ? 'active' : ''}`}
+                    onClick={() => handleConversationClick(conv)}
                     style={{
                       cursor: 'pointer',
-                      padding: '12px 16px',
+                      padding: '12px',
                       display: 'flex',
                       alignItems: 'flex-start',
-                      gap: 12,
-                      borderBottom: '1px solid #f0f0f0',
-                      background: activeSessionId === conv.id ? '#e6f7ff' : 'transparent',
-                      transition: 'all 0.2s',
+                      position: 'relative',
+                      paddingRight: '12px'
                     }}
                   >
-                    <div
-                      style={{ flex: 1, minWidth: 0 }}
-                      onClick={() => handleConversationClick(conv)}
-                    >
-                      <div style={{ display: 'flex', gap: 12 }}>
-                        {/* Avatar */}
-                        <div style={{
-                          width: 32,
-                          height: 32,
-                          borderRadius: 8,
-                          background: mode === ConversationMode.EDIT ? 'rgba(124, 92, 255, 0.1)' : '#f5f5f5',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          color: mode === ConversationMode.EDIT ? '#7c5cff' : '#999',
-                          flexShrink: 0
-                        }}>
-                          <MessageOutlined style={{ fontSize: 16 }} />
-                        </div>
+                    <div className="conversation-icon">
+                      <MessageOutlined />
+                    </div>
 
-                        {/* Content */}
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{
-                            fontWeight: 500,
-                            fontSize: 14,
-                            color: '#333',
-                            marginBottom: 4,
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            whiteSpace: 'nowrap'
-                          }}>
-                            {conv.title || conv.overview || conv.context?.taskDescription || '未命名对话'}
+                    <div className="conversation-content">
+                      <div className="conversation-title" title={conv.title || conv.overview || conv.context?.taskDescription || '新对话'}>
+                        {conv.title || conv.overview || conv.context?.taskDescription || '新对话'}
+                      </div>
+
+                      <div className="conversation-footer">
+                        {projectName && (
+                          <div className="project-pill" title={projectName}>
+                            <FolderOpenOutlined style={{ fontSize: 12 }} />
+                            <span>{projectName}</span>
                           </div>
-
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                            {/* 项目信息行 - 更突出的显示 */}
-                            {projectName && (
-                              <div style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: 6,
-                                marginBottom: 2
-                              }}>
-                                <div style={{
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  gap: 4,
-                                  background: '#f8f9fa',
-                                  padding: '2px 8px',
-                                  borderRadius: 12,
-                                  border: '1px solid #e9ecef'
-                                }}>
-                                  <FolderOutlined style={{ 
-                                    fontSize: 10, 
-                                    color: '#6c757d',
-                                    flexShrink: 0 
-                                  }} />
-                                  <span style={{
-                                    fontSize: 11,
-                                    color: '#495057',
-                                    fontWeight: 500,
-                                    overflow: 'hidden',
-                                    textOverflow: 'ellipsis',
-                                    whiteSpace: 'nowrap',
-                                    maxWidth: 120
-                                  }}>
-                                    {projectName}
-                                  </span>
-                                </div>
-                              </div>
-                            )}
-                            
-                            {/* 模式和时间行 */}
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                              <span style={{
-                                fontSize: 10,
-                                padding: '2px 6px',
-                                borderRadius: 4,
-                                background: mode === ConversationMode.EDIT ? 'rgba(124, 92, 255, 0.1)' : '#f0f0f0',
-                                color: mode === ConversationMode.EDIT ? '#7c5cff' : '#666',
-                                border: mode === ConversationMode.EDIT ? '1px solid rgba(124, 92, 255, 0.2)' : '1px solid #d9d9d9',
-                                whiteSpace: 'nowrap',
-                                fontWeight: 500
-                              }}>
-                                {mode === ConversationMode.EDIT ? '✏️ 编辑' : '👁️ 只读'}
-                              </span>
-
-                              <div style={{ fontSize: 10, color: '#999' }}>
-                                {new Date(conv.createdAt).toLocaleString('zh-CN', {
-                                  month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit'
-                                })}
-                              </div>
-                            </div>
-                          </div>
-                        </div>
+                        )}
+                        <span className="date-text">{dateStr}</span>
                       </div>
                     </div>
 
-                    <Popconfirm
-                      title="确认删除"
-                      description="确定要删除这个对话吗？"
-                      onConfirm={async (e) => {
-                        e?.stopPropagation();
-                        try {
-                          const userId = localStorage.getItem('user_id');
-                          const username = localStorage.getItem('username');
-                          
-                          const headers: Record<string, string> = {
-                            'Content-Type': 'application/json',
-                          };
-                          
-                          if (userId) {
-                            headers['x-user-id'] = userId;
-                            if (username) {
-                              headers['x-username'] = username;
+                    <div className={`mode-corner-tag ${mode === ConversationMode.EDIT ? 'edit' : ''}`}>
+                      {mode === ConversationMode.EDIT ? <EditOutlined style={{ fontSize: 10 }} /> : <ReadOutlined style={{ fontSize: 10 }} />}
+                      <span>{mode === ConversationMode.EDIT ? '编辑' : '只读'}</span>
+                    </div>
+
+                    <div className="delete-action" onClick={(e) => e.stopPropagation()}>
+                      <Popconfirm
+                        title="确认删除"
+                        description="确定要删除这个对话吗？"
+                        onConfirm={async (e) => {
+                          e?.stopPropagation();
+                          try {
+                            const userId = localStorage.getItem('user_id');
+                            const username = localStorage.getItem('username');
+                            
+                            const headers: Record<string, string> = {
+                              'Content-Type': 'application/json',
+                            };
+                            
+                            if (userId) {
+                              headers['x-user-id'] = userId;
+                              if (username) {
+                                headers['x-username'] = username;
+                              }
                             }
-                          }
 
-                          const response = await fetch(`/api/conversations/${conv.id}`, {
-                            method: 'DELETE',
-                            headers,
-                          });
+                            const response = await fetch(`/api/conversations/${conv.id}`, {
+                              method: 'DELETE',
+                              headers,
+                            });
 
-                          if (response.status === 401) {
-                            localStorage.removeItem('user_id');
-                            localStorage.removeItem('username');
-                            setIsLoggedIn(false);
-                            setCurrentUser(null);
-                            setShowLoginModal(true);
-                            return;
-                          }
-
-                          const data = await response.json();
-
-                          if (data.success) {
-                            message.success('对话已删除');
-                            setConversations(prev => prev.filter(c => c.id !== conv.id));
-                            if (activeSessionId === conv.id) {
-                              navigate('/');
+                            if (response.status === 401) {
+                              localStorage.removeItem('user_id');
+                              localStorage.removeItem('username');
+                              setIsLoggedIn(false);
+                              setCurrentUser(null);
+                              setShowLoginModal(true);
+                              return;
                             }
-                          } else {
-                            message.error(data.error || '删除失败');
+
+                            const data = await response.json();
+
+                            if (data.success) {
+                              message.success('对话已删除');
+                              setConversations(prev => prev.filter(c => c.id !== conv.id));
+                              if (activeSessionId === conv.id) {
+                                navigate('/');
+                              }
+                            } else {
+                              message.error(data.error || '删除失败');
+                            }
+                          } catch (error) {
+                            console.error('删除对话失败:', error);
+                            message.error('删除失败');
                           }
-                        } catch (error) {
-                          console.error('删除对话失败:', error);
-                          message.error('删除失败');
-                        }
-                      }}
-                      okText="删除"
-                      cancelText="取消"
-                      okButtonProps={{ danger: true }}
-                    >
-                      <Button
-                        type="text"
-                        danger
-                        size="small"
-                        icon={<DeleteOutlined />}
-                        onClick={(e) => e.stopPropagation()}
-                        className="delete-btn"
-                        style={{ opacity: 0.6 }}
-                        onMouseEnter={(e) => e.currentTarget.style.opacity = '1'}
-                        onMouseLeave={(e) => e.currentTarget.style.opacity = '0.6'}
-                      />
-                    </Popconfirm>
+                        }}
+                        okText="删除"
+                        cancelText="取消"
+                        okButtonProps={{ danger: true }}
+                      >
+                        <Button
+                          type="text"
+                          danger
+                          size="small"
+                          icon={<DeleteOutlined />}
+                          className="delete-btn"
+                        />
+                      </Popconfirm>
+                    </div>
                   </List.Item>
                 );
               }}
@@ -437,10 +378,12 @@ const AppContent: React.FC = () => {
         }}>
           <div>
             <Title level={3} style={{ margin: 0, color: '#1a1a1a' }}>
-              {currentPage === PageType.PROJECTS ? '项目管理' : '对话'}
+              {currentPage === PageType.PROJECTS ? '项目管理' : 
+               currentPage === PageType.INTRO ? '项目介绍' : '对话'}
             </Title>
             <Text type="secondary" style={{ fontSize: 14 }}>
-              {currentPage === PageType.PROJECTS ? '管理您的Git项目和团队成员' : '与AI助手进行对话'}
+            {currentPage === PageType.PROJECTS ? '管理您的Git项目和团队成员' : 
+             currentPage === PageType.INTRO ? '了解前端小秘的功能与优势' : '与AI助手进行对话'}
             </Text>
           </div>
           <Space size={16}>
@@ -475,6 +418,22 @@ const AppContent: React.FC = () => {
                   }}
                 >
                   项目
+                </Button>
+              </Link>
+              <Link to="/intro">
+                <Button
+                  type={currentPage === PageType.INTRO ? 'text' : 'text'}
+                  icon={<InfoCircleOutlined />}
+                  style={{
+                    background: currentPage === PageType.INTRO ? '#fff' : 'transparent',
+                    boxShadow: currentPage === PageType.INTRO ? '0 2px 8px rgba(0,0,0,0.1)' : 'none',
+                    borderRadius: '6px',
+                    color: currentPage === PageType.INTRO ? '#1a1a1a' : '#666',
+                    height: 32,
+                    border: 'none'
+                  }}
+                >
+                  介绍
                 </Button>
               </Link>
             </div>
@@ -520,7 +479,6 @@ const AppContent: React.FC = () => {
             )}
           </Space>
         </div>
-
         <Content className="main-content" style={{ height: 'calc(100% - 73px)', overflow: 'hidden' }}>
           <Routes>
             <Route path="/projects" element={<ProjectsPage />} />

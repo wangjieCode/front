@@ -16,17 +16,6 @@ const ModeSelector: React.FC<ModeSelectorProps> = ({ value, onChange, disabled =
   const options = [
     {
       label: (
-        <Tooltip title="AI 可以修改代码，创建 Git 分支，用户手动创建 MR">
-          <span>
-            <EditOutlined style={{ marginRight: 6 }} />
-            编辑模式
-          </span>
-        </Tooltip>
-      ),
-      value: ConversationMode.EDIT,
-    },
-    {
-      label: (
         <Tooltip title="AI 只能查询代码，不能修改">
           <span>
             <EyeOutlined style={{ marginRight: 6 }} />
@@ -35,6 +24,17 @@ const ModeSelector: React.FC<ModeSelectorProps> = ({ value, onChange, disabled =
         </Tooltip>
       ),
       value: ConversationMode.READONLY,
+    },
+    {
+      label: (
+        <Tooltip title="AI 可以修改代码，创建 Git 分支，用户手动创建 MR">
+          <span>
+            <EditOutlined style={{ marginRight: 6 }} />
+            编辑模式
+          </span>
+        </Tooltip>
+      ),
+      value: ConversationMode.EDIT,
     },
   ];
 

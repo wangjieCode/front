@@ -11,7 +11,7 @@ interface Project {
   name: string;
   description?: string;
   gitRepositoryUrl: string;
-  workDirectory: string;
+  workDirectory?: string;
 }
 
 interface ProjectSelectorProps {
@@ -73,7 +73,7 @@ const ProjectSelector: React.FC<ProjectSelectorProps> = ({
   return (
     <div className="project-selector">
       <Select
-        value={value}
+        value={value || undefined}
         placeholder={placeholder}
         onChange={handleChange}
         disabled={disabled || loading}
