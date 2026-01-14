@@ -132,7 +132,6 @@ const AppContent: React.FC = () => {
       console.log('创建对话 - projectId:', projectId); // 调试日志
 
       const response = await conversationService.createConversation({
-        taskId: `task-${Date.now()}`,
         initialPrompt: promptText,
         projectId: projectId,
         mode: conversationMode,

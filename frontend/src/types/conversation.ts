@@ -63,7 +63,6 @@ export interface MessageMetadata {
 export interface ConversationMessage {
   id: string;
   sessionId: string;
-  branchId: string;
   role: MessageRole;
   content: string;
   metadata?: MessageMetadata;
@@ -81,21 +80,10 @@ export interface ProjectInfo {
   relevantFiles?: string[];
 }
 
-export interface ConversationBranch {
-  id: string;
-  name: string;
-  parentMessageId: string;
-  messageIds: string[];
-  createdAt: string;
-  isActive: boolean;
-}
-
 export interface ConversationContext {
   projectInfo: ProjectInfo;
   taskDescription: string;
   messageHistory: string[];
-  currentBranchId: string;
-  branches: ConversationBranch[];
   variables: Record<string, any>;
   mode: ConversationMode;
   gitBranch?: string;
@@ -105,26 +93,24 @@ export interface ConversationContext {
 
 export interface SimplifiedConversation {
   id: string;
-  taskId: string;
   projectInfo: ProjectInfo;
   mode: ConversationMode;
   overview: string;
   status: ConversationStatus;
   createdAt: string;
   updatedAt: string;
-  title?: string; // 对话标题
+  title?: string;
 }
 
 export interface ConversationSession {
   id: string;
-  taskId: string;
   status: ConversationStatus;
   context: ConversationContext;
   createdAt: string;
   updatedAt: string;
   completedAt?: string;
   error?: string;
-  title?: string; // 对话标题
+  title?: string;
 }
 
 export interface PendingQuestion {

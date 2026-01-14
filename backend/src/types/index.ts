@@ -267,7 +267,6 @@ export interface MessageMetadata {
 export interface ConversationMessage {
   id: string;                 // 消息 ID
   sessionId: string;          // 所属会话 ID
-  branchId: string;           // 所属分支 ID
   role: MessageRole;          // 消息角色
   content: string;            // 消息内容
   metadata?: MessageMetadata; // 元数据
@@ -285,34 +284,6 @@ export interface ProjectInfo {
   workDir: string;            // 工作目录（使用项目的workDirectory）
   gitBranch?: string;         // Git 分支
   relevantFiles?: string[];   // 相关文件
-}
-
-/**
- * 对话分支接口
- */
-export interface ConversationBranch {
-  id: string;                 // 分支 ID
-  name: string;               // 分支名称
-  parentMessageId: string;    // 分支起点消息 ID
-  messageIds: string[];       // 该分支的消息 ID 列表
-  createdAt: Date;            // 创建时间
-  isActive: boolean;          // 是否为活跃分支
-}
-
-/**
- * 预览信息接口
- */
-export interface PreviewInfo {
-  url: string;                // 预览 URL
-  containerId: string;        // 容器 ID
-  imageId?: string;           // 镇像 ID
-  imageName?: string;         // 镇像名称
-  branchName: string;         // Git 分支名
-  deployedAt: Date;           // 部署时间
-  status: PreviewStatus;      // 预览状态
-  ports?: PortMapping[];      // 端口映射信息
-  isRunning?: boolean;        // 容器是否运行中
-  accessUrl?: string;         // 实际访问地址（可能与 url 不同）
 }
 
 /**
@@ -335,14 +306,28 @@ export interface PortMapping {
 }
 
 /**
+ * 预览信息接口
+ */
+export interface PreviewInfo {
+  url: string;                // 预览 URL
+  containerId: string;        // 容器 ID
+  imageId?: string;           // 镜像 ID
+  imageName?: string;         // 镜像名称
+  branchName: string;         // Git 分支名
+  deployedAt: Date;           // 部署时间
+  status: PreviewStatus;      // 预览状态
+  ports?: PortMapping[];      // 端口映射信息
+  isRunning?: boolean;        // 容器是否运行中
+  accessUrl?: string;         // 实际访问地址（可能与 url 不同）
+}
+
+/**
  * 对话上下文接口
  */
 export interface ConversationContext {
   projectInfo: ProjectInfo;   // 项目信息
   taskDescription: string;    // 任务描述
   messageHistory: string[];   // 消息历史 ID 列表
-  currentBranchId: string;    // 当前分支 ID
-  branches: ConversationBranch[]; // 所有分支
   variables: Record<string, any>; // 上下文变量
   mode: ConversationMode;     // 对话模式
   gitBranch?: string;         // 编辑模式下创建的 Git 分支
@@ -354,8 +339,7 @@ export interface ConversationContext {
  * 对话会话接口
  */
 export interface ConversationSession {
-  id: string;                 // 会话 ID
-  taskId: string;             // 关联的任务 ID
+  id: string;                 // 会话 ID（对话 ID）
   userId?: string;            // 用户 ID
   status: ConversationStatus; // 会话状态
   context: ConversationContext; // 会话上下文
