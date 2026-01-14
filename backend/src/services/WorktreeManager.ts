@@ -1,5 +1,4 @@
 import path from 'path';
-import { GitService } from './GitService';
 import { ICommandExecutor } from '../types';
 
 /**
@@ -84,15 +83,58 @@ export class WorktreeManager {
     }
 
     try {
-      console.log(`[WorktreeManager] 创建用户 worktree: ${userId}`);
+      console.log(`[WorktreeManager] 创建用户 worktree: ${userId}, 基础分支: ${baseBranch}`);
       
-      // 创建 worktree 并直接切换到主分支
+      // 验证分支是否存在，如果不存在尝试切换 'main'/'master'
+      let targetBranch = baseBranch;
+      try {
+        await this.executor.executeCommand(`git rev-parse --verify ${targetBranch}`, this.baseRepoPath);
+      } catch (e) {
+        console.warn(`[WorktreeManager] 分支 ${targetBranch} 不存在，尝试自动探测默认分支`);
+        if (targetBranch === 'master') {
+          targetBranch = 'main';
+        } else if (targetBranch === 'main') {
+          targetBranch = 'master';
+        }
+        
+        // 再次检查
+        try {
+          await this.executor.executeCommand(`git rev-parse --verify ${targetBranch}`, this.baseRepoPath);
+          console.log(`[WorktreeManager] 自动切换到分支: ${targetBranch}`);
+        } catch (e2) {
+          // 如果还是失败，尝试获取 HEAD 指向的分支
+          try {
+             const headResult = await this.executor.executeCommand('git symbolic-ref --short HEAD', this.baseRepoPath);
+             targetBranch = headResult.stdout.trim();
+             console.log(`[WorktreeManager] 使用 HEAD 分支: ${targetBranch}`);
+          } catch (e3) {
+             throw new Error(`无法找到有效的基础分支: ${baseBranch}`);
+          }
+        }
+      }
+
+      // 创建 worktree 时使用一个临时分支，避免与主仓库冲突
+      // 先创建一个临时分支名
+      const tempBranchName = `temp-worktree-${userId}-${Date.now()}`;
+      
+      // 基于目标分支创建临时分支
+      await this.executor.executeCommand(
+        `git branch ${tempBranchName} ${targetBranch}`,
+        this.baseRepoPath
+      );
+
+      // 使用临时分支创建 worktree
       const result = await this.executor.executeCommand(
-        `git worktree add "${worktreePath}" ${baseBranch}`,
+        `git worktree add "${worktreePath}" ${tempBranchName}`,
         this.baseRepoPath
       );
 
       if (result.exitCode !== 0) {
+        // 清理临时分支
+        await this.executor.executeCommand(
+          `git branch -D ${tempBranchName}`,
+          this.baseRepoPath
+        ).catch(() => {});
         throw new Error(`创建 worktree 失败: ${result.stderr}`);
       }
 
@@ -101,7 +143,7 @@ export class WorktreeManager {
         userId,
         projectId,
         worktreePath,
-        mainBranch: baseBranch,
+        mainBranch: tempBranchName,  // 使用临时分支作为主分支
         createdAt: now,
         lastUsedAt: now,
       };
@@ -110,7 +152,7 @@ export class WorktreeManager {
       const cacheKey = projectId ? `${userId}-${projectId}` : userId;
       this.worktreeCache.set(cacheKey, worktreeInfo);
 
-      console.log(`[WorktreeManager] Worktree 创建成功: ${worktreePath}`);
+      console.log(`[WorktreeManager] Worktree 创建成功: ${worktreePath}, 分支: ${tempBranchName}`);
       return worktreeInfo;
     } catch (error) {
       throw new Error(
@@ -180,20 +222,12 @@ export class WorktreeManager {
   }
 
   /**
-   * 为用户 worktree 创建 GitService
-   */
-  async createGitServiceForUser(userId: string): Promise<GitService> {
-    const worktreeInfo = await this.getOrCreateWorktree(userId);
-    return new GitService(this.executor, worktreeInfo.worktreePath);
-  }
-
-  /**
    * 在用户 worktree 中创建对话分支
    */
   async createConversationBranch(
     userId: string,
     sessionId: string,
-    baseBranch?: string,
+    _baseBranch?: string,
     projectId?: string
   ): Promise<{ branchName: string; worktreePath: string }> {
     const worktreeInfo = await this.getOrCreateWorktree(userId, projectId);
@@ -312,21 +346,25 @@ export class WorktreeManager {
   }
   async switchToMainBranch(userId: string): Promise<void> {
     const worktreeInfo = await this.getWorktreeInfo(userId);
-    // @ts-ignore - GitService 接受 ICommandExecutor
-    const gitService = new GitService(this.executor, worktreeInfo.worktreePath);
 
     console.log(`[WorktreeManager] 切换到主分支: ${worktreeInfo.mainBranch}`);
 
     // 丢弃所有变更
-    const resetResult = await gitService.resetHard();
-    if (!resetResult.success) {
-      throw new Error(`丢弃变更失败: ${resetResult.error}`);
+    const resetResult = await this.executor.executeCommand(
+      'git reset --hard',
+      worktreeInfo.worktreePath
+    );
+    if (resetResult.exitCode !== 0) {
+      throw new Error(`丢弃变更失败: ${resetResult.stderr}`);
     }
 
     // 切换到主分支
-    const checkoutResult = await gitService.checkoutBranch(worktreeInfo.mainBranch);
-    if (!checkoutResult.success) {
-      throw new Error(`切换分支失败: ${checkoutResult.error}`);
+    const checkoutResult = await this.executor.executeCommand(
+      `git checkout ${worktreeInfo.mainBranch}`,
+      worktreeInfo.worktreePath
+    );
+    if (checkoutResult.exitCode !== 0) {
+      throw new Error(`切换分支失败: ${checkoutResult.stderr}`);
     }
 
     console.log(`[WorktreeManager] ✅ 已切换到主分支`);

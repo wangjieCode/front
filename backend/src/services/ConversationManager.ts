@@ -3,7 +3,6 @@ import {
   ConversationSession,
   ConversationMessage,
   ConversationContext,
-  ConversationBranch,
   ConversationStatus,
   MessageRole,
   MessageMetadata,
@@ -14,7 +13,6 @@ import {
 } from "../types";
 import { IConversationStorage } from "../storage/ConversationStorageAdapter";
 import { ModeValidator } from "./ModeValidator";
-import { GitService } from "./GitService";
 import { GitLabMCPService } from "./GitLabMCPService";
 import { WorktreeManager } from "./WorktreeManager";
 import { ProjectService } from "./ProjectService";
@@ -27,7 +25,6 @@ export class ConversationManager {
   private storage: IConversationStorage;
   private locks: Map<string, boolean> = new Map();
   private modeValidator: ModeValidator;
-  private gitService?: GitService;
   private gitlabService?: GitLabMCPService;
   private worktreeManager?: WorktreeManager;
   public projectService: ProjectService;
@@ -35,14 +32,12 @@ export class ConversationManager {
   constructor(
     storage: IConversationStorage,
     projectService: ProjectService,
-    gitService?: GitService,
     gitlabService?: GitLabMCPService,
     worktreeManager?: WorktreeManager
   ) {
     this.storage = storage;
     this.projectService = projectService;
     this.modeValidator = new ModeValidator();
-    this.gitService = gitService;
     this.gitlabService = gitlabService;
     this.worktreeManager = worktreeManager;
   }
@@ -75,7 +70,6 @@ export class ConversationManager {
    * 创建新的对话会话
    */
   async createSession(
-    taskId: string,
     initialPrompt: string,
     projectInfo: ProjectInfo,
     mode: ConversationMode = ConversationMode.EDIT,
@@ -129,37 +123,23 @@ export class ConversationManager {
     // });
 
     const sessionId = uuidv4();
-    const mainBranchId = uuidv4(); // 使用 UUID 作为分支 ID
     const now = new Date();
 
     // 临时存储当前项目ID供handleEditModeSetup使用
     (this as any).currentProjectId = projectInfo.projectId;
-
-    // 创建主分支
-    const mainBranch: ConversationBranch = {
-      id: mainBranchId,
-      name: "主分支",
-      parentMessageId: "",
-      messageIds: [],
-      createdAt: now,
-      isActive: true,
-    };
 
     // 初始化上下文
     const context: ConversationContext = {
       projectInfo: completeProjectInfo,
       taskDescription: initialPrompt,
       messageHistory: [],
-      currentBranchId: mainBranchId,
-      branches: [mainBranch],
       variables: {},
-      mode, // 保存模式
+      mode,
     };
 
-    // 创建会话（先不进行 Git 操作）
+    // 创建会话
     const session: ConversationSession = {
       id: sessionId,
-      taskId,
       userId,
       status: ConversationStatus.PLANNING,
       context,
@@ -178,7 +158,7 @@ export class ConversationManager {
       }
 
       // 编辑模式：在用户 worktree 中创建对话分支
-      const gitResult = await this.handleEditModeSetup(sessionId, initialPrompt, userId);
+      const gitResult = await this.handleEditModeSetup(sessionId, initialPrompt, userId, completeProjectInfo.gitBranch);
       if (!gitResult.success) {
         throw new Error(`Git 操作失败: ${gitResult.error}`);
       }
@@ -194,29 +174,15 @@ export class ConversationManager {
 
       // console.log(`[ConversationManager] Git 分支已创建: ${gitResult.branchName}`);
     } else if (mode === ConversationMode.READONLY) {
-      if (!this.worktreeManager) {
-        throw new Error('只读模式需要 Worktree 管理器，但服务未初始化');
-      }
-
+      // 只读模式不需要独立 worktree，直接使用项目主目录
       if (!userId) {
         throw new Error('只读模式需要用户 ID');
       }
 
-      // 只读模式：切换用户 worktree 到主分支
-      const gitResult = await this.handleReadonlyModeSetup(userId);
-      if (!gitResult.success) {
-        throw new Error(`Git 操作失败: ${gitResult.error}`);
-      }
-
-      if (gitResult.worktreePath) {
-        // 只更新 workDir，保留其他项目信息
-        context.projectInfo = {
-          ...context.projectInfo,
-          workDir: gitResult.worktreePath
-        };
-      }
-
-      console.log(`[ConversationManager] 已切换到主分支`);
+      console.log(`[ConversationManager] 只读模式：直接使用项目主目录 ${completeProjectInfo.workDir}`);
+      context.gitBranch = completeProjectInfo.gitBranch || "master";
+      
+      // 不进行 worktree 操作，使用 completeProjectInfo 中的默认 workDir
     }
 
     // 更新会话信息
@@ -240,7 +206,8 @@ export class ConversationManager {
   private async handleEditModeSetup(
     sessionId: string,
     _taskDescription: string,
-    userId: string
+    userId: string,
+    defaultBranch: string = "master"
   ): Promise<{
     success: boolean;
     branchName?: string;
@@ -272,7 +239,7 @@ export class ConversationManager {
       const result = await projectWorktreeManager.createConversationBranch(
         userId,
         sessionId,
-        process.env.GIT_DEFAULT_BRANCH || "master",
+        projectResult.project.gitBranch || defaultBranch,
         this.getCurrentProjectId()
       );
 
@@ -291,43 +258,7 @@ export class ConversationManager {
     }
   }
 
-  /**
-   * 处理只读模式的 Git 设置（使用 WorktreeManager）
-   */
-  private async handleReadonlyModeSetup(
-    userId: string
-  ): Promise<{ success: boolean; worktreePath?: string; error?: string }> {
-    if (!this.worktreeManager) {
-      return { success: false, error: "Worktree 管理器未初始化" };
-    }
 
-    try {
-      console.log(
-        `[ConversationManager] 只读模式：切换用户 ${userId} worktree 到主分支`
-      );
-
-      const worktreeInfo = await this.worktreeManager.getOrCreateWorktree(
-        userId,
-        process.env.GIT_DEFAULT_BRANCH || "master"
-      );
-
-      await this.worktreeManager.switchToMainBranch(userId);
-
-      console.log(
-        `[ConversationManager] Worktree 路径: ${worktreeInfo.worktreePath}`
-      );
-
-      return {
-        success: true,
-        worktreePath: worktreeInfo.worktreePath,
-      };
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : String(error),
-      };
-    }
-  }
 
   /**
    * 获取对话会话
@@ -370,14 +301,14 @@ export class ConversationManager {
   }
 
   /**
-   * 添加消息到对话（优化版本，减少数据库写入）
+   * 添加消息到对话
    */
   async addMessage(
     sessionId: string,
     role: MessageRole,
     content: string,
     metadata?: MessageMetadata,
-    existingSession?: ConversationSession // 可选的已存在会话对象
+    existingSession?: ConversationSession
   ): Promise<ConversationMessage> {
     await this.acquireLock(sessionId);
 
@@ -395,7 +326,6 @@ export class ConversationManager {
       const message: ConversationMessage = {
         id: messageId,
         sessionId,
-        branchId: context.currentBranchId,
         role,
         content,
         metadata,
@@ -405,25 +335,15 @@ export class ConversationManager {
       // 更新内存中的数据结构
       context.messageHistory.push(messageId);
 
-      // 更新分支的消息列表
-      const branch = context.branches.find(
-        (b) => b.id === context.currentBranchId
-      );
-      if (branch) {
-        branch.messageIds.push(messageId);
-      }
-
       // 更新会话的 updatedAt
       session.updatedAt = now;
 
-      // 批量保存到数据库（同步执行，确保数据一致性）
+      // 批量保存到数据库
       try {
-        // 并行执行数据库写入操作
         await Promise.all([
           this.storage.saveMessage(message),
           this.storage.saveSession(session)
         ]);
-        // console.log(`[ConversationManager] 消息 ${messageId} 批量保存完成`);
       } catch (error) {
         console.error(`[ConversationManager] 批量保存消息失败:`, error);
         throw error;
@@ -439,10 +359,9 @@ export class ConversationManager {
    * 获取对话历史
    */
   async getMessageHistory(
-    sessionId: string,
-    branchId?: string
+    sessionId: string
   ): Promise<ConversationMessage[]> {
-    return await this.storage.loadMessages(sessionId, branchId);
+    return await this.storage.loadMessages(sessionId);
   }
 
   /**
@@ -577,153 +496,6 @@ export class ConversationManager {
   }
 
   /**
-   * 创建对话分支
-   */
-  async createBranch(
-    sessionId: string,
-    fromMessageId: string,
-    branchName: string
-  ): Promise<ConversationBranch> {
-    await this.acquireLock(sessionId);
-
-    try {
-      const session = await this.getSession(sessionId);
-      if (!session) {
-        throw new Error(`会话不存在: ${sessionId}`);
-      }
-
-      // 验证消息存在
-      const message = await this.getMessage(sessionId, fromMessageId);
-      if (!message) {
-        throw new Error(`消息不存在: ${fromMessageId}`);
-      }
-
-      const branchId = uuidv4();
-      const now = new Date();
-
-      // 获取从根到分支点的所有消息
-      const parentBranch = session.context.branches.find(
-        (b) => b.id === message.branchId
-      );
-      if (!parentBranch) {
-        throw new Error(`父分支不存在: ${message.branchId}`);
-      }
-
-      // 找到分支点之前的所有消息
-      const messageIndex = parentBranch.messageIds.indexOf(fromMessageId);
-      const messageIds = parentBranch.messageIds.slice(0, messageIndex + 1);
-
-      // 创建新分支
-      const newBranch: ConversationBranch = {
-        id: branchId,
-        name: branchName,
-        parentMessageId: fromMessageId,
-        messageIds: [...messageIds],
-        createdAt: now,
-        isActive: false,
-      };
-
-      // 添加到上下文
-      session.context.branches.push(newBranch);
-
-      session.updatedAt = now;
-      await this.storage.saveSession(session);
-
-      return newBranch;
-    } finally {
-      this.releaseLock(sessionId);
-    }
-  }
-
-  /**
-   * 切换对话分支
-   */
-  async switchBranch(sessionId: string, branchId: string): Promise<void> {
-    await this.acquireLock(sessionId);
-
-    try {
-      const session = await this.getSession(sessionId);
-      if (!session) {
-        throw new Error(`会话不存在: ${sessionId}`);
-      }
-
-      const branch = session.context.branches.find((b) => b.id === branchId);
-      if (!branch) {
-        throw new Error(`分支不存在: ${branchId}`);
-      }
-
-      // 将所有分支设置为非活跃
-      session.context.branches.forEach((b) => {
-        b.isActive = false;
-      });
-
-      // 激活目标分支
-      branch.isActive = true;
-      session.context.currentBranchId = branchId;
-
-      // 更新消息历史为该分支的消息
-      session.context.messageHistory = [...branch.messageIds];
-
-      session.updatedAt = new Date();
-      await this.storage.saveSession(session);
-    } finally {
-      this.releaseLock(sessionId);
-    }
-  }
-
-  /**
-   * 获取所有分支
-   */
-  async getBranches(sessionId: string): Promise<ConversationBranch[]> {
-    const session = await this.getSession(sessionId);
-    if (!session) {
-      throw new Error(`会话不存在: ${sessionId}`);
-    }
-
-    return session.context.branches;
-  }
-
-  /**
-   * 获取当前活跃分支
-   */
-  async getActiveBranch(sessionId: string): Promise<ConversationBranch | null> {
-    const session = await this.getSession(sessionId);
-    if (!session) {
-      throw new Error(`会话不存在: ${sessionId}`);
-    }
-
-    return session.context.branches.find((b) => b.isActive) || null;
-  }
-
-  /**
-   * 获取分支的消息历史
-   */
-  async getBranchMessages(
-    sessionId: string,
-    branchId: string
-  ): Promise<ConversationMessage[]> {
-    const session = await this.getSession(sessionId);
-    if (!session) {
-      throw new Error(`会话不存在: ${sessionId}`);
-    }
-
-    const branch = session.context.branches.find((b) => b.id === branchId);
-    if (!branch) {
-      throw new Error(`分支不存在: ${branchId}`);
-    }
-
-    const messages: ConversationMessage[] = [];
-    for (const messageId of branch.messageIds) {
-      const message = await this.getMessage(sessionId, messageId);
-      if (message) {
-        messages.push(message);
-      }
-    }
-
-    return messages;
-  }
-
-  /**
    * 删除会话
    */
   async deleteSession(sessionId: string): Promise<void> {
@@ -741,7 +513,6 @@ export class ConversationManager {
    */
   async getSessionStats(sessionId: string): Promise<{
     messageCount: number;
-    branchCount: number;
     status: ConversationStatus;
   }> {
     const session = await this.getSession(sessionId);
@@ -753,7 +524,6 @@ export class ConversationManager {
 
     return {
       messageCount: messages.length,
-      branchCount: session.context.branches.length,
       status: session.status,
     };
   }

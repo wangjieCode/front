@@ -50,8 +50,7 @@ const ConversationTestPage: React.FC = () => {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          taskId: 'test-task-' + Date.now(),
-          taskDescription: taskDescription.trim(),
+          initialPrompt: taskDescription.trim(),
           projectInfo: {
             workDir: '/workspace',
             gitBranch: 'main',
@@ -120,7 +119,7 @@ const ConversationTestPage: React.FC = () => {
                 >
                   <Space direction="vertical" size={4} style={{ width: '100%' }}>
                     <div style={{ fontWeight: 500, fontSize: 14 }}>
-                      <MessageOutlined /> {session.title || session.overview || session.taskId}
+                      <MessageOutlined /> {session.title || session.overview || session.id}
                     </div>
                     
                     {/* 项目信息 - 独立一行显示 */}

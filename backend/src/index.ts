@@ -172,7 +172,7 @@ async function initializeServices() {
   // 创建 ProjectService
   const projectService = new ProjectService(executor);
   
-  conversationManager = new ConversationManager(storageAdapter, projectService, gitService, gitlabService, worktreeManager);
+  conversationManager = new ConversationManager(storageAdapter, projectService, gitlabService, worktreeManager);
   const databaseUrl = process.env.DATABASE_URL || '';
   const neovateAIService = new NeovateAIService(executor, workDir, databaseUrl);
   conversationAIService = new ConversationAIService(neovateAIService, databaseUrl, gitService, gitlabService);
