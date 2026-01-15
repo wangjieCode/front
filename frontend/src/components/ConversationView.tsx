@@ -43,6 +43,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [sending, setSending] = useState(false);
   const [creatingMR, setCreatingMR] = useState(false);
+  const [stoppingPreview, setStoppingPreview] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // New conversation state
@@ -371,12 +372,15 @@ const ConversationView: React.FC<ConversationViewProps> = ({
     if (!sessionId) return;
 
     try {
+      setStoppingPreview(true);
       await conversationService.stopPreview(sessionId);
       message.success('预览已停止');
       setPreviewStatus(PreviewStatus.STOPPED);
       await loadSession();
     } catch (error) {
       message.error(`停止预览失败: ${error instanceof Error ? error.message : '未知错误'}`);
+    } finally {
+      setStoppingPreview(false);
     }
   };
 
@@ -835,6 +839,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
                         size="small"
                         icon={<StopOutlined />}
                         onClick={handleStopPreview}
+                        loading={stoppingPreview}
                         style={{
                           fontSize: 12,
                           height: 26,
