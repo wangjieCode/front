@@ -6,66 +6,6 @@ import { ConversationStatus } from '../types';
 import { requireAuth, AuthRequest } from './authMiddleware';
 
 /**
- * 解析 AI 响应内容，提取可读文本
- * neovate stream-json 格式：每行一个 JSON 对象
- */
-function parseAIResponse(content: string): string {
-  // 确保 content 是字符串
-  if (typeof content !== 'string') {
-    console.log('[parseAIResponse] content 不是字符串，类型:', typeof content);
-    content = JSON.stringify(content);
-  }
-
-  console.log('[parseAIResponse] 原始内容长度:', content.length);
-
-  // stream-json 格式：每行一个 JSON 对象
-  const lines = content.trim().split('\n').filter(line => line.trim());
-  console.log('[parseAIResponse] 总行数:', lines.length);
-
-  let allText = '';
-  let assistantCount = 0;
-
-  for (const line of lines) {
-    try {
-      const event = JSON.parse(line);
-
-      // 提取 assistant 的文本内容
-      let hasContent = false;
-      if (event.role === 'assistant' && event.content) {
-        assistantCount++;
-        // content 是一个数组，包含多个内容块
-        if (Array.isArray(event.content)) {
-          for (const block of event.content) {
-            if (block.type === 'text' && block.text) {
-              allText += block.text + '\n\n';
-              hasContent = true;
-            }
-          }
-        }
-      }
-
-      // 也提取 text 字段（某些版本可能直接有 text），但仅当没有从 content 提取到内容时
-      if (!hasContent && event.role === 'assistant' && event.text) {
-        allText += event.text + '\n\n';
-      }
-    } catch (e) {
-      // 跳过无法解析的行
-      console.log('[parseAIResponse] 跳过无法解析的行:', line.substring(0, 100));
-    }
-  }
-
-  console.log('[parseAIResponse] 找到', assistantCount, '个 assistant 消息');
-
-  if (allText) {
-    console.log('[parseAIResponse] 提取的文本长度:', allText.length);
-    return allText.trim();
-  }
-
-  console.log('[parseAIResponse] 未找到 assistant 文本内容');
-  return 'AI 未返回可显示的内容';
-}
-
-/**
  * 创建对话路由
  */
 export function createConversationRoutes(
@@ -170,16 +110,9 @@ export function createConversationRoutes(
             session.id
           );
 
-          // 解析 AI 响应内容，确保存入数据库的是干净的文本
-          const parsedContent = parseAIResponse(aiResponse.content);
-          const parsedAiResponse = {
-            ...aiResponse,
-            content: parsedContent
-          };
-
-          await messageRouter.handleAIResponse(session.id, parsedAiResponse);
+          // 直接保存原始内容，不解析
+          await messageRouter.handleAIResponse(session.id, aiResponse);
           await conversationManager.updateSessionStatus(session.id, ConversationStatus.COMPLETED);
-          // console.log('[API] AI回复生成完成');
         }
 
         // 获取最新的会话数据（包含刚生成的消息）
@@ -187,7 +120,7 @@ export function createConversationRoutes(
 
         res.status(201).json({
           success: true,
-          data: finalSession || session, // 如果获取失败，回退到原始 session
+          data: finalSession || session,
         });
       } catch (messageError) {
         console.error('[API] 发送第一条消息或生成AI回复失败:', messageError);
@@ -235,7 +168,6 @@ export function createConversationRoutes(
 
         return {
           id: session.id,
-          taskId: session.taskId,
           projectInfo: projectInfo,
           mode: session.context.mode,
           overview: overview,
@@ -371,73 +303,45 @@ export function createConversationRoutes(
       // 异步处理
       (async () => {
         try {
-          // 3a: 处理用户消息
+          // 3a: 异步保存用户消息（不阻塞）
           const step3aStart = Date.now();
-          await messageRouter.handleUserMessage(sessionId, content, session);
-          const step3aTime = Date.now() - step3aStart;
-          console.log(`[conversationRoutes] 步骤3a: 处理用户消息完成，耗时 ${step3aTime}ms`);
-
-          // 3b: 生成 AI 响应
-          const step3bStart = Date.now();
-          console.log(`[conversationRoutes] 步骤3b: 开始生成 AI 响应...`);
-
-          // 设置 300 秒超时
-          const timeoutPromise = new Promise<never>((_, reject) => {
-            setTimeout(() => reject(new Error('AI 响应超时')), 300000);
+          messageRouter.handleUserMessage(sessionId, content, session, true).catch(error => {
+            console.error(`[conversationRoutes] 异步保存用户消息失败:`, error);
           });
+          const step3aTime = Date.now() - step3aStart;
+          console.log(`[conversationRoutes] 步骤3a: 用户消息异步保存启动，耗时 ${step3aTime}ms`);
 
-          const aiResponsePromise = aiService.generateResponse(
+          // 3b: 流式生成 AI 响应
+          const step3bStart = Date.now();
+          console.log(`[conversationRoutes] 步骤3b: 开始流式生成 AI 响应...`);
+
+          let fullContent = '';
+
+          const aiResponse = await aiService.generateResponseStream(
             session.context,
             content,
-            sessionId
+            sessionId,
+            (chunk: string) => {
+              // 实时发送数据块到前端
+              fullContent += chunk;
+              res.write(`data: ${JSON.stringify({ type: 'chunk', content: chunk })}\n\n`);
+            }
           );
 
-          try {
-            const aiResponse = await Promise.race([aiResponsePromise, timeoutPromise]);
-            const step3bTime = Date.now() - step3bStart;
-            console.log(`[conversationRoutes] 步骤3b: AI 响应生成完成，耗时 ${step3bTime}ms`);
+          const step3bTime = Date.now() - step3bStart;
+          console.log(`[conversationRoutes] 步骤3b: AI 响应生成完成，耗时 ${step3bTime}ms`);
 
-            // 3c: 解析和发送响应
-            const step3cStart = Date.now();
-            const parsedContent = parseAIResponse(aiResponse.content);
-            console.log(`[conversationRoutes] 步骤3c: AI 响应解析完成，内容长度: ${parsedContent.length}`);
+          // 3c: 异步保存 AI 响应
+          const parsedAiResponse = {
+            ...aiResponse,
+            content: fullContent || aiResponse.content
+          };
 
-            // 流式发送响应
-            const chunkSize = 100;
-            for (let i = 0; i < parsedContent.length; i += chunkSize) {
-              const chunk = parsedContent.slice(i, i + chunkSize);
-              res.write(`data: ${JSON.stringify({ type: 'chunk', content: chunk })}\n\n`);
-              if (i % 500 === 0) {
-                await new Promise(resolve => setTimeout(resolve, 5));
-              }
-            }
-            const step3cTime = Date.now() - step3cStart;
-            console.log(`[conversationRoutes] 步骤3c: 流式发送完成，耗时 ${step3cTime}ms`);
+          messageRouter.handleAIResponse(sessionId, parsedAiResponse, session).catch(error => {
+            console.error(`[conversationRoutes] 保存 AI 响应失败:`, error);
+          });
 
-            // 3d: 异步保存 AI 响应
-            const step3dStart = Date.now();
-
-            const parsedAiResponse = {
-              ...aiResponse,
-              content: parsedContent
-            };
-
-            messageRouter.handleAIResponse(sessionId, parsedAiResponse, session).then(() => {
-              const step3dTime = Date.now() - step3dStart;
-            }).catch(error => {
-              console.error(`[conversationRoutes] 保存 AI 响应失败:`, error);
-            });
-
-            res.write(`data: ${JSON.stringify({ type: 'complete' })}\n\n`);
-          } catch (timeoutError) {
-            const step3bTime = Date.now() - step3bStart;
-            console.error(`[conversationRoutes] AI 响应超时，耗时 ${step3bTime}ms:`, timeoutError);
-            res.write(`data: ${JSON.stringify({
-              type: 'chunk',
-              content: '抱歉，AI 响应时间较长，请稍后再试。您可以重新发送消息或等待系统处理完成。'
-            })}\n\n`);
-            res.write(`data: ${JSON.stringify({ type: 'complete' })}\n\n`);
-          }
+          res.write(`data: ${JSON.stringify({ type: 'complete' })}\n\n`);
         } catch (error) {
           console.error('[conversationRoutes] 异步处理失败:', error);
           res.write(`data: ${JSON.stringify({ type: 'error', message: '处理失败' })}\n\n`);

@@ -12,6 +12,7 @@ import {
 import MessageInput from './MessageInput';
 import MessageList from './MessageList';
 import { conversationService } from '../services/conversationService';
+import { parseNeovateChunkStructured, ParsedContent } from '../utils/neovateParser';
 
 interface ConversationViewProps {
   sessionId?: string;
@@ -153,7 +154,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
     const userMessage: ConversationMessage = {
       id: `temp-user-${Date.now()}`,
       sessionId,
-      branchId: session?.context?.currentBranchId || 'main',
+      branchId: session?.context?.gitBranch || 'main',
       role: 'user' as any,
       content,
       timestamp: new Date().toISOString(),
@@ -165,11 +166,12 @@ const ConversationView: React.FC<ConversationViewProps> = ({
     const aiMessage: ConversationMessage = {
       id: aiMessageId,
       sessionId,
-      branchId: session?.context?.currentBranchId || 'main',
+      branchId: session?.context?.gitBranch || 'main',
       role: 'assistant' as any,
-      content: '🤔 正在思考中...',
+      content: '',
       timestamp: new Date().toISOString(),
-      isStreaming: true, // 标记为流式消息
+      isStreaming: true,
+      parsedContents: [],
     };
     setMessages(prev => [...prev, aiMessage]);
 
@@ -203,7 +205,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
       }
 
       let buffer = '';
-      let hasStartedStreaming = false;
+      let accumulatedContents: ParsedContent[] = [];
 
       while (true) {
         const { done, value } = await reader.read();
@@ -220,40 +222,34 @@ const ConversationView: React.FC<ConversationViewProps> = ({
               const data = JSON.parse(line.slice(6));
 
               if (data.type === 'user_message') {
-                // 用户消息确认，可以显示发送成功状态
                 console.log('用户消息已确认');
               } else if (data.type === 'thinking') {
-                // AI 开始思考，更新状态
-                setMessages(prev =>
-                  prev.map(msg =>
-                    msg.id === aiMessageId
-                      ? { ...msg, content: '🧠 AI 正在分析您的需求...' }
-                      : msg
-                  )
-                );
+                // AI 开始思考，不再显示"正在思考"文本，等待实际内容
               } else if (data.type === 'chunk') {
-                // 第一次收到内容时，清空"正在思考"状态
-                if (!hasStartedStreaming) {
-                  hasStartedStreaming = true;
+                // 解析 chunk 为结构化内容
+                const parsedContents = parseNeovateChunkStructured(data.content);
+                
+                if (parsedContents.length > 0) {
+                  // 累积所有内容
+                  accumulatedContents = [...accumulatedContents, ...parsedContents];
+                  
+                  // 更新消息
                   setMessages(prev =>
                     prev.map(msg =>
                       msg.id === aiMessageId
-                        ? { ...msg, content: data.content, isStreaming: true }
+                        ? { 
+                            ...msg, 
+                            content: data.content, // 保存原始内容
+                            parsedContents: accumulatedContents,
+                            isStreaming: true 
+                          }
                         : msg
                     )
                   );
-                } else {
-                  // 后续内容追加
-                  setMessages(prev =>
-                    prev.map(msg =>
-                      msg.id === aiMessageId
-                        ? { ...msg, content: msg.content + data.content }
-                        : msg
-                    )
-                  );
+                  
+                  // 实时滚动到底部
+                  setTimeout(scrollToBottom, 50);
                 }
-                // 实时滚动到底部
-                setTimeout(scrollToBottom, 50);
               } else if (data.type === 'complete') {
                 // 流式传输完成
                 setMessages(prev =>
@@ -270,7 +266,12 @@ const ConversationView: React.FC<ConversationViewProps> = ({
                 setMessages(prev =>
                   prev.map(msg =>
                     msg.id === aiMessageId
-                      ? { ...msg, content: `❌ ${data.message}`, isStreaming: false }
+                      ? { 
+                          ...msg, 
+                          content: `❌ ${data.message}`, 
+                          parsedContents: [{ type: 'text', text: `❌ ${data.message}` }],
+                          isStreaming: false 
+                        }
                       : msg
                   )
                 );
@@ -287,7 +288,15 @@ const ConversationView: React.FC<ConversationViewProps> = ({
       setMessages(prev =>
         prev.map(msg =>
           msg.id === aiMessageId
-            ? { ...msg, content: `❌ 发送失败: ${error instanceof Error ? error.message : '未知错误'}`, isStreaming: false }
+            ? { 
+                ...msg, 
+                content: `❌ 发送失败: ${error instanceof Error ? error.message : '未知错误'}`, 
+                parsedContents: [{ 
+                  type: 'text', 
+                  text: `❌ 发送失败: ${error instanceof Error ? error.message : '未知错误'}` 
+                }],
+                isStreaming: false 
+              }
             : msg
         )
       );

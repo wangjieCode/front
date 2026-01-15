@@ -287,18 +287,35 @@ export class WorktreeManager {
       return; // 无变更
     }
 
-    // 添加所有更改
-    await this.executor.executeCommand(
-      'git add .',
-      worktreeInfo.worktreePath
-    );
+    // 添加所有更改（忽略 .gitignore 的警告）
+    try {
+      await this.executor.executeCommand(
+        'git add -A',
+        worktreeInfo.worktreePath
+      );
+    } catch (error) {
+      // 如果 git add 失败，检查是否有文件被暂存
+      const stagedResult = await this.executor.executeCommand(
+        'git diff --cached --name-only',
+        worktreeInfo.worktreePath
+      );
+      
+      if (!stagedResult.stdout.trim()) {
+        console.log(`[WorktreeManager] 没有文件被暂存，跳过提交`);
+        return;
+      }
+    }
 
     // 提交
-    await this.executor.executeCommand(
-      `git commit -m "${message}"`,
-      worktreeInfo.worktreePath
-    );
-    console.log(`[WorktreeManager] 已提交更改: ${message}`);
+    try {
+      await this.executor.executeCommand(
+        `git commit -m "${message}"`,
+        worktreeInfo.worktreePath
+      );
+      console.log(`[WorktreeManager] 已提交更改: ${message}`);
+    } catch (error) {
+      console.error(`[WorktreeManager] 提交失败:`, error);
+    }
   }
 
   /**

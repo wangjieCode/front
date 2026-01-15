@@ -34,6 +34,75 @@ export class ConversationAIService {
   }
 
   /**
+   * 生成 AI 响应（流式版本）
+   */
+  async generateResponseStream(
+    context: ConversationContext,
+    userMessage: string,
+    sessionId: string,
+    onChunk: (chunk: string) => void
+  ): Promise<AIResponse> {
+    try {
+      console.log(`[ConversationAIService] 流式生成响应 - sessionId: ${sessionId}`);
+
+      // 查询 Neovate 会话 ID
+      let neovateSessionId: string | undefined;
+      try {
+        const existingSessionId = await this.sessionManager.getSessionId(sessionId);
+        if (existingSessionId) {
+          neovateSessionId = existingSessionId;
+        }
+      } catch (error) {
+        console.error('[ConversationAIService] 查询会话 ID 失败:', error);
+      }
+
+      const projectWorkDir = context.projectInfo.workDir;
+      
+      // 调用流式 AI 服务
+      const result = await this.neovateService.modifyCodeStream(
+        userMessage,
+        sessionId,
+        neovateSessionId,
+        projectWorkDir,
+        onChunk // 实时回调
+      );
+
+      // 编辑模式：异步提交变更（不阻塞响应）
+      if (context.mode === ConversationMode.EDIT && result.success && result.changes.length > 0) {
+        this.commitChanges(context, userMessage).catch(error => {
+          console.error(`[ConversationAIService] 异步提交变更失败:`, error);
+        });
+      }
+
+      const metadata: MessageMetadata = {
+        codeChanges: result.changes,
+        toolCalls: this.extractToolCalls(result),
+        gitBranch: context.gitBranch,
+        mrUrl: context.mrUrl,
+      };
+
+      let content = '';
+      if (result.success) {
+        content = result.rawOutput || result.message;
+      } else {
+        content = `执行失败: ${result.error || result.message}`;
+      }
+
+      return {
+        content,
+        metadata,
+        shouldPause: false,
+      };
+    } catch (error) {
+      return {
+        content: `发生错误: ${error instanceof Error ? error.message : String(error)}`,
+        shouldPause: false,
+        metadata: {},
+      };
+    }
+  }
+
+  /**
    * 生成 AI 响应
    */
   async generateResponse(
@@ -86,9 +155,11 @@ export class ConversationAIService {
         projectWorkDir
       );
 
-      // 编辑模式：提交变更
+      // 编辑模式：异步提交变更（不阻塞响应）
       if (context.mode === ConversationMode.EDIT && result.success && result.changes.length > 0) {
-        await this.commitChanges(context, userMessage);
+        this.commitChanges(context, userMessage).catch(error => {
+          console.error(`[ConversationAIService] 异步提交变更失败:`, error);
+        });
       }
 
       // 构建响应元数据（包含 context 中已有的 gitBranch 和 mrUrl）
