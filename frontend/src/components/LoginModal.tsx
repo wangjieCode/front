@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { Modal, Input, Form, message } from 'antd';
+import { Modal, Input, Form, message, Button, Space } from 'antd';
+import { EyeOutlined } from '@ant-design/icons';
 
 interface LoginModalProps {
   visible: boolean;
@@ -44,16 +45,26 @@ const LoginModal: React.FC<LoginModalProps> = ({ visible, onSuccess, onCancel })
     }
   };
 
+  const handleBrowse = () => {
+    window.open('/intro', '_blank');
+  };
+
   return (
     <Modal
       title="登录"
       open={visible}
-      onOk={handleLogin}
       onCancel={onCancel}
-      confirmLoading={loading}
-      okText="登录"
-      cancelText="取消"
       maskClosable={false}
+      footer={
+        <Space>
+          <Button icon={<EyeOutlined />} onClick={handleBrowse}>
+            先去逛逛
+          </Button>
+          <Button type="primary" loading={loading} onClick={handleLogin}>
+            登录
+          </Button>
+        </Space>
+      }
     >
       <Form
         form={form}

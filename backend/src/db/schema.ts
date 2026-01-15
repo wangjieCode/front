@@ -180,6 +180,7 @@ export const projects = pgTable(
     isActive: boolean('is_active').notNull().default(true),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+    lastPulledAt: timestamp('last_pulled_at', { withTimezone: true }),
     createdBy: uuid('created_by'),
     gitRepositoryUrl: varchar('git_repository_url', { length: 500 }).notNull(),
     gitlabProjectId: varchar('gitlab_project_id', { length: 100 }),

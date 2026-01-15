@@ -181,8 +181,13 @@ class ConversationService {
    * 获取所有对话会话列表（别名）
    */
   async listConversations(): Promise<{ success: boolean; data: SimplifiedConversation[] }> {
-    const data = await this.getSessions();
-    return { success: true, data };
+    try {
+      const data = await this.getSessions();
+      return { success: true, data };
+    } catch (error) {
+      console.error('获取对话列表失败:', error);
+      return { success: false, data: [] };
+    }
   }
 
   /**
@@ -492,6 +497,26 @@ class ConversationService {
     }
 
     return await response.json();
+  }
+
+  /**
+   * 删除对话
+   */
+  async deleteConversation(sessionId: string): Promise<{ success: boolean; message?: string; error?: string }> {
+    try {
+      const response = await fetchWithAuth(`${this.baseUrl}/api/conversations/${sessionId}`, {
+        method: 'DELETE',
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        return { success: false, error: data.error || '删除失败' };
+      }
+
+      return await response.json();
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : '删除失败' };
+    }
   }
 }
 

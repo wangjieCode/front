@@ -182,6 +182,27 @@ class ProjectService {
     }
   }
 
+  /**
+   * 更新项目代码（git pull）
+   * @param projectId 项目ID
+   * @returns 更新结果
+   */
+  async pullRepository(projectId: string): Promise<ApiResponse> {
+    try {
+      const response = await fetchWithAuth(`${this.baseUrl}/${projectId}/pull`, {
+        method: 'POST',
+      });
+
+      const result: ApiResponse = await response.json();
+      return result;
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : '更新代码失败',
+      };
+    }
+  }
+
   // 移除所有成员管理方法
 }
 
