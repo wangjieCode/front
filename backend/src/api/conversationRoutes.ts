@@ -219,7 +219,6 @@ export function createConversationRoutes(
   router.get('/', requireAuth, async (req: AuthRequest, res: Response) => {
     try {
       const sessions = await conversationManager.listSessions();
-      console.log('[API] 获取会话列表:', sessions);
       // 转换为简化版响应
       const simplifiedSessions = sessions.map(session => {
         // 使用 taskDescription 作为对话概览
@@ -382,9 +381,9 @@ export function createConversationRoutes(
           const step3bStart = Date.now();
           console.log(`[conversationRoutes] 步骤3b: 开始生成 AI 响应...`);
 
-          // 设置 30 秒超时
+          // 设置 300 秒超时
           const timeoutPromise = new Promise<never>((_, reject) => {
-            setTimeout(() => reject(new Error('AI 响应超时')), 30000);
+            setTimeout(() => reject(new Error('AI 响应超时')), 300000);
           });
 
           const aiResponsePromise = aiService.generateResponse(

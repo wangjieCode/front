@@ -1,7 +1,5 @@
 import { ConversationManager } from './ConversationManager';
-import { GitService } from './GitService';
 import { DockerComposeService } from './DockerComposeService';
-import { SSHExecutor } from './SSHExecutor';
 import {
   PreviewResult,
   PreviewStatus,
@@ -44,7 +42,10 @@ export class ProjectPreviewService {
 
     try {
       // 1. 获取会话上下文
+      const step1Start = Date.now();
       const session = await this.conversationManager.getSession(sessionId);
+      console.log(`[ProjectPreviewService] ⏱️ 步骤1-获取会话: ${Date.now() - step1Start}ms`);
+      
       if (!session) {
         return {
           success: false,
@@ -66,41 +67,23 @@ export class ProjectPreviewService {
       console.log(`[ProjectPreviewService] 工作目录: ${workDir}, Git 分支: ${gitBranch}`);
 
       // 2. 停止旧的预览（如果存在）
+      const step2Start = Date.now();
       if (context.previewInfo?.containerId) {
         console.log(`[ProjectPreviewService] 停止旧的预览容器: ${context.previewInfo.containerId}`);
-        await this.stopPreviewInternal(workDir);
+        await this.stopPreviewInternal(workDir, context.previewInfo.containerId);
       }
+      console.log(`[ProjectPreviewService] ⏱️ 步骤2-停止旧预览: ${Date.now() - step2Start}ms`);
 
-      // 3. 创建 DockerComposeService
-      const dockerComposeService = new DockerComposeService(this.executor);
-
-      // 4. Worktree 已经在对话分支上，不需要切换分支
-      console.log(`[ProjectPreviewService] Worktree 当前分支: ${gitBranch}，无需切换`);
-
-      // 5. 检查 docker-compose.yml 是否存在
-      console.log(`[ProjectPreviewService] 检查 docker-compose.yml`);
-      const checkFileResult = await this.executor.executeCommand(
-        'test -f docker-compose.yml && echo "exists"',
-        workDir
-      );
-
-      if (checkFileResult.stdout.trim() !== 'exists') {
-        console.log(`[ProjectPreviewService] docker-compose.yml 不存在，使用模板创建`);
-        const initResult = await dockerComposeService.initConfig(workDir, false);
-        if (!initResult.success) {
-          return {
-            success: false,
-            error: `创建 docker-compose.yml 失败: ${initResult.error}`,
-          };
-        }
-      }
-
-      // 6. 分配端口
+      // 3. 分配端口
+      const step3Start = Date.now();
       const ports = await this.allocatePorts(sessionId);
       console.log(`[ProjectPreviewService] 分配端口:`, ports);
+      console.log(`[ProjectPreviewService] ⏱️ 步骤3-分配端口: ${Date.now() - step3Start}ms`);
 
       // 7. 使用 Docker API 创建容器（不修改 docker-compose.yml）
-      const containerResult = await this.createContainerWithDynamicPorts(workDir, ports);
+      const step7Start = Date.now();
+      const containerResult = await this.createContainerWithDynamicPorts(workDir, ports, sessionId, forceRebuild);
+      console.log(`[ProjectPreviewService] ⏱️ 步骤7-创建容器: ${Date.now() - step7Start}ms`);
       if (!containerResult.success) {
         await this.updatePreviewStatus(sessionId, {
           url: '',
@@ -119,6 +102,7 @@ export class ProjectPreviewService {
       console.log(`[ProjectPreviewService] 容器创建成功: ${containerId}`);
 
       // 10.5 获取镜像信息
+      const step10Start = Date.now();
       let imageId = '';
       let imageName = '';
       try {
@@ -137,19 +121,24 @@ export class ProjectPreviewService {
       } catch (error) {
         console.warn(`[ProjectPreviewService] 获取镜像信息失败:`, error);
       }
+      console.log(`[ProjectPreviewService] ⏱️ 步骤10-获取镜像信息: ${Date.now() - step10Start}ms`);
 
       // 11. 等待健康检查
+      const step11Start = Date.now();
       console.log(`[ProjectPreviewService] 进行健康检查...`);
       const healthCheck = await this.checkContainerHealth(containerId, ports);
       
       if (!healthCheck.healthy) {
         console.warn(`[ProjectPreviewService] 健康检查未通过: ${healthCheck.details}`);
       }
+      console.log(`[ProjectPreviewService] ⏱️ 步骤11-健康检查: ${Date.now() - step11Start}ms`);
 
       // 12. 获取本机 IP 并生成预览 URL
+      const step12Start = Date.now();
       const localIp = await this.getLocalIpAddress();
       const previewUrl = this.generatePreviewUrl(localIp, ports);
       console.log(`[ProjectPreviewService] 预览 URL: ${previewUrl}`);
+      console.log(`[ProjectPreviewService] ⏱️ 步骤12-生成URL: ${Date.now() - step12Start}ms`);
 
       // 13. 保存预览信息到会话上下文
       const totalTime = Math.round((Date.now() - startTime) / 1000);
@@ -270,7 +259,7 @@ export class ProjectPreviewService {
       }
 
       const workDir = session.context.projectInfo.workDir;
-      await this.stopPreviewInternal(workDir);
+      await this.stopPreviewInternal(workDir, session.context.previewInfo?.containerId);
 
       // 更新会话上下文
       await this.updatePreviewStatus(sessionId, {
@@ -414,10 +403,6 @@ export class ProjectPreviewService {
     const content = composeFileResult.stdout;
 
     // 解析服务和端口配置
-    // 匹配服务名称和其下的 ports 配置
-    const serviceRegex = /^\s*(\w+):\s*$/gm;
-    const portsRegex = /ports:\s*\n(\s*-\s*['"]?\d+:\d+['"]?\s*\n?)+/g;
-
     const portMappings: PortMapping[] = [];
     let currentService = 'web'; // 默认服务名
 
@@ -502,39 +487,239 @@ export class ProjectPreviewService {
   }
 
   /**
+   * 生成项目镜像缓存 key（基于配置文件内容）
+   */
+  private async generateProjectImageKey(workDir: string): Promise<string> {
+    // 读取关键配置文件内容
+    const files = ['package.json', 'Dockerfile', '.npmrc'];
+    let combinedContent = '';
+
+    for (const file of files) {
+      const result = await this.executor.executeCommand(
+        `cat ${file} 2>/dev/null || echo ""`,
+        workDir
+      );
+      if (result.exitCode === 0 && result.stdout.trim()) {
+        combinedContent += result.stdout;
+      }
+    }
+
+    // 如果没有读取到任何文件，抛出错误
+    if (!combinedContent) {
+      throw new Error('无法读取项目配置文件（package.json、Dockerfile、.npmrc）');
+    }
+
+    // 生成 hash
+    const hash = require('crypto')
+      .createHash('md5')
+      .update(combinedContent)
+      .digest('hex')
+      .substring(0, 8);
+
+    return hash;
+  }
+
+  /**
    * 使用 Docker HTTP API 动态创建容器（替代 docker-compose）
    */
   private async createContainerWithDynamicPorts(
     workDir: string,
-    ports: PortMapping[]
+    ports: PortMapping[],
+    sessionId: string,
+    forceRebuild: boolean = false
   ): Promise<{ success: boolean; containerId?: string; error?: string }> {
     try {
       console.log(`[ProjectPreviewService] 使用 Docker API 创建容器，动态端口:`, ports);
 
-      // 1. 构建镜像（如果需要）
-      const imageName = `preview-${Date.now()}`;
-      const buildResult = await this.executor.executeCommand(
-        `docker build -t ${imageName} .`,
-        workDir
+      // 1. 生成基础镜像名（基于项目配置文件哈希）
+      const hashStart = Date.now();
+      const projectHash = await this.generateProjectImageKey(workDir);
+      const baseImageName = `preview-base-${projectHash}`;
+      const sessionImageName = `preview-session-${sessionId.substring(0, 8)}`;
+
+      console.log(`[ProjectPreviewService] 项目镜像 key: ${projectHash}`);
+      console.log(`[ProjectPreviewService] ⏱️ 生成镜像key: ${Date.now() - hashStart}ms`);
+
+      // 2. 检查是否存在基础镜像（除非强制重建）
+      const checkStart = Date.now();
+      let needsBuild = forceRebuild;
+      if (!forceRebuild) {
+        console.log(`[ProjectPreviewService] 检查基础镜像是否存在: ${baseImageName}`);
+        const imageExistsResult = await this.executor.executeCommand(
+          `docker images -q ${baseImageName}`
+        );
+        needsBuild = !imageExistsResult.stdout.trim();
+      }
+      console.log(`[ProjectPreviewService] ⏱️ 检查镜像: ${Date.now() - checkStart}ms`);
+
+      // 3. 构建基础镜像（如果需要）
+      if (needsBuild) {
+        console.log(`[ProjectPreviewService] 构建基础镜像: ${baseImageName}`);
+        console.log(`[ProjectPreviewService] 构建命令: docker build -t ${baseImageName} .`);
+        console.log(`[ProjectPreviewService] 工作目录: ${workDir}`);
+        
+        // 更新状态为构建中
+        await this.updatePreviewStatus(sessionId, {
+          url: '',
+          containerId: '',
+          branchName: '',
+          deployedAt: new Date(),
+          status: PreviewStatus.BUILDING,
+          ports,
+        });
+
+        // 使用流式输出显示构建进度，启用 BuildKit 缓存
+        console.log(`[ProjectPreviewService] ========== 开始构建 ==========`);
+        
+        let buildResult;
+        if (this.executor.executeCommandStream) {
+          buildResult = await this.executor.executeCommandStream(
+            `DOCKER_BUILDKIT=1 docker build --progress=plain --build-arg BUILDKIT_INLINE_CACHE=1 -t ${baseImageName} . 2>&1`,
+            workDir,
+            (data) => {
+              // 实时输出构建日志
+              process.stdout.write(data);
+            },
+            (error) => {
+              // 实时输出错误日志
+              process.stderr.write(error);
+            }
+          );
+        } else {
+          // 回退到普通命令执行
+          buildResult = await this.executor.executeCommand(
+            `DOCKER_BUILDKIT=1 docker build --progress=plain --build-arg BUILDKIT_INLINE_CACHE=1 -t ${baseImageName} . 2>&1`,
+            workDir
+          );
+          console.log(buildResult.stdout);
+        }
+        
+        console.log(`[ProjectPreviewService] ========== 构建结束 ==========`);
+
+        if (buildResult.exitCode !== 0) {
+          console.error(`[ProjectPreviewService] 构建失败，退出码: ${buildResult.exitCode}`);
+          const errorLines = (buildResult.stderr || buildResult.stdout).split('\n').slice(-10).join('\n');
+          return {
+            success: false,
+            error: `构建基础镜像失败: ${errorLines}`
+          };
+        }
+        console.log(`[ProjectPreviewService] ✅ 基础镜像构建完成`);
+      } else {
+        console.log(`[ProjectPreviewService] ✅ 复用现有基础镜像: ${baseImageName}`);
+      }
+
+      // 4. 创建会话专用镜像（轻量级，只是重新标记）
+      console.log(`[ProjectPreviewService] 创建会话镜像: ${sessionImageName}`);
+      const tagResult = await this.executor.executeCommand(
+        `docker tag ${baseImageName} ${sessionImageName}`
       );
 
-      if (buildResult.exitCode !== 0) {
+      if (tagResult.exitCode !== 0) {
         return {
           success: false,
-          error: `构建镜像失败: ${buildResult.stderr}`
+          error: `创建会话镜像失败: ${tagResult.stderr}`
         };
       }
 
-      // 2. 准备端口映射参数
-      const portMappings = ports.map(p => `-p ${p.host}:${p.container}`).join(' ');
-
-      // 3. 创建并启动容器
-      const runResult = await this.executor.executeCommand(
-        `docker run -d ${portMappings} -v "${workDir}:/app" -v /app/node_modules -e PORT=${ports[0].container} -e BROWSER=none --name preview-${Date.now()} ${imageName} pnpm exec max dev --host 0.0.0.0 --port ${ports[0].container}`,
-        workDir
+      // 5. 准备容器配置（使用固定名称，便于复用）
+      const containerName = `preview-${sessionId.substring(0, 8)}`;
+      
+      // 5.1 检查是否已存在同名容器
+      const existingContainerResult = await this.executor.executeCommand(
+        `docker ps -a -q -f name=^${containerName}$`
       );
+      
+      if (existingContainerResult.stdout.trim()) {
+        const existingContainerId = existingContainerResult.stdout.trim();
+        console.log(`[ProjectPreviewService] 发现已存在容器: ${existingContainerId}`);
+        
+        // 检查容器状态
+        const statusResult = await this.executor.executeCommand(
+          `docker inspect -f '{{.State.Status}}' ${existingContainerId}`
+        );
+        const status = statusResult.stdout.trim();
+        
+        if (status === 'running') {
+          console.log(`[ProjectPreviewService] ✅ 容器已在运行，直接复用`);
+          return {
+            success: true,
+            containerId: existingContainerId
+          };
+        } else if (status === 'exited') {
+          console.log(`[ProjectPreviewService] 重启已停止的容器...`);
+          const restartResult = await this.executor.executeCommand(
+            `docker start ${existingContainerId}`
+          );
+          if (restartResult.exitCode === 0) {
+            console.log(`[ProjectPreviewService] ✅ 容器重启成功`);
+            return {
+              success: true,
+              containerId: existingContainerId
+            };
+          } else {
+            console.log(`[ProjectPreviewService] 重启失败，删除旧容器并重新创建`);
+            await this.executor.executeCommand(`docker rm ${existingContainerId}`);
+          }
+        }
+      }
+      
+      const portMappings = ports.map(p => `-p 0.0.0.0:${p.host}:${p.container}`).join(' ');
+
+      // 6. 创建并启动容器
+      console.log(`[ProjectPreviewService] 启动容器: ${containerName}`);
+      
+      // 使用流式输出显示容器启动日志
+      const runCommand = `docker run -d ${portMappings} ` +
+        `-v "${workDir}:/app" ` +
+        `-v /app/node_modules ` +
+        `-e PORT=${ports[0].container} ` +
+        `-e BROWSER=none ` +
+        `-e HOST=0.0.0.0 ` +
+        `--name ${containerName} ` +
+        `${sessionImageName} ` +
+        `pnpm exec max dev --host 0.0.0.0 --port ${ports[0].container}`;
+      
+      console.log(`[ProjectPreviewService] 启动命令: ${runCommand}`);
+      console.log(`[ProjectPreviewService] ========== 开始启动容器 ==========`);
+      
+      const runResult = await this.executor.executeCommand(runCommand, workDir);
+      
+      if (runResult.exitCode === 0) {
+        const containerId = runResult.stdout.trim();
+        console.log(`[ProjectPreviewService] ✅ 容器已创建: ${containerId}`);
+        
+        // 异步输出容器日志（不阻塞返回）
+        setTimeout(async () => {
+          try {
+            console.log(`[ProjectPreviewService] ========== 容器启动日志 ==========`);
+            if (this.executor.executeCommandStream) {
+              await this.executor.executeCommandStream(
+                `docker logs -f ${containerId} 2>&1 | head -n 50`,
+                workDir,
+                (data) => process.stdout.write(data),
+                (error) => process.stderr.write(error)
+              );
+            } else {
+              const logsResult = await this.executor.executeCommand(
+                `docker logs ${containerId} 2>&1 | head -n 50`,
+                workDir
+              );
+              console.log(logsResult.stdout);
+            }
+            console.log(`[ProjectPreviewService] ========== 日志输出结束 ==========`);
+          } catch (e) {
+            console.warn(`[ProjectPreviewService] 获取容器日志失败:`, e);
+          }
+        }, 100);
+      }
+      
+      console.log(`[ProjectPreviewService] ========== 容器启动完成 ==========`);
 
       if (runResult.exitCode !== 0) {
+        console.error(`[ProjectPreviewService] 启动容器失败:`);
+        console.error(`[ProjectPreviewService] stdout: ${runResult.stdout}`);
+        console.error(`[ProjectPreviewService] stderr: ${runResult.stderr}`);
         return {
           success: false,
           error: `启动容器失败: ${runResult.stderr}`
@@ -542,7 +727,6 @@ export class ProjectPreviewService {
       }
 
       const containerId = runResult.stdout.trim();
-      console.log(`[ProjectPreviewService] ✅ 容器创建成功: ${containerId}`);
 
       return {
         success: true,
@@ -562,13 +746,14 @@ export class ProjectPreviewService {
    */
   private async removeContainer(containerId: string): Promise<void> {
     try {
-      // 停止容器
+      // 只停止容器，不删除（便于快速重启）
       await this.executor.executeCommand(`docker stop ${containerId}`);
-      // 删除容器
-      await this.executor.executeCommand(`docker rm ${containerId}`);
-      console.log(`[ProjectPreviewService] ✅ 容器已清理: ${containerId}`);
+      console.log(`[ProjectPreviewService] ✅ 容器已停止: ${containerId}`);
+      
+      // 注释掉删除操作，保留容器以便复用
+      // await this.executor.executeCommand(`docker rm ${containerId}`);
     } catch (error) {
-      console.warn(`[ProjectPreviewService] ⚠️ 清理容器失败: ${containerId}`, error);
+      console.warn(`[ProjectPreviewService] ⚠️ 停止容器失败: ${containerId}`, error);
     }
   }
 

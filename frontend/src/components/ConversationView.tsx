@@ -410,8 +410,9 @@ const ConversationView: React.FC<ConversationViewProps> = ({
       return {
         icon: <Spin size="small" />,
         text: '部署中...',
-        disabled: true,
+        disabled: false, // 允许点击终止
         style: { background: '#d9d9d9', borderColor: '#d9d9d9' },
+        onClick: handleStopPreview, // 点击时终止部署
       };
     }
 
@@ -795,7 +796,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
                       <Button
                         size="small"
                         icon={buttonProps.icon}
-                        onClick={handlePreview}
+                        onClick={buttonProps.onClick || handlePreview}
                         disabled={buttonProps.disabled}
                         style={{
                           fontSize: 12,

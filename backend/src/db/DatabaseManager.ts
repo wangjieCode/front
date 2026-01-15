@@ -37,8 +37,9 @@ export class DatabaseManager {
     this.client = postgres(config.connectionString, {
       max: config.max ?? 10,
       idle_timeout: config.idleTimeout ?? 20,
-      connect_timeout: config.connectionTimeout ?? 10,
+      connect_timeout: config.connectionTimeout ?? 30, // 增加连接超时到 30 秒
       onnotice: () => {}, // 忽略 PostgreSQL 通知
+      prepare: false, // 禁用预处理语句，提高 Supabase 兼容性
     });
 
     // 创建 Drizzle 实例
