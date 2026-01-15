@@ -18,16 +18,14 @@ export function createPreviewRoutes(previewService: ProjectPreviewService): Rout
 
       console.log(`[PreviewRoutes] 创建预览: sessionId=${sessionId}, forceRebuild=${forceRebuild}`);
 
-      const result = await previewService.createPreview(sessionId, branchId, forceRebuild);
+      const result = await previewService.createPreview(sessionId, forceRebuild);
 
       if (result.success) {
         res.status(200).json({
           success: true,
-          data: {
-            previewUrl: result.previewUrl,
-            containerId: result.containerId,
-            deploymentInfo: result.deploymentInfo,
-          },
+          previewUrl: result.previewUrl,
+          containerId: result.containerId,
+          deploymentInfo: result.deploymentInfo,
         });
       } else {
         res.status(400).json({

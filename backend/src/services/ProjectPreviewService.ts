@@ -2,7 +2,6 @@ import { ConversationManager } from './ConversationManager';
 import { GitService } from './GitService';
 import { DockerComposeService } from './DockerComposeService';
 import { SSHExecutor } from './SSHExecutor';
-import { LocalExecutor } from './LocalExecutor';
 import {
   PreviewResult,
   PreviewStatus,
@@ -26,9 +25,6 @@ export class ProjectPreviewService {
   // 配置常量
   private readonly PORT_RANGE_START = parseInt(process.env.PREVIEW_PORT_RANGE_START || '8080');
   private readonly PORT_RANGE_END = parseInt(process.env.PREVIEW_PORT_RANGE_END || '8280');
-  private readonly BUILD_TIMEOUT = parseInt(process.env.PREVIEW_BUILD_TIMEOUT || '300');
-  private readonly STARTUP_TIMEOUT = parseInt(process.env.PREVIEW_STARTUP_TIMEOUT || '120');
-  private readonly HEALTH_CHECK_TIMEOUT = parseInt(process.env.PREVIEW_HEALTH_CHECK_TIMEOUT || '30');
 
   constructor(conversationManager: ConversationManager, executor: ICommandExecutor, sshHost?: string) {
     this.conversationManager = conversationManager;
@@ -41,7 +37,6 @@ export class ProjectPreviewService {
    */
   async createPreview(
     sessionId: string,
-    branchId?: string,
     forceRebuild: boolean = false
   ): Promise<PreviewResult> {
     const startTime = Date.now();
@@ -76,51 +71,11 @@ export class ProjectPreviewService {
         await this.stopPreviewInternal(workDir);
       }
 
-      // 3. 创建 GitService 和 DockerComposeService
-      const gitService = new GitService(this.executor as SSHExecutor, workDir);
+      // 3. 创建 DockerComposeService
       const dockerComposeService = new DockerComposeService(this.executor);
 
-      // 4. 确认分支存在并切换
-      console.log(`[ProjectPreviewService] 检查分支: ${gitBranch}`);
-      
-      // 先检查本地分支
-      let branchExists = await gitService.branchExists(gitBranch);
-      
-      if (!branchExists) {
-        // 本地不存在，检查远程分支
-        console.log(`[ProjectPreviewService] 本地分支不存在，检查远程分支`);
-        const remoteExists = await gitService.branchExists(gitBranch, true);
-        
-        if (!remoteExists) {
-          return {
-            success: false,
-            error: `Git 分支不存在: ${gitBranch}，请确保分支已推送到远程`,
-          };
-        }
-        
-        // 远程存在，尝试拉取
-        console.log(`[ProjectPreviewService] 远程分支存在，尝试拉取`);
-        const fetchResult = await this.executor.executeCommand(
-          `git fetch origin ${gitBranch}:${gitBranch}`,
-          workDir
-        );
-        
-        if (fetchResult.exitCode !== 0) {
-          return {
-            success: false,
-            error: `拉取远程分支失败: ${fetchResult.stderr}`,
-          };
-        }
-      }
-      
-      console.log(`[ProjectPreviewService] 切换到分支: ${gitBranch}`);
-      const checkoutResult = await gitService.checkoutBranch(gitBranch);
-      if (!checkoutResult.success) {
-        return {
-          success: false,
-          error: `切换分支失败: ${checkoutResult.error}`,
-        };
-      }
+      // 4. Worktree 已经在对话分支上，不需要切换分支
+      console.log(`[ProjectPreviewService] Worktree 当前分支: ${gitBranch}，无需切换`);
 
       // 5. 检查 docker-compose.yml 是否存在
       console.log(`[ProjectPreviewService] 检查 docker-compose.yml`);
@@ -144,28 +99,9 @@ export class ProjectPreviewService {
       const ports = await this.allocatePorts(sessionId);
       console.log(`[ProjectPreviewService] 分配端口:`, ports);
 
-      // 7. 更新 docker-compose.yml 的端口映射
-      await this.updateDockerComposePorts(workDir, ports);
-
-      // 8. 构建镜像
-      const buildStartTime = Date.now();
-      console.log(`[ProjectPreviewService] 开始构建镜像...`);
-      
-      // 更新会话上下文：设置为 building 状态
-      await this.updatePreviewStatus(sessionId, {
-        url: '',
-        containerId: '',
-        branchName: gitBranch,
-        deployedAt: new Date(),
-        status: PreviewStatus.BUILDING,
-        ports,
-      });
-
-      const buildResult = forceRebuild
-        ? await dockerComposeService.build(workDir, true)
-        : await dockerComposeService.build(workDir, false);
-
-      if (!buildResult.success) {
+      // 7. 使用 Docker API 创建容器（不修改 docker-compose.yml）
+      const containerResult = await this.createContainerWithDynamicPorts(workDir, ports);
+      if (!containerResult.success) {
         await this.updatePreviewStatus(sessionId, {
           url: '',
           containerId: '',
@@ -175,63 +111,31 @@ export class ProjectPreviewService {
         });
         return {
           success: false,
-          error: `构建失败: ${buildResult.error}`,
+          error: `创建容器失败: ${containerResult.error}`,
         };
       }
 
-      const buildTime = Math.round((Date.now() - buildStartTime) / 1000);
-      console.log(`[ProjectPreviewService] 构建完成，耗时: ${buildTime}s`);
+      const containerId = containerResult.containerId!;
+      console.log(`[ProjectPreviewService] 容器创建成功: ${containerId}`);
 
-      // 9. 启动容器
-      const startStartTime = Date.now();
-      console.log(`[ProjectPreviewService] 启动容器...`);
-
-      const upResult = await dockerComposeService.up(workDir, true);
-      if (!upResult.success) {
-        await this.updatePreviewStatus(sessionId, {
-          url: '',
-          containerId: '',
-          branchName: gitBranch,
-          deployedAt: new Date(),
-          status: PreviewStatus.ERROR,
-        });
-        return {
-          success: false,
-          error: `启动容器失败: ${upResult.error}`,
-        };
-      }
-
-      const startTimeSeconds = Math.round((Date.now() - startStartTime) / 1000);
-      console.log(`[ProjectPreviewService] 容器启动完成，耗时: ${startTimeSeconds}s`);
-
-      // 10. 获取容器 ID
-      const containerIdResult = await this.executor.executeCommand(
-        'docker-compose ps -q | head -n 1',
-        workDir
-      );
-      const containerId = containerIdResult.stdout.trim();
-      console.log(`[ProjectPreviewService] 容器 ID: ${containerId}`);
-
-      // 10.5 获取镇像信息
+      // 10.5 获取镜像信息
       let imageId = '';
       let imageName = '';
       try {
         const imageInfoResult = await this.executor.executeCommand(
-          `docker inspect --format='{{.Image}}' ${containerId}`,
-          workDir
+          `docker inspect --format='{{.Image}}' ${containerId}`
         );
         imageId = imageInfoResult.stdout.trim();
         
         const imageNameResult = await this.executor.executeCommand(
-          `docker inspect --format='{{.Config.Image}}' ${containerId}`,
-          workDir
+          `docker inspect --format='{{.Config.Image}}' ${containerId}`
         );
         imageName = imageNameResult.stdout.trim();
         
-        console.log(`[ProjectPreviewService] 镇像 ID: ${imageId}`);
-        console.log(`[ProjectPreviewService] 镇像名称: ${imageName}`);
+        console.log(`[ProjectPreviewService] 镜像 ID: ${imageId}`);
+        console.log(`[ProjectPreviewService] 镜像名称: ${imageName}`);
       } catch (error) {
-        console.warn(`[ProjectPreviewService] 获取镇像信息失败:`, error);
+        console.warn(`[ProjectPreviewService] 获取镜像信息失败:`, error);
       }
 
       // 11. 等待健康检查
@@ -242,15 +146,16 @@ export class ProjectPreviewService {
         console.warn(`[ProjectPreviewService] 健康检查未通过: ${healthCheck.details}`);
       }
 
-      // 12. 生成预览 URL
-      const previewUrl = this.generatePreviewUrl(this.sshHost, ports);
+      // 12. 获取本机 IP 并生成预览 URL
+      const localIp = await this.getLocalIpAddress();
+      const previewUrl = this.generatePreviewUrl(localIp, ports);
       console.log(`[ProjectPreviewService] 预览 URL: ${previewUrl}`);
 
       // 13. 保存预览信息到会话上下文
       const totalTime = Math.round((Date.now() - startTime) / 1000);
       const deploymentInfo: DeploymentInfo = {
-        buildTime,
-        startTime: startTimeSeconds,
+        buildTime: 0, // Docker API 方式不单独计算构建时间
+        startTime: 0,
         totalTime,
         ports,
       };
@@ -446,39 +351,242 @@ export class ProjectPreviewService {
   }
 
   /**
-   * 分配端口
+   * 获取本机局域网 IP 地址
    */
-  private async allocatePorts(sessionId: string): Promise<PortMapping[]> {
-    // 简化实现：使用固定端口映射
-    // TODO: 实现动态端口分配（第二阶段）
-    return [
-      { host: 8080, container: 80, service: 'basement' },
-      { host: 8083, container: 8083, service: 'sub-app' },
-    ];
+  private async getLocalIpAddress(): Promise<string> {
+    try {
+      // macOS/Linux: 使用 ifconfig 获取 en0 的 IP
+      const result = await this.executor.executeCommand(
+        `ifconfig en0 | grep "inet " | grep -v 127.0.0.1 | awk '{print $2}' | head -n 1`
+      );
+
+      if (result.exitCode === 0 && result.stdout.trim()) {
+        const ip = result.stdout.trim();
+        console.log(`[ProjectPreviewService] 检测到本机 IP: ${ip}`);
+        return ip;
+      }
+
+      // 如果 en0 没有 IP，尝试其他网卡
+      const fallbackResult = await this.executor.executeCommand(
+        `ifconfig | grep "inet " | grep -v 127.0.0.1 | awk '{print $2}' | head -n 1`
+      );
+
+      if (fallbackResult.exitCode === 0 && fallbackResult.stdout.trim()) {
+        const ip = fallbackResult.stdout.trim();
+        console.log(`[ProjectPreviewService] 检测到本机 IP (fallback): ${ip}`);
+        return ip;
+      }
+
+      // 都失败了，使用配置的 SSH_HOST 或 localhost
+      console.warn(`[ProjectPreviewService] 无法获取本机 IP，使用配置值: ${this.sshHost}`);
+      return this.sshHost;
+    } catch (error) {
+      console.error(`[ProjectPreviewService] 获取本机 IP 失败:`, error);
+      return this.sshHost;
+    }
   }
 
   /**
-   * 更新 docker-compose.yml 的端口映射
+   * 分配端口
    */
-  private async updateDockerComposePorts(
+  private async allocatePorts(sessionId: string): Promise<PortMapping[]> {
+    // 从 docker-compose.yml 解析需要的容器端口
+    const session = await this.conversationManager.getSession(sessionId);
+    if (!session) {
+      throw new Error('会话不存在');
+    }
+
+    const workDir = session.context.projectInfo.workDir;
+
+    // 读取 docker-compose.yml
+    const composeFileResult = await this.executor.executeCommand(
+      'cat docker-compose.yml',
+      workDir
+    );
+
+    if (composeFileResult.exitCode !== 0) {
+      // 如果没有 docker-compose.yml，使用默认端口
+      return [
+        { host: await this.findAvailablePort(), container: 8001, service: 'web' },
+      ];
+    }
+
+    const content = composeFileResult.stdout;
+
+    // 解析服务和端口配置
+    // 匹配服务名称和其下的 ports 配置
+    const serviceRegex = /^\s*(\w+):\s*$/gm;
+    const portsRegex = /ports:\s*\n(\s*-\s*['"]?\d+:\d+['"]?\s*\n?)+/g;
+
+    const portMappings: PortMapping[] = [];
+    let currentService = 'web'; // 默认服务名
+
+    // 按行解析，找到服务名和对应的端口
+    const lines = content.split('\n');
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      
+      // 检查是否是服务定义行（顶层缩进）
+      const serviceMatch = line.match(/^  (\w+):\s*$/);
+      if (serviceMatch) {
+        currentService = serviceMatch[1];
+        continue;
+      }
+
+      // 检查是否是 ports 配置行
+      if (line.trim() === 'ports:') {
+        // 读取后续的端口配置
+        for (let j = i + 1; j < lines.length; j++) {
+          const portLine = lines[j];
+          const portMatch = portLine.match(/^\s*-\s*['"]?(\d+):(\d+)['"]?\s*$/);
+          
+          if (portMatch) {
+            const containerPort = parseInt(portMatch[2]);
+            const hostPort = await this.findAvailablePort();
+            portMappings.push({
+              host: hostPort,
+              container: containerPort,
+              service: currentService,
+            });
+          } else if (portLine.trim() && !portLine.match(/^\s*-/)) {
+            // 遇到非端口配置行，退出
+            break;
+          }
+        }
+      }
+    }
+
+    if (portMappings.length === 0) {
+      // 没有找到端口配置，使用默认
+      return [
+        { host: await this.findAvailablePort(), container: 8001, service: 'web' },
+      ];
+    }
+
+    return portMappings;
+  }
+
+  /**
+   * 查找可用端口
+   */
+  private async findAvailablePort(): Promise<number> {
+    const startPort = this.PORT_RANGE_START;
+    const endPort = this.PORT_RANGE_END;
+
+    for (let port = startPort; port <= endPort; port++) {
+      const isAvailable = await this.checkPortAvailable(port);
+      if (isAvailable) {
+        return port;
+      }
+    }
+
+    throw new Error(`端口范围 ${startPort}-${endPort} 内没有可用端口`);
+  }
+
+  /**
+   * 检查端口是否可用
+   */
+  private async checkPortAvailable(port: number): Promise<boolean> {
+    try {
+      // 使用 lsof 检查端口是否被占用（macOS/Linux）
+      const result = await this.executor.executeCommand(
+        `lsof -i :${port} || echo "available"`
+      );
+
+      // 如果输出包含 "available"，说明端口可用
+      return result.stdout.includes('available');
+    } catch (error) {
+      // 如果命令失败，假设端口可用
+      return true;
+    }
+  }
+
+  /**
+   * 使用 Docker HTTP API 动态创建容器（替代 docker-compose）
+   */
+  private async createContainerWithDynamicPorts(
     workDir: string,
     ports: PortMapping[]
-  ): Promise<void> {
-    // 简化实现：暂不修改端口
-    // docker-compose.yml 模板中已经定义了固定端口
-    // TODO: 动态修改端口配置（第二阶段）
-    console.log(`[ProjectPreviewService] 使用固定端口配置`);
+  ): Promise<{ success: boolean; containerId?: string; error?: string }> {
+    try {
+      console.log(`[ProjectPreviewService] 使用 Docker API 创建容器，动态端口:`, ports);
+
+      // 1. 构建镜像（如果需要）
+      const imageName = `preview-${Date.now()}`;
+      const buildResult = await this.executor.executeCommand(
+        `docker build -t ${imageName} .`,
+        workDir
+      );
+
+      if (buildResult.exitCode !== 0) {
+        return {
+          success: false,
+          error: `构建镜像失败: ${buildResult.stderr}`
+        };
+      }
+
+      // 2. 准备端口映射参数
+      const portMappings = ports.map(p => `-p ${p.host}:${p.container}`).join(' ');
+
+      // 3. 创建并启动容器
+      const runResult = await this.executor.executeCommand(
+        `docker run -d ${portMappings} -v "${workDir}:/app" -v /app/node_modules -e PORT=${ports[0].container} -e BROWSER=none --name preview-${Date.now()} ${imageName} pnpm exec max dev --host 0.0.0.0 --port ${ports[0].container}`,
+        workDir
+      );
+
+      if (runResult.exitCode !== 0) {
+        return {
+          success: false,
+          error: `启动容器失败: ${runResult.stderr}`
+        };
+      }
+
+      const containerId = runResult.stdout.trim();
+      console.log(`[ProjectPreviewService] ✅ 容器创建成功: ${containerId}`);
+
+      return {
+        success: true,
+        containerId
+      };
+
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error)
+      };
+    }
+  }
+
+  /**
+   * 停止并删除容器
+   */
+  private async removeContainer(containerId: string): Promise<void> {
+    try {
+      // 停止容器
+      await this.executor.executeCommand(`docker stop ${containerId}`);
+      // 删除容器
+      await this.executor.executeCommand(`docker rm ${containerId}`);
+      console.log(`[ProjectPreviewService] ✅ 容器已清理: ${containerId}`);
+    } catch (error) {
+      console.warn(`[ProjectPreviewService] ⚠️ 清理容器失败: ${containerId}`, error);
+    }
   }
 
   /**
    * 停止预览（内部方法）
    */
-  private async stopPreviewInternal(workDir: string): Promise<void> {
+  private async stopPreviewInternal(workDir: string, containerId?: string): Promise<void> {
     try {
-      const dockerComposeService = new DockerComposeService(this.executor);
-      const downResult = await dockerComposeService.down(workDir);
-      if (!downResult.success) {
-        console.warn(`[ProjectPreviewService] 停止容器失败: ${downResult.error}`);
+      if (containerId) {
+        // 使用 Docker API 方式停止容器
+        await this.removeContainer(containerId);
+      } else {
+        // 回退到 docker-compose 方式
+        const dockerComposeService = new DockerComposeService(this.executor);
+        const downResult = await dockerComposeService.down(workDir);
+        if (!downResult.success) {
+          console.warn(`[ProjectPreviewService] 停止容器失败: ${downResult.error}`);
+        }
       }
     } catch (error) {
       console.error(`[ProjectPreviewService] 停止容器异常:`, error);
