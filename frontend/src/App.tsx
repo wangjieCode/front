@@ -96,6 +96,11 @@ const AppContent: React.FC = () => {
     if (userInfo) {
       setIsLoggedIn(true);
       setCurrentUser(userInfo);
+      // 只在已登录时加载对话列表
+      loadConversations();
+    } else {
+      // 未登录时，停止 loading
+      setIsConversationsLoading(false);
     }
     
     // 设置登录回调
@@ -107,8 +112,6 @@ const AppContent: React.FC = () => {
     
     setLoginModalCallback(showLogin);
     setProjectLoginModalCallback(showLogin);
-    
-    loadConversations();
   }, []);
 
   // 提交新对话
@@ -168,6 +171,8 @@ const AppContent: React.FC = () => {
     setCurrentUser({ userId, username });
     setShowLoginModal(false);
     message.success(`欢迎回来，${username}！`);
+    // 登录成功后加载对话列表
+    loadConversations();
   };
 
   // 退出登录
@@ -301,44 +306,16 @@ const AppContent: React.FC = () => {
                         onConfirm={async (e) => {
                           e?.stopPropagation();
                           try {
-                            const userId = localStorage.getItem('user_id');
-                            const username = localStorage.getItem('username');
-                            
-                            const headers: Record<string, string> = {
-                              'Content-Type': 'application/json',
-                            };
-                            
-                            if (userId) {
-                              headers['x-user-id'] = userId;
-                              if (username) {
-                                headers['x-username'] = username;
-                              }
-                            }
+                            const result = await conversationService.deleteConversation(conv.id);
 
-                            const response = await fetch(`/api/conversations/${conv.id}`, {
-                              method: 'DELETE',
-                              headers,
-                            });
-
-                            if (response.status === 401) {
-                              localStorage.removeItem('user_id');
-                              localStorage.removeItem('username');
-                              setIsLoggedIn(false);
-                              setCurrentUser(null);
-                              setShowLoginModal(true);
-                              return;
-                            }
-
-                            const data = await response.json();
-
-                            if (data.success) {
+                            if (result.success) {
                               message.success('对话已删除');
                               setConversations(prev => prev.filter(c => c.id !== conv.id));
                               if (activeSessionId === conv.id) {
                                 navigate('/');
                               }
                             } else {
-                              message.error(data.error || '删除失败');
+                              message.error(result.error || '删除失败');
                             }
                           } catch (error) {
                             console.error('删除对话失败:', error);

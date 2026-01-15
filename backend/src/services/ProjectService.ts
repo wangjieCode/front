@@ -25,8 +25,10 @@ export interface CreateProjectRequest {
   description?: string;
   gitRepositoryUrl: string;
   gitBranch?: string;
-  gitlabProjectId?: string;
-  gitlabUrl?: string;
+  gitlab?: {
+    projectId?: string;
+    url?: string;
+  };
   workDirectory?: string;
 }
 
@@ -201,6 +203,7 @@ export class ProjectService {
           isActive: projects.isActive,
           createdAt: projects.createdAt,
           updatedAt: projects.updatedAt,
+          lastPulledAt: projects.lastPulledAt,
         })
         .from(projects)
         .where(conditions.length > 0 ? and(...conditions) : undefined)
@@ -344,6 +347,7 @@ export class ProjectService {
         return {
           success: false,
           error: '项目不存在',
+          message: '项目不存在',
         };
       }
 
@@ -372,6 +376,201 @@ export class ProjectService {
       return {
         success: false,
         error: error instanceof Error ? error.message : '删除项目失败',
+        message: error instanceof Error ? error.message : '删除项目失败',
+      };
+    }
+  }
+
+  /**
+   * 更新项目代码（git pull 或 clone）
+   * @param projectId 项目ID
+   * @param userId 用户ID
+   * @returns 更新结果
+   */
+  async pullRepository(projectId: string, userId: string): Promise<OperationResult> {
+    try {
+      // 验证项目存在
+      const [project] = await this.db
+        .select()
+        .from(projects)
+        .where(eq(projects.id, projectId))
+        .limit(1);
+
+      if (!project) {
+        return {
+          success: false,
+          error: '项目不存在',
+          message: '项目不存在',
+        };
+      }
+
+      // 检查工作目录是否存在
+      if (!project.workDirectory) {
+        return {
+          success: false,
+          error: '项目工作目录未配置',
+          message: '项目工作目录未配置',
+        };
+      }
+
+      console.log(`[ProjectService] 开始更新项目代码: ${project.name}`);
+      console.log(`[ProjectService] 工作目录: ${project.workDirectory}`);
+
+      // 检查目录是否存在
+      const dirCheckResult = await this.executor.executeCommand(
+        `test -d "${project.workDirectory}" && echo "exists" || echo "not exists"`,
+        '.'
+      );
+
+      const dirExists = dirCheckResult.stdout.trim() === 'exists';
+
+      if (!dirExists) {
+        // 目录不存在，执行克隆
+        console.log(`[ProjectService] 目录不存在，开始克隆仓库...`);
+        
+        const cloneResult = await this.repositoryService.cloneRepository(project, (progress) => {
+          console.log(`[ProjectService] 克隆进度 [${progress.stage}]: ${progress.message} (${progress.progress || 0}%)`);
+        });
+
+        if (!cloneResult.success) {
+          return {
+            success: false,
+            error: `克隆仓库失败: ${cloneResult.error}`,
+            message: `克隆仓库失败: ${cloneResult.error}`,
+          };
+        }
+
+        console.log(`[ProjectService] ✅ 仓库克隆成功`);
+        return {
+          success: true,
+          message: '仓库克隆成功',
+        };
+      }
+
+      // 检查是否是 Git 仓库
+      const gitCheckResult = await this.executor.executeCommand(
+        `cd "${project.workDirectory}" && git rev-parse --git-dir`,
+        project.workDirectory
+      );
+
+      if (gitCheckResult.exitCode !== 0) {
+        // 不是 Git 仓库，删除目录后重新克隆
+        console.log(`[ProjectService] 目录存在但不是 Git 仓库，删除后重新克隆...`);
+        
+        await this.executor.executeCommand(
+          `rm -rf "${project.workDirectory}"`,
+          '.'
+        );
+
+        const cloneResult = await this.repositoryService.cloneRepository(project, (progress) => {
+          console.log(`[ProjectService] 克隆进度 [${progress.stage}]: ${progress.message} (${progress.progress || 0}%)`);
+        });
+
+        if (!cloneResult.success) {
+          return {
+            success: false,
+            error: `克隆仓库失败: ${cloneResult.error}`,
+            message: `克隆仓库失败: ${cloneResult.error}`,
+          };
+        }
+
+        console.log(`[ProjectService] ✅ 仓库克隆成功`);
+        return {
+          success: true,
+          message: '仓库克隆成功',
+        };
+      }
+
+      // 是 Git 仓库，执行 pull
+      console.log(`[ProjectService] 执行 git pull...`);
+      
+      // 先检查是否有未提交的变更
+      const statusResult = await this.executor.executeCommand(
+        `git status --porcelain`,
+        project.workDirectory
+      );
+
+      if (statusResult.stdout.trim()) {
+        // 有未提交的变更，先 stash
+        console.log(`[ProjectService] 检测到未提交的变更，先执行 stash...`);
+        await this.executor.executeCommand(
+          `git stash`,
+          project.workDirectory
+        );
+      }
+
+      // 先 fetch 查看是否有更新
+      console.log(`[ProjectService] 执行 git fetch...`);
+      const fetchResult = await this.executor.executeCommand(
+        `git fetch origin ${project.gitBranch}`,
+        project.workDirectory
+      );
+
+      if (fetchResult.exitCode !== 0) {
+        console.error(`[ProjectService] ❌ fetch 失败:`, fetchResult.stderr);
+        return {
+          success: false,
+          error: `获取远程更新失败: ${fetchResult.stderr}`,
+          message: `获取远程更新失败: ${fetchResult.stderr}`,
+        };
+      }
+
+      // 检查是否有更新
+      const diffResult = await this.executor.executeCommand(
+        `git diff HEAD origin/${project.gitBranch} --stat`,
+        project.workDirectory
+      );
+
+      if (!diffResult.stdout.trim()) {
+        console.log(`[ProjectService] ✅ 代码已是最新`);
+        return {
+          success: true,
+          message: '代码已是最新版本',
+        };
+      }
+
+      // 执行 merge（非交互式）
+      console.log(`[ProjectService] 执行 git merge...`);
+      const mergeResult = await this.executor.executeCommand(
+        `git merge origin/${project.gitBranch} --no-edit`,
+        project.workDirectory
+      );
+
+      if (mergeResult.exitCode !== 0) {
+        console.error(`[ProjectService] ❌ 合并失败:`, mergeResult.stderr);
+        
+        // 如果合并失败，尝试中止合并
+        await this.executor.executeCommand(
+          `git merge --abort`,
+          project.workDirectory
+        ).catch(() => {});
+
+        return {
+          success: false,
+          error: `合并代码失败: ${mergeResult.stderr}`,
+          message: `合并代码失败，可能存在冲突`,
+        };
+      }
+
+      console.log(`[ProjectService] ✅ 代码更新成功`);
+      console.log(`[ProjectService] 更新内容:`, diffResult.stdout);
+
+      // 更新 last_pulled_at 时间
+      await this.db
+        .update(projects)
+        .set({ lastPulledAt: new Date() })
+        .where(eq(projects.id, projectId));
+
+      return {
+        success: true,
+        message: '代码更新成功',
+      };
+    } catch (error) {
+      console.error('更新代码失败:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : '更新代码失败',
+        message: error instanceof Error ? error.message : '更新代码失败',
       };
     }
   }

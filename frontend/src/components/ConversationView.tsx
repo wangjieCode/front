@@ -119,15 +119,12 @@ const ConversationView: React.FC<ConversationViewProps> = ({
   const loadSession = async () => {
     if (!sessionId) return;
     try {
-      const response = await fetch(`/api/conversations/${sessionId}`);
-      const data = await response.json();
-      if (data.success) {
-        console.log('[ConversationView] loadSession - 返回的session:', data.data);
-        console.log('[ConversationView] loadSession - context.mode:', data.data.context?.mode);
-        console.log('[ConversationView] loadSession - context.gitBranch:', data.data.context?.gitBranch);
-        console.log('[ConversationView] loadSession - context.mrUrl:', data.data.context?.mrUrl);
-        setSession(data.data);
-      }
+      const session = await conversationService.getSession(sessionId);
+      console.log('[ConversationView] loadSession - 返回的session:', session);
+      console.log('[ConversationView] loadSession - context.mode:', session.context?.mode);
+      console.log('[ConversationView] loadSession - context.gitBranch:', session.context?.gitBranch);
+      console.log('[ConversationView] loadSession - context.mrUrl:', session.context?.mrUrl);
+      setSession(session);
     } catch (error) {
       console.error('加载会话失败:', error);
     }
@@ -136,11 +133,8 @@ const ConversationView: React.FC<ConversationViewProps> = ({
   const loadMessages = async () => {
     if (!sessionId) return;
     try {
-      const response = await fetch(`/api/conversations/${sessionId}/messages`);
-      const data = await response.json();
-      if (data.success) {
-        setMessages(data.data);
-      }
+      const messages = await conversationService.getMessages(sessionId);
+      setMessages(messages);
     } catch (error) {
       console.error('加载消息失败:', error);
     }

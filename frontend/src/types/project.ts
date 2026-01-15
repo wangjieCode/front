@@ -11,10 +11,12 @@ export interface Project {
   gitBranch: string;
   gitlabProjectId?: string;
   gitlabUrl?: string;
+  workDirectory: string;
   createdBy: string; // 项目创建者
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
+  lastPulledAt?: string; // 最后更新时间
 }
 
 // 移除项目成员相关接口
