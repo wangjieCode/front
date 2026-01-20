@@ -159,7 +159,7 @@ export class SSHExecutor {
         reject(new Error(`命令执行超时 (${timeout}ms): ${command}`));
       }, timeout);
 
-      this.client!.exec(shellCommand, (err, channel: ClientChannel) => {
+      this.client!.exec(shellCommand, (err: Error | undefined, channel: ClientChannel) => {
         if (err) {
           clearTimeout(timeoutId);
           reject(err);
@@ -206,7 +206,7 @@ export class SSHExecutor {
         });
 
         // 错误处理
-        channel.on('error', (err) => {
+        channel.on('error', (err: Error) => {
           clearTimeout(timeoutId);
           reject(err);
         });
@@ -231,20 +231,19 @@ export class SSHExecutor {
    * @param command 要执行的命令
    * @param workDir 工作目录（可选）
    * @param onData 数据回调函数
-   * @param onError 错误回调函数
+   * @param timeout 超时时间（毫秒，默认 300 秒）
    * @returns 命令执行结果
    */
   async executeCommandStream(
     command: string,
     workDir: string | undefined,
     onData: (data: string) => void,
-    onError?: (data: string) => void
+    timeout: number = 300000
   ): Promise<CommandResult> {
     if (!this.isConnected() || !this.client) {
       throw new Error('SSH 未连接');
     }
 
-    // 使用登录 shell 执行命令，自动加载用户环境
     let fullCommand: string;
     if (workDir) {
       fullCommand = `cd ${workDir} && ${command}`;
@@ -252,12 +251,16 @@ export class SSHExecutor {
       fullCommand = command;
     }
     
-    // 包装在登录 shell 中执行，显式加载 ~/.zshrc 并初始化 fnm 环境
     const shellCommand = `$SHELL -l -c 'source ~/.zshrc 2>/dev/null || true; eval "$(fnm env --use-on-cd)" 2>/dev/null || true; ${fullCommand.replace(/'/g, "'\\''")}'`;
 
     return new Promise((resolve, reject) => {
-      this.client!.exec(shellCommand, (err, channel: ClientChannel) => {
+      const timeoutId = setTimeout(() => {
+        reject(new Error(`命令执行超时 (${timeout}ms): ${command}`));
+      }, timeout);
+
+      this.client!.exec(shellCommand, (err: Error | undefined, channel) => {
         if (err) {
+          clearTimeout(timeoutId);
           reject(err);
           return;
         }
@@ -266,40 +269,36 @@ export class SSHExecutor {
         let stderr = '';
         let exitCode = 0;
 
-        // 捕获标准输出并实时回调
+        // 实时捕获标准输出并回调
         channel.on('data', (data: Buffer) => {
           const output = data.toString('utf8');
           stdout += output;
           
           // 实时回调
-          onData(output);
+          try {
+            onData(output);
+          } catch (callbackError) {
+            console.error('[SSHExecutor] 回调函数执行失败:', callbackError);
+          }
           
-          // 检查输出大小，防止内存溢出
-          if (stdout.length > 10 * 1024 * 1024) { // 10MB
+          if (stdout.length > 10 * 1024 * 1024) {
             stdout = stdout.substring(0, 10 * 1024 * 1024) + '\n[输出已截断: 超过 10MB]';
             channel.close();
           }
         });
 
-        // 捕获标准错误并实时回调
         channel.stderr.on('data', (data: Buffer) => {
           const output = data.toString('utf8');
           stderr += output;
           
-          // 实时回调错误输出
-          if (onError) {
-            onError(output);
-          }
-          
-          // 检查输出大小
-          if (stderr.length > 10 * 1024 * 1024) { // 10MB
+          if (stderr.length > 10 * 1024 * 1024) {
             stderr = stderr.substring(0, 10 * 1024 * 1024) + '\n[输出已截断: 超过 10MB]';
             channel.close();
           }
         });
 
-        // 命令执行完成
         channel.on('close', (code: number) => {
+          clearTimeout(timeoutId);
           exitCode = code || 0;
           resolve({
             stdout: stdout.trim(),
@@ -308,9 +307,9 @@ export class SSHExecutor {
           });
         });
 
-        // 错误处理
-        channel.on('error', (error: Error) => {
-          reject(error);
+        channel.on('error', (err: Error) => {
+          clearTimeout(timeoutId);
+          reject(err);
         });
       });
     });

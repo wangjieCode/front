@@ -37,6 +37,101 @@ export class NeovateAIService {
   }
 
   /**
+   * 使用 AI 修改代码（流式版本）
+   * @param prompt 用户提示词
+   * @param conversationId 对话 ID
+   * @param existingSessionId 现有的 Neovate 会话 ID
+   * @param customWorkDir 自定义工作目录
+   * @param onData 实时数据回调
+   * @returns AI 执行结果
+   */
+  async modifyCodeStream(
+    prompt: string,
+    conversationId: string | undefined,
+    existingSessionId: string | undefined,
+    customWorkDir: string | undefined,
+    onData: (data: string) => void
+  ): Promise<NeovateAIResult> {
+    try {
+      const workDir = customWorkDir || this.workDir;
+      const command = this.buildCommand(prompt, existingSessionId, workDir);
+
+      let neovateSessionId: string | undefined = existingSessionId;
+      let allOutput = '';
+
+      // 流式执行命令
+      const result = await this.sshExecutor.executeCommandStream(
+        command,
+        workDir,
+        (chunk: string) => {
+          allOutput += chunk;
+          
+          // 实时回调给上层
+          onData(chunk);
+          
+          // 只在首次对话时提取 sessionId
+          if (!existingSessionId && !neovateSessionId) {
+            const lines = chunk.split('\n');
+            for (const line of lines) {
+              if (line.trim().startsWith('{')) {
+                try {
+                  const parsed = JSON.parse(line);
+                  if (parsed.sessionId && typeof parsed.sessionId === 'string') {
+                    neovateSessionId = parsed.sessionId;
+                    console.log(`[NeovateAIService] 提取到新会话 ID: ${neovateSessionId}`);
+                    break;
+                  }
+                } catch (e) {
+                  // 忽略解析错误
+                }
+              }
+            }
+          }
+        },
+        300000 // 5 分钟超时
+      );
+
+      if (result.exitCode !== 0) {
+        return {
+          success: false,
+          message: 'neovate 执行失败',
+          changes: [],
+          error: result.stderr || result.stdout,
+          rawOutput: result.stdout,
+        };
+      }
+
+      // 只在首次对话且成功提取到 sessionId 时保存
+      if (conversationId && neovateSessionId && !existingSessionId) {
+        await this.sessionManager.saveSessionId(
+          conversationId,
+          neovateSessionId,
+          this.workDir
+        );
+        console.log(`[NeovateAIService] 已保存会话 ID: ${neovateSessionId}`);
+      }
+
+      // 解析代码变更
+      const changes = await this.parseOutput(allOutput, workDir);
+
+      return {
+        success: true,
+        message: `成功修改代码，共 ${changes.length} 个文件变更`,
+        changes,
+        rawOutput: allOutput,
+        neovateSessionId,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: '执行 neovate 时发生错误',
+        changes: [],
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  /**
    * 使用 AI 修改代码
    * @param prompt 用户提示词
    * @param conversationId 对话 ID（用于会话管理）
@@ -78,7 +173,7 @@ export class NeovateAIService {
       }
 
       // 提取 Neovate 会话 ID 和整理输出内容
-      let neovateSessionId: string | undefined;
+      let neovateSessionId: string | undefined = existingSessionId;
       let cleanOutput = '';
 
       try {
@@ -93,8 +188,10 @@ export class NeovateAIService {
               const parsed = JSON.parse(line);
               validJsonLines.push(line); // 收集有效的 JSON 行
 
-              if (parsed.sessionId && typeof parsed.sessionId === 'string') {
+              // 只在首次对话时提取 sessionId
+              if (!existingSessionId && !neovateSessionId && parsed.sessionId && typeof parsed.sessionId === 'string') {
                 neovateSessionId = parsed.sessionId;
+                console.log(`[NeovateAIService] 提取到新会话 ID: ${neovateSessionId}`);
               }
             }
           } catch (e2) {
@@ -110,17 +207,14 @@ export class NeovateAIService {
           cleanOutput = result.stdout;
         }
 
-        if (neovateSessionId) {
-          // console.log(`[NeovateAIService] ✅ 提取到会话 ID: ${neovateSessionId}`);
-        }
-
-        // 保存会话 ID
-        if (conversationId && neovateSessionId) {
+        // 只在首次对话且成功提取到 sessionId 时保存
+        if (conversationId && neovateSessionId && !existingSessionId) {
           await this.sessionManager.saveSessionId(
             conversationId,
             neovateSessionId,
             this.workDir
           );
+          console.log(`[NeovateAIService] 已保存会话 ID: ${neovateSessionId}`);
         }
       } catch (error) {
         console.error('[NeovateAIService] ❌ 处理输出失败:', error);

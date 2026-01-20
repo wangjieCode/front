@@ -465,8 +465,7 @@ class ConversationService {
       throw new Error(error.error || '创建预览失败');
     }
 
-    const result = await response.json();
-    return result.data;
+    return await response.json();
   }
 
   /**
