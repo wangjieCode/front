@@ -688,7 +688,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
         <div style={{
           padding: '16px 24px',
           borderBottom: '1px solid #e5e5e5',
-          background: mode === ConversationMode.EDIT ? 'linear-gradient(135deg, #f5f7fa 0%, #e8eef5 100%)' : '#fff'
+          background: (session.context?.mode || mode) === ConversationMode.EDIT ? 'linear-gradient(135deg, #f5f7fa 0%, #e8eef5 100%)' : '#fff'
         }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
             <div style={{ flex: 1, minWidth: 0 }}>
@@ -700,12 +700,12 @@ const ConversationView: React.FC<ConversationViewProps> = ({
                 overflow: 'hidden',
                 textOverflow: 'ellipsis',
                 whiteSpace: 'nowrap',
-                marginBottom: mode === ConversationMode.EDIT ? 8 : 0
+                marginBottom: (session.context?.mode || mode) === ConversationMode.EDIT ? 8 : 0
               }}>
                 {initialPrompt || '对话会话'}
               </span>
 
-              {mode === ConversationMode.EDIT && (
+              {(session.context?.mode || mode) === ConversationMode.EDIT && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
                   {/* 项目名称 */}
                   {session.context?.projectInfo?.workDir && (
