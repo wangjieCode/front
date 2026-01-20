@@ -14,11 +14,11 @@ export function createPreviewRoutes(previewService: ProjectPreviewService): Rout
   router.post('/:sessionId/preview', async (req: Request, res: Response) => {
     try {
       const { sessionId } = req.params;
-      const { branchId, forceRebuild = false } = req.body;
+      const { branchId, forceRebuild = false, apiTarget } = req.body;
 
-      console.log(`[PreviewRoutes] 创建预览: sessionId=${sessionId}, forceRebuild=${forceRebuild}`);
+      console.log(`[PreviewRoutes] 创建预览: sessionId=${sessionId}, forceRebuild=${forceRebuild}, apiTarget=${apiTarget}`);
 
-      const result = await previewService.createPreview(sessionId, forceRebuild);
+      const result = await previewService.createPreview(sessionId, forceRebuild, apiTarget);
 
       if (result.success) {
         res.status(200).json({

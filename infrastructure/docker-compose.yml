@@ -1,0 +1,26 @@
+version: "3"
+services:
+  web:
+    build:
+      # Context must be the project root (e.g., scrm-boss or a worktree)
+      context: ${PROJECT_DIR:-../front-workspace/scrm-boss}
+      # Path to the Dockerfile. We use an absolute path default or allow override.
+      # When running from this directory, we can use an absolute path to ensure clarity.
+      dockerfile: ${DOCKERFILE:-/Users/gangqiang/Desktop/front-intern/infrastructure/Dockerfile}
+    ports:
+      - "${HOST_PORT:-8001}:8001"
+    volumes:
+      # Mount the project directory code into the container
+      - ${PROJECT_DIR:-../front-workspace/scrm-boss}:/app
+      # Conserve node_modules in the container (anonymous volume)
+      - /app/node_modules
+    environment:
+      - HOST=0.0.0.0
+      - PORT=8001
+      # Ensure Umi doesn't try to open browser
+      - BROWSER=none
+      # Dynamic API Configuration
+      - API_TARGET=${API_TARGET}
+      - IS_PREVIEW=true
+    # Override the default 'npm run dev' to force HOST=0.0.0.0
+    command: pnpm exec max dev
