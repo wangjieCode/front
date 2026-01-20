@@ -1,4 +1,5 @@
 import { v4 as uuidv4 } from "uuid";
+import { LRUCache } from "lru-cache";
 import {
   ConversationSession,
   ConversationMessage,
@@ -28,6 +29,9 @@ export class ConversationManager {
   private gitlabService?: GitLabMCPService;
   private worktreeManager?: WorktreeManager;
   public projectService: ProjectService;
+  
+  // 使用 LRU 缓存
+  private sessionCache: LRUCache<string, ConversationSession>;
 
   constructor(
     storage: IConversationStorage,
@@ -40,6 +44,12 @@ export class ConversationManager {
     this.modeValidator = new ModeValidator();
     this.gitlabService = gitlabService;
     this.worktreeManager = worktreeManager;
+    
+    // 初始化 LRU 缓存
+    this.sessionCache = new LRUCache<string, ConversationSession>({
+      max: 50, // 最多缓存50个会话
+      updateAgeOnGet: true, // 访问时更新使用时间
+    });
   }
 
   /**
@@ -236,6 +246,24 @@ export class ConversationManager {
         `${projectResult.project.workDirectory}/../worktrees`
       );
 
+      // 先尝试同步最新代码
+      console.log(`[ConversationManager] 同步主仓库最新代码...`);
+      const syncResult = await projectWorktreeManager.syncWithMainRepo(userId, this.getCurrentProjectId());
+      
+      if (syncResult.success && syncResult.updated) {
+        console.log(`[ConversationManager] ✅ 代码已同步到最新版本`);
+      } else if (!syncResult.success && syncResult.conflicts) {
+        console.warn(`[ConversationManager] ⚠️ 代码同步失败，存在冲突: ${syncResult.conflicts.join(', ')}`);
+        // 可以选择强制重置或提示用户
+        console.log(`[ConversationManager] 尝试强制重置到最新状态...`);
+        const resetResult = await projectWorktreeManager.resetToMainBranch(userId, this.getCurrentProjectId());
+        if (resetResult.success) {
+          console.log(`[ConversationManager] ✅ 已强制重置到最新状态`);
+        } else {
+          console.warn(`[ConversationManager] ⚠️ 强制重置也失败: ${resetResult.error}`);
+        }
+      }
+
       const result = await projectWorktreeManager.createConversationBranch(
         userId,
         sessionId,
@@ -261,15 +289,32 @@ export class ConversationManager {
 
 
   /**
-   * 获取对话会话
+   * 获取对话会话（带缓存）
    */
   async getSession(sessionId: string): Promise<ConversationSession | null> {
+    // 检查缓存
+    const cached = this.sessionCache.get(sessionId);
+    if (cached) {
+      console.log(`[ConversationManager] 使用缓存的会话: ${sessionId}`);
+      return cached;
+    }
+
+    // 从数据库加载
     const session = await this.storage.loadSession(sessionId);
-    // console.log(`[ConversationManager] getSession - sessionId: ${sessionId}`);
-    // console.log(
-    //   `[ConversationManager] 返回的session.context.projectInfo.workDir: ${session?.context?.projectInfo?.workDir}`
-    // );
+    
+    // 更新缓存
+    if (session) {
+      this.sessionCache.set(sessionId, session);
+    }
+    
     return session;
+  }
+
+  /**
+   * 清除会话缓存
+   */
+  private clearSessionCache(sessionId: string): void {
+    this.sessionCache.delete(sessionId);
   }
 
   /**
@@ -308,7 +353,8 @@ export class ConversationManager {
     role: MessageRole,
     content: string,
     metadata?: MessageMetadata,
-    existingSession?: ConversationSession
+    existingSession?: ConversationSession,
+    asyncSave: boolean = false // 是否异步保存，不阻塞返回
   ): Promise<ConversationMessage> {
     await this.acquireLock(sessionId);
 
@@ -338,15 +384,23 @@ export class ConversationManager {
       // 更新会话的 updatedAt
       session.updatedAt = now;
 
-      // 批量保存到数据库
-      try {
+      if (asyncSave) {
+        // 异步保存，不阻塞返回
+        Promise.all([
+          this.storage.saveMessage(message),
+          this.storage.saveSession(session)
+        ]).then(() => {
+          this.clearSessionCache(sessionId);
+        }).catch(error => {
+          console.error(`[ConversationManager] 异步保存消息失败:`, error);
+        });
+      } else {
+        // 同步保存
         await Promise.all([
           this.storage.saveMessage(message),
           this.storage.saveSession(session)
         ]);
-      } catch (error) {
-        console.error(`[ConversationManager] 批量保存消息失败:`, error);
-        throw error;
+        this.clearSessionCache(sessionId);
       }
 
       return message;
@@ -442,6 +496,9 @@ export class ConversationManager {
       }
 
       await this.storage.saveSession(session);
+      
+      // 清除缓存
+      this.clearSessionCache(sessionId);
     } finally {
       this.releaseLock(sessionId);
     }

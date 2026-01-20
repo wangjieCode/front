@@ -287,18 +287,35 @@ export class WorktreeManager {
       return; // 无变更
     }
 
-    // 添加所有更改
-    await this.executor.executeCommand(
-      'git add .',
-      worktreeInfo.worktreePath
-    );
+    // 添加所有更改（忽略 .gitignore 的警告）
+    try {
+      await this.executor.executeCommand(
+        'git add -A',
+        worktreeInfo.worktreePath
+      );
+    } catch (error) {
+      // 如果 git add 失败，检查是否有文件被暂存
+      const stagedResult = await this.executor.executeCommand(
+        'git diff --cached --name-only',
+        worktreeInfo.worktreePath
+      );
+      
+      if (!stagedResult.stdout.trim()) {
+        console.log(`[WorktreeManager] 没有文件被暂存，跳过提交`);
+        return;
+      }
+    }
 
     // 提交
-    await this.executor.executeCommand(
-      `git commit -m "${message}"`,
-      worktreeInfo.worktreePath
-    );
-    console.log(`[WorktreeManager] 已提交更改: ${message}`);
+    try {
+      await this.executor.executeCommand(
+        `git commit -m "${message}"`,
+        worktreeInfo.worktreePath
+      );
+      console.log(`[WorktreeManager] 已提交更改: ${message}`);
+    } catch (error) {
+      console.error(`[WorktreeManager] 提交失败:`, error);
+    }
   }
 
   /**
@@ -344,30 +361,215 @@ export class WorktreeManager {
       throw new Error(`创建分支失败: ${result.stderr}`);
     }
   }
-  async switchToMainBranch(userId: string): Promise<void> {
-    const worktreeInfo = await this.getWorktreeInfo(userId);
+  /**
+   * 同步主仓库最新代码到用户 worktree
+   */
+  async syncWithMainRepo(userId: string, projectId?: string): Promise<{
+    success: boolean;
+    updated: boolean;
+    conflicts?: string[];
+    error?: string;
+  }> {
+    try {
+      const worktreeInfo = await this.getWorktreeInfo(userId, projectId);
+      const worktreePath = worktreeInfo.worktreePath;
 
-    console.log(`[WorktreeManager] 切换到主分支: ${worktreeInfo.mainBranch}`);
+      console.log(`[WorktreeManager] 同步主仓库代码到用户 worktree: ${userId}`);
 
-    // 丢弃所有变更
-    const resetResult = await this.executor.executeCommand(
-      'git reset --hard',
-      worktreeInfo.worktreePath
-    );
-    if (resetResult.exitCode !== 0) {
-      throw new Error(`丢弃变更失败: ${resetResult.stderr}`);
+      // 1. 在主仓库中拉取最新代码
+      console.log(`[WorktreeManager] 拉取主仓库最新代码...`);
+      const fetchResult = await this.executor.executeCommand(
+        'git fetch origin',
+        this.baseRepoPath
+      );
+
+      if (fetchResult.exitCode !== 0) {
+        return {
+          success: false,
+          updated: false,
+          error: `拉取主仓库失败: ${fetchResult.stderr}`
+        };
+      }
+
+      // 2. 获取主分支最新 commit
+      const mainBranch = worktreeInfo.mainBranch.startsWith('temp-worktree-') 
+        ? 'master' // 如果是临时分支，使用 master 作为上游
+        : worktreeInfo.mainBranch;
+
+      const latestCommitResult = await this.executor.executeCommand(
+        `git rev-parse origin/${mainBranch}`,
+        this.baseRepoPath
+      );
+
+      if (latestCommitResult.exitCode !== 0) {
+        return {
+          success: false,
+          updated: false,
+          error: `获取主分支最新 commit 失败: ${latestCommitResult.stderr}`
+        };
+      }
+
+      const latestCommit = latestCommitResult.stdout.trim();
+
+      // 3. 检查 worktree 当前 commit
+      const currentCommitResult = await this.executor.executeCommand(
+        'git rev-parse HEAD',
+        worktreePath
+      );
+
+      const currentCommit = currentCommitResult.stdout.trim();
+
+      // 4. 如果已是最新，无需更新
+      if (currentCommit === latestCommit) {
+        console.log(`[WorktreeManager] Worktree 已是最新代码`);
+        return {
+          success: true,
+          updated: false
+        };
+      }
+
+      // 5. 检查是否有未提交的更改
+      const statusResult = await this.executor.executeCommand(
+        'git status --porcelain',
+        worktreePath
+      );
+
+      const hasUncommittedChanges = statusResult.stdout.trim().length > 0;
+
+      // 6. 如果有未提交更改，先 stash
+      if (hasUncommittedChanges) {
+        console.log(`[WorktreeManager] 检测到未提交更改，先进行 stash...`);
+        const stashResult = await this.executor.executeCommand(
+          'git stash push -m "auto-stash before sync"',
+          worktreePath
+        );
+
+        if (stashResult.exitCode !== 0) {
+          return {
+            success: false,
+            updated: false,
+            error: `Stash 失败: ${stashResult.stderr}`
+          };
+        }
+      }
+
+      // 7. 尝试合并最新代码
+      console.log(`[WorktreeManager] 合并主分支最新代码...`);
+      const mergeResult = await this.executor.executeCommand(
+        `git merge origin/${mainBranch} --no-edit`,
+        worktreePath
+      );
+
+      let conflicts: string[] = [];
+      let mergeSuccess = mergeResult.exitCode === 0;
+
+      // 8. 处理合并冲突
+      if (!mergeSuccess) {
+        console.log(`[WorktreeManager] 检测到合并冲突，获取冲突文件列表...`);
+        
+        const conflictResult = await this.executor.executeCommand(
+          'git diff --name-only --diff-filter=U',
+          worktreePath
+        );
+
+        if (conflictResult.exitCode === 0) {
+          conflicts = conflictResult.stdout.trim().split('\n').filter(f => f.length > 0);
+        }
+
+        // 取消合并，回到合并前状态
+        await this.executor.executeCommand(
+          'git merge --abort',
+          worktreePath
+        );
+      }
+
+      // 9. 恢复 stash（如果之前有 stash）
+      if (hasUncommittedChanges && mergeSuccess) {
+        console.log(`[WorktreeManager] 恢复之前的未提交更改...`);
+        const popResult = await this.executor.executeCommand(
+          'git stash pop',
+          worktreePath
+        );
+
+        if (popResult.exitCode !== 0) {
+          console.warn(`[WorktreeManager] 恢复 stash 失败，可能有冲突: ${popResult.stderr}`);
+        }
+      }
+
+      if (mergeSuccess) {
+        console.log(`[WorktreeManager] ✅ 代码同步成功`);
+        return {
+          success: true,
+          updated: true
+        };
+      } else {
+        console.log(`[WorktreeManager] ⚠️ 代码同步失败，存在冲突`);
+        return {
+          success: false,
+          updated: false,
+          conflicts,
+          error: `合并冲突，需要手动解决。冲突文件: ${conflicts.join(', ')}`
+        };
+      }
+
+    } catch (error) {
+      return {
+        success: false,
+        updated: false,
+        error: error instanceof Error ? error.message : String(error)
+      };
     }
+  }
 
-    // 切换到主分支
-    const checkoutResult = await this.executor.executeCommand(
-      `git checkout ${worktreeInfo.mainBranch}`,
-      worktreeInfo.worktreePath
-    );
-    if (checkoutResult.exitCode !== 0) {
-      throw new Error(`切换分支失败: ${checkoutResult.stderr}`);
+  /**
+   * 强制重置 worktree 到主分支最新状态（丢弃所有本地更改）
+   */
+  async resetToMainBranch(userId: string, projectId?: string): Promise<{
+    success: boolean;
+    error?: string;
+  }> {
+    try {
+      const worktreeInfo = await this.getWorktreeInfo(userId, projectId);
+      const worktreePath = worktreeInfo.worktreePath;
+
+      console.log(`[WorktreeManager] 强制重置 worktree 到主分支最新状态: ${userId}`);
+
+      // 1. 拉取最新代码
+      await this.executor.executeCommand('git fetch origin', this.baseRepoPath);
+
+      // 2. 获取主分支名
+      const mainBranch = worktreeInfo.mainBranch.startsWith('temp-worktree-') 
+        ? 'master' 
+        : worktreeInfo.mainBranch;
+
+      // 3. 强制重置到远程主分支
+      const resetResult = await this.executor.executeCommand(
+        `git reset --hard origin/${mainBranch}`,
+        worktreePath
+      );
+
+      if (resetResult.exitCode !== 0) {
+        return {
+          success: false,
+          error: `重置失败: ${resetResult.stderr}`
+        };
+      }
+
+      // 4. 清理未跟踪的文件
+      await this.executor.executeCommand(
+        'git clean -fd',
+        worktreePath
+      );
+
+      console.log(`[WorktreeManager] ✅ Worktree 已重置到最新状态`);
+      return { success: true };
+
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error)
+      };
     }
-
-    console.log(`[WorktreeManager] ✅ 已切换到主分支`);
   }
 
   /**

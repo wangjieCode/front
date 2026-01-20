@@ -1,5 +1,15 @@
 // 对话相关的前端类型定义
 
+export interface ParsedContent {
+  type: 'text' | 'tool_use' | 'tool_result' | 'thinking';
+  text?: string;
+  toolName?: string;
+  toolInput?: any;
+  toolDescription?: string;
+  toolResult?: any;
+  toolCallId?: string;
+}
+
 export enum ConversationMode {
   EDIT = 'edit',
   READONLY = 'readonly',
@@ -60,15 +70,27 @@ export interface MessageMetadata {
   };
 }
 
+export interface ParsedContent {
+  type: 'text' | 'tool_use' | 'tool_result' | 'thinking';
+  text?: string;
+  toolName?: string;
+  toolInput?: any;
+  toolDescription?: string;
+  toolResult?: any;
+  toolCallId?: string;
+}
+
 export interface ConversationMessage {
   id: string;
   sessionId: string;
+  branchId?: string;
   role: MessageRole;
   content: string;
   metadata?: MessageMetadata;
   timestamp: string;
   parentMessageId?: string;
   isStreaming?: boolean;
+  parsedContents?: ParsedContent[];
 }
 
 export interface ProjectInfo {

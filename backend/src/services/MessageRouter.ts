@@ -24,7 +24,8 @@ export class MessageRouter {
   async handleUserMessage(
     sessionId: string,
     content: string,
-    existingSession?: any // 可选的已存在会话对象，避免重复查询
+    existingSession?: any, // 可选的已存在会话对象，避免重复查询
+    asyncSave: boolean = false // 是否异步保存
   ): Promise<void> {
     const session = existingSession || await this.conversationManager.getSession(sessionId);
     if (!session) {
@@ -39,13 +40,14 @@ export class MessageRouter {
       );
     }
 
-    // 添加用户消息（传递已存在的会话对象）
+    // 添加用户消息（传递已存在的会话对象和异步保存标志）
     await this.conversationManager.addMessage(
       sessionId,
       MessageRole.USER,
       content,
       undefined,
-      session
+      session,
+      asyncSave
     );
 
     // 如果有等待的响应,解决它

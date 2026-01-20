@@ -6,6 +6,8 @@ import {
   FileTextOutlined,
   DeleteOutlined,
   QuestionCircleOutlined,
+  ThunderboltOutlined,
+  CheckCircleOutlined,
 } from '@ant-design/icons';
 import ReactMarkdown from 'react-markdown';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
@@ -14,7 +16,9 @@ import {
   ConversationMessage,
   MessageRole,
   CodeChange,
+  ParsedContent,
 } from '../types/conversation';
+import { parseNeovateStreamJsonStructured, isStreamJsonFormat } from '../utils/neovateParser';
 
 const { Panel } = Collapse;
 
@@ -31,6 +35,8 @@ const MessageList: React.FC<MessageListProps> = ({
   messages,
   onMessageClick,
 }) => {
+  // 打字机效果状态：messageId -> 当前显示的字符数
+  const [typingProgress, setTypingProgress] = React.useState<Map<string, number>>(new Map());
 
   // 添加打字机光标动画样式
   React.useEffect(() => {
@@ -48,6 +54,53 @@ const MessageList: React.FC<MessageListProps> = ({
     };
   }, []);
 
+  // 打字机效果
+  React.useEffect(() => {
+    const intervals: ReturnType<typeof setInterval>[] = [];
+
+    messages.forEach(message => {
+      // 只对流式 AI 消息应用打字机效果
+      if (message.role === MessageRole.ASSISTANT && (message as any).isStreaming) {
+        const fullText = extractTextContent(message);
+        const currentProgress = typingProgress.get(message.id) || 0;
+
+        if (currentProgress < fullText.length) {
+          const interval = setInterval(() => {
+            setTypingProgress(prev => {
+              const newMap = new Map(prev);
+              const current = newMap.get(message.id) || 0;
+              
+              if (current < fullText.length) {
+                // 每次增加 2-5 个字符，模拟打字速度
+                newMap.set(message.id, Math.min(current + Math.floor(Math.random() * 3) + 2, fullText.length));
+              }
+              
+              return newMap;
+            });
+          }, 30); // 30ms 间隔
+
+          intervals.push(interval);
+        }
+      }
+    });
+
+    return () => {
+      intervals.forEach(interval => clearInterval(interval));
+    };
+  }, [messages, typingProgress]);
+
+  // 清理已完成消息的打字机状态
+  React.useEffect(() => {
+    setTypingProgress(prev => {
+      const newMap = new Map(prev);
+      messages.forEach(message => {
+        if (!(message as any).isStreaming) {
+          newMap.delete(message.id);
+        }
+      });
+      return newMap;
+    });
+  }, [messages]);
 
   /**
    * 获取代码变更图标
@@ -162,72 +215,151 @@ const MessageList: React.FC<MessageListProps> = ({
   };
 
   /**
-   * 解析 AI 消息内容（处理 stream-json 格式）
+   * 渲染工具调用卡片
    */
-  const parseAIContent = (content: string): string => {
-    let allText = '';
-
-    // 先尝试直接解析整个内容（可能是完整的 JSON 数组）
-    try {
-      const fullParsed = JSON.parse(content);
-
-      if (Array.isArray(fullParsed)) {
-        // 收集所有 assistant 消息的 text 字段
-        for (const item of fullParsed) {
-          if (item.role === 'assistant' && item.text) {
-            allText += item.text;
-          }
-          // 兼容旧格式：type: "result"
-          if (item.type === 'result' && item.content) {
-            allText += item.content;
-          }
-        }
-
-        if (allText) {
-          return allText;
-        }
-      }
-    } catch (e) {
-      // 不是完整的 JSON，尝试按行解析
-      try {
-        const lines = content.trim().split('\n').filter(line => line.trim());
-
-        // 收集所有消息
-        for (const line of lines) {
-          try {
-            const parsed = JSON.parse(line);
-
-            // 处理数组格式：[{...}]
-            if (Array.isArray(parsed)) {
-              for (const item of parsed) {
-                if (item.role === 'assistant' && item.text) {
-                  allText += item.text;
-                }
-                if (item.type === 'result' && item.content) {
-                  allText += item.content;
-                }
-              }
+  const renderToolUse = (content: ParsedContent, index: number) => {
+    return (
+      <Card
+        key={`tool-use-${index}`}
+        size="small"
+        style={{
+          marginTop: 8,
+          background: '#fafafa',
+          border: '1px solid #e8e8e8',
+        }}
+        bodyStyle={{ padding: 0 }}
+      >
+        <Collapse ghost>
+          <Panel
+            key="1"
+            header={
+              <span style={{ fontSize: 13 }}>
+                <ThunderboltOutlined style={{ color: '#8c8c8c', marginRight: 6 }} />
+                <span style={{ color: '#595959', fontWeight: 500 }}>
+                  {content.toolName}
+                </span>
+                {content.toolDescription && (
+                  <span style={{ marginLeft: 8, fontSize: 12, color: '#8c8c8c' }}>
+                    {content.toolDescription}
+                  </span>
+                )}
+              </span>
             }
-            // 处理对象格式：{...}
-            else if (parsed.type === 'result' && parsed.content) {
-              allText += parsed.content;
-            } else if (parsed.role === 'assistant' && parsed.text) {
-              allText += parsed.text;
-            }
-          } catch (e2) {
-            // 跳过无法解析的行
-          }
-        }
+          >
+            {content.toolInput && (
+              <SyntaxHighlighter
+                language="json"
+                style={vscDarkPlus as any}
+                customStyle={{
+                  margin: 0,
+                  borderRadius: 4,
+                  fontSize: 12,
+                }}
+              >
+                {JSON.stringify(content.toolInput, null, 2)}
+              </SyntaxHighlighter>
+            )}
+          </Panel>
+        </Collapse>
+      </Card>
+    );
+  };
 
-        if (allText) {
-          return allText;
-        }
-      } catch (e2) {
-        // 解析失败，返回原始内容
+  /**
+   * 渲染工具结果卡片
+   */
+  const renderToolResult = (content: ParsedContent, index: number) => {
+    const resultStr = typeof content.toolResult === 'string' 
+      ? content.toolResult 
+      : JSON.stringify(content.toolResult, null, 2);
+
+    return (
+      <Card
+        key={`tool-result-${index}`}
+        size="small"
+        style={{
+          marginTop: 8,
+          background: '#fafafa',
+          border: '1px solid #e8e8e8',
+        }}
+        bodyStyle={{ padding: 0 }}
+      >
+        <Collapse ghost>
+          <Panel
+            key="1"
+            header={
+              <span style={{ fontSize: 13 }}>
+                <CheckCircleOutlined style={{ color: '#52c41a', marginRight: 6 }} />
+                <span style={{ color: '#595959', fontWeight: 500 }}>
+                  {content.toolName}
+                </span>
+                <Tag 
+                  color="success" 
+                  style={{ 
+                    marginLeft: 8, 
+                    fontSize: 11,
+                    padding: '0 6px',
+                    lineHeight: '18px',
+                  }}
+                >
+                  完成
+                </Tag>
+              </span>
+            }
+          >
+            <SyntaxHighlighter
+              language="bash"
+              style={vscDarkPlus as any}
+              customStyle={{
+                margin: 0,
+                borderRadius: 4,
+                fontSize: 12,
+              }}
+            >
+              {resultStr}
+            </SyntaxHighlighter>
+          </Panel>
+        </Collapse>
+      </Card>
+    );
+  };
+
+  /**
+   * 渲染结构化内容
+   */
+  const renderStructuredContent = (parsedContents: ParsedContent[]) => {
+    return parsedContents.map((content, index) => {
+      if (content.type === 'tool_use') {
+        return renderToolUse(content, index);
+      } else if (content.type === 'tool_result') {
+        return renderToolResult(content, index);
       }
+      return null;
+    });
+  };
+
+  /**
+   * 提取文本内容
+   */
+  const extractTextContent = (message: ConversationMessage): string => {
+    // 优先使用 parsedContents
+    if (message.parsedContents && message.parsedContents.length > 0) {
+      return message.parsedContents
+        .filter(c => c.type === 'text')
+        .map(c => c.text)
+        .join('');
     }
 
-    return content;
+    // 回退到解析 content
+    if (isStreamJsonFormat(message.content)) {
+      const parsed = parseNeovateStreamJsonStructured(message.content);
+      return parsed
+        .filter(c => c.type === 'text')
+        .map(c => c.text)
+        .join('');
+    }
+
+    return message.content;
   };
 
   /**
@@ -237,10 +369,22 @@ const MessageList: React.FC<MessageListProps> = ({
     const isUser = message.role === MessageRole.USER;
     const isSystem = message.role === MessageRole.SYSTEM;
 
-    // 解析 AI 消息内容
-    const displayContent = !isUser && !isSystem
-      ? parseAIContent(message.content)
+    // 提取文本内容
+    let displayContent = !isUser && !isSystem
+      ? extractTextContent(message)
       : message.content;
+
+    // 应用打字机效果
+    if (!isUser && !isSystem && (message as any).isStreaming) {
+      const progress = typingProgress.get(message.id) || 0;
+      displayContent = displayContent.substring(0, progress);
+    }
+
+    // 获取结构化内容（工具调用和结果）
+    const structuredContents = !isUser && !isSystem
+      ? (message.parsedContents || 
+         (isStreamJsonFormat(message.content) ? parseNeovateStreamJsonStructured(message.content) : []))
+      : [];
 
     return (
       <div
@@ -285,14 +429,21 @@ const MessageList: React.FC<MessageListProps> = ({
             cursor: onMessageClick ? 'pointer' : 'default',
           }}
         >
+          {/* 思维链展示 - 工具调用和结果 */}
+          {!isUser && !isSystem && structuredContents.length > 0 && (
+            <div style={{ marginBottom: displayContent ? 12 : 0 }}>
+              {renderStructuredContent(structuredContents)}
+            </div>
+          )}
+
           {/* 消息内容 - 使用 Markdown 渲染 */}
           <div className="message-content">
-            {!isUser && !isSystem && !displayContent ? (
+            {!isUser && !isSystem && !displayContent && structuredContents.length === 0 ? (
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#999' }}>
                 <Spin size="small" />
                 <span>思考中...</span>
               </div>
-            ) : (
+            ) : displayContent ? (
               <>
                 <ReactMarkdown
                   components={{
@@ -361,7 +512,7 @@ const MessageList: React.FC<MessageListProps> = ({
                   />
                 )}
               </>
-            )}
+            ) : null}
           </div>
 
           {/* 代码变更展示 */}
