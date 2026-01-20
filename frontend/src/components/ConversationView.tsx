@@ -318,7 +318,10 @@ const ConversationView: React.FC<ConversationViewProps> = ({
    */
   const handlePreview = async () => {
     if (!sessionId) return;
-
+    if(!session?.projectName?.includes('boss')) {
+      message.error('当前项目不支持预览');
+      return
+    }
     // 如果已经有预览，直接打开
     if (session?.context?.previewInfo?.status === PreviewStatus.RUNNING && session?.context?.previewInfo?.url) {
       window.open(session.context.previewInfo.url, '_blank');
