@@ -27,11 +27,8 @@ export enum OperationType {
 }
 
 export enum ConversationStatus {
-  PLANNING = 'planning',
-  EXECUTING = 'executing',
-  PAUSED = 'paused',
-  COMPLETED = 'completed',
-  FAILED = 'failed',
+  ACTIVE = 'active',        // 活跃中 - 可以对话、发送消息、预览等
+  ARCHIVED = 'archived',    // 已归档 - 只读，禁用所有编辑功能
 }
 
 export enum MessageRole {

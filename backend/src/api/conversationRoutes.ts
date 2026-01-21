@@ -48,9 +48,7 @@ export function createConversationRoutes(
       let project;
       // 验证项目是否存在
       try {
-        // console.log('[API] 验证项目:', projectId, '用户:', req.userId);
         const projectResult = await projectService.getProject(projectId, req.userId!);
-        // console.log('[API] 项目验证结果:', projectResult);
         if (!projectResult.success || !projectResult.project) {
           return res.status(404).json({
             success: false,
@@ -60,24 +58,23 @@ export function createConversationRoutes(
         project = projectResult.project;
       } catch (error) {
         console.error('[API] 验证项目失败:', error);
-        console.error('[API] 错误堆栈:', error instanceof Error ? error.stack : error);
         return res.status(500).json({
           success: false,
           error: `验证项目失败: ${error instanceof Error ? error.message : String(error)}`,
         });
       }
 
-      // 构建完整的 projectInfo，传递给 ConversationManager 以减少数据库查询
+      // 构建完整的 projectInfo
       const projectInfo = {
         projectId,
         projectName: project.name,
         gitRepositoryUrl: project.gitRepositoryUrl,
         workDir: project.workDirectory || project.repoDir,
         gitBranch: project.gitBranch || 'master',
-        relevantFiles: [], // 初始化为空数组
+        relevantFiles: [],
       };
 
-      // 验证 mode 参数（如果提供）
+      // 验证 mode 参数
       if (mode && mode !== 'edit' && mode !== 'readonly') {
         return res.status(400).json({
           success: false,
@@ -100,7 +97,7 @@ export function createConversationRoutes(
 
         // 立即生成AI回复
         console.log('[API] 开始生成AI回复...');
-        await conversationManager.updateSessionStatus(session.id, ConversationStatus.EXECUTING);
+        // 简化状态模型下，不需要更新为 EXECUTING 状态
 
         const updatedSession = await conversationManager.getSession(session.id);
         if (updatedSession) {
@@ -112,10 +109,10 @@ export function createConversationRoutes(
 
           // 直接保存原始内容，不解析
           await messageRouter.handleAIResponse(session.id, aiResponse);
-          await conversationManager.updateSessionStatus(session.id, ConversationStatus.COMPLETED);
+          // 简化状态模型下，不需要更新为 COMPLETED 状态
         }
 
-        // 获取最新的会话数据（包含刚生成的消息）
+        // 获取最新的会话数据
         const finalSession = await conversationManager.getSession(session.id);
 
         res.status(201).json({
@@ -124,13 +121,7 @@ export function createConversationRoutes(
         });
       } catch (messageError) {
         console.error('[API] 发送第一条消息或生成AI回复失败:', messageError);
-        await conversationManager.updateSessionStatus(
-          session.id,
-          ConversationStatus.FAILED,
-          messageError instanceof Error ? messageError.message : String(messageError)
-        );
-        // 即使失败也返回会话，但状态是 FAILED
-        // 获取最新的会话数据
+        // 简化状态模型下，错误不更新状态，只记录错误信息
         const finalSession = await conversationManager.getSession(session.id);
         res.status(201).json({
           success: true,
@@ -147,17 +138,14 @@ export function createConversationRoutes(
 
   /**
    * GET /api/conversations
-   * 获取所有对话会话列表（简化版）
+   * 获取所有对话会话列表
    */
   router.get('/', requireAuth, async (req: AuthRequest, res: Response) => {
     try {
       const sessions = await conversationManager.listSessions();
-      // 转换为简化版响应
       const simplifiedSessions = sessions.map(session => {
-        // 使用 taskDescription 作为对话概览
         const overview = session.context.taskDescription;
 
-        // 确保项目信息正确
         const projectInfo = {
           projectId: session.context.projectInfo.projectId,
           projectName: session.context.projectInfo.projectName,
@@ -226,7 +214,6 @@ export function createConversationRoutes(
     try {
       const { sessionId } = req.params;
 
-      // 验证会话是否存在
       const session = await conversationManager.getSession(sessionId);
       if (!session) {
         return res.status(404).json({
@@ -235,7 +222,6 @@ export function createConversationRoutes(
         });
       }
 
-      // 获取消息历史
       const messages = await conversationManager.getMessageHistory(sessionId);
 
       res.json({
@@ -271,7 +257,6 @@ export function createConversationRoutes(
         });
       }
 
-      // 步骤1: 获取会话
       const step1Start = Date.now();
       const session = await conversationManager.getSession(sessionId);
       const step1Time = Date.now() - step1Start;
@@ -284,7 +269,14 @@ export function createConversationRoutes(
         });
       }
 
-      // 步骤2: 设置 SSE 响应头
+      // 检查会话是否已归档
+      if (session.status === ConversationStatus.ARCHIVED) {
+        return res.status(403).json({
+          success: false,
+          error: '已归档的对话不能发送消息',
+        });
+      }
+
       const step2Start = Date.now();
       res.setHeader('Content-Type', 'text/event-stream');
       res.setHeader('Cache-Control', 'no-cache');
@@ -296,14 +288,11 @@ export function createConversationRoutes(
       const step2Time = Date.now() - step2Start;
       console.log(`[conversationRoutes] 步骤2: SSE 响应头设置完成，耗时 ${step2Time}ms`);
 
-      // 步骤3: 异步处理用户消息和AI响应
       const step3Start = Date.now();
       console.log(`[conversationRoutes] 步骤3: 开始异步处理...`);
 
-      // 异步处理
       (async () => {
         try {
-          // 3a: 异步保存用户消息（不阻塞）
           const step3aStart = Date.now();
           messageRouter.handleUserMessage(sessionId, content, session, true).catch(error => {
             console.error(`[conversationRoutes] 异步保存用户消息失败:`, error);
@@ -311,7 +300,6 @@ export function createConversationRoutes(
           const step3aTime = Date.now() - step3aStart;
           console.log(`[conversationRoutes] 步骤3a: 用户消息异步保存启动，耗时 ${step3aTime}ms`);
 
-          // 3b: 流式生成 AI 响应
           const step3bStart = Date.now();
           console.log(`[conversationRoutes] 步骤3b: 开始流式生成 AI 响应...`);
 
@@ -322,7 +310,6 @@ export function createConversationRoutes(
             content,
             sessionId,
             (chunk: string) => {
-              // 实时发送数据块到前端
               fullContent += chunk;
               res.write(`data: ${JSON.stringify({ type: 'chunk', content: chunk })}\n\n`);
             }
@@ -331,7 +318,6 @@ export function createConversationRoutes(
           const step3bTime = Date.now() - step3bStart;
           console.log(`[conversationRoutes] 步骤3b: AI 响应生成完成，耗时 ${step3bTime}ms`);
 
-          // 3c: 异步保存 AI 响应
           const parsedAiResponse = {
             ...aiResponse,
             content: fullContent || aiResponse.content
@@ -373,7 +359,6 @@ export function createConversationRoutes(
     try {
       const { sessionId } = req.params;
 
-      // 验证会话是否存在
       const session = await conversationManager.getSession(sessionId);
       if (!session) {
         return res.status(404).json({
@@ -382,7 +367,6 @@ export function createConversationRoutes(
         });
       }
 
-      // 验证用户权限（只有会话创建者可以删除）
       if (session.userId !== req.userId) {
         return res.status(403).json({
           success: false,
@@ -390,7 +374,6 @@ export function createConversationRoutes(
         });
       }
 
-      // 删除会话
       await conversationManager.deleteSession(sessionId);
 
       res.json({
@@ -436,6 +419,49 @@ export function createConversationRoutes(
       });
     }
   });
+
+  /**
+   * POST /api/conversations/:sessionId/archive
+   * 归档对话（禁用所有编辑功能，便于清理 worktree）
+   */
+  router.post('/:sessionId/archive', requireAuth, async (req: AuthRequest, res: Response) => {
+    try {
+      const { sessionId } = req.params;
+      const { reason } = req.body;
+
+      const session = await conversationManager.getSession(sessionId);
+      if (!session) {
+        return res.status(404).json({
+          success: false,
+          error: '会话不存在',
+        });
+      }
+
+      if (session.userId !== req.userId) {
+        return res.status(403).json({
+          success: false,
+          error: '无权限归档该会话',
+        });
+      }
+
+      await conversationManager.updateSessionStatus(
+        sessionId,
+        ConversationStatus.ARCHIVED,
+        reason || '用户手动归档'
+      );
+
+      res.json({
+        success: true,
+        message: '对话已归档',
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : '归档对话失败',
+      });
+    }
+  });
+
 
   return router;
 }

@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Spin, Typography, Button, Input, message, Modal, Descriptions, Tag } from 'antd';
-import { ThunderboltOutlined, SendOutlined, RocketOutlined, CheckOutlined, WarningOutlined, StopOutlined, GitlabOutlined, ClockCircleOutlined, LinkOutlined } from '@ant-design/icons';
+import { ThunderboltOutlined, SendOutlined, RocketOutlined, CheckOutlined, WarningOutlined, StopOutlined, GitlabOutlined, ClockCircleOutlined, LinkOutlined, LockOutlined, InboxOutlined } from '@ant-design/icons';
 import ModeSelector from './ModeSelector';
 import ProjectSelector from './ProjectSelector';
 import {
   ConversationSession,
   ConversationMessage,
   ConversationMode,
+  ConversationStatus,
   PreviewStatus,
 } from '../types/conversation';
 import MessageInput from './MessageInput';
@@ -118,6 +119,9 @@ const ConversationView: React.FC<ConversationViewProps> = ({
     scrollToBottom();
   }, [messages]);
 
+  // 检查对话是否已归档
+  const isArchived = session?.status === ConversationStatus.ARCHIVED;
+
   const loadSession = async () => {
     if (!sessionId) return;
     try {
@@ -148,6 +152,13 @@ const ConversationView: React.FC<ConversationViewProps> = ({
 
   const handleSendMessage = async (content: string) => {
     if (!sessionId) return;
+    
+    // 检查是否已归档
+    if (isArchived) {
+      message.error('已归档的对话不能发送消息');
+      return;
+    }
+    
     setSending(true);
 
     // 立即添加用户消息到界面
@@ -318,7 +329,14 @@ const ConversationView: React.FC<ConversationViewProps> = ({
    */
   const handlePreview = async () => {
     if (!sessionId) return;
-    if(!session?.projectName?.includes('boss')) {
+    
+    // 检查是否已归档
+    if (isArchived) {
+      message.error('已归档的对话不能预览');
+      return;
+    }
+    
+    if(!session?.context?.projectInfo?.projectName?.includes('boss')) {
       message.error('当前项目不支持预览');
       return
     }
@@ -401,6 +419,12 @@ const ConversationView: React.FC<ConversationViewProps> = ({
    */
   const handleCreateMR = async () => {
     if (!sessionId) return;
+    
+    // 检查是否已归档
+    if (isArchived) {
+      message.error('已归档的对话不能创建 MR');
+      return;
+    }
 
     setCreatingMR(true);
     try {
@@ -414,6 +438,29 @@ const ConversationView: React.FC<ConversationViewProps> = ({
     } finally {
       setCreatingMR(false);
     }
+  };
+
+  /**
+   * 归档对话
+   */
+  const handleArchive = async () => {
+    if (!sessionId) return;
+
+    Modal.confirm({
+      title: '确认归档对话？',
+      content: '归档后将无法发送消息、创建 MR 或预览项目。此操作不可逆，归档后无法恢复。',
+      okText: '确认归档',
+      cancelText: '取消',
+      onOk: async () => {
+        try {
+          await conversationService.archiveConversation(sessionId);
+          message.success('对话已归档');
+          await loadSession();
+        } catch (error) {
+          message.error('归档失败: ' + (error instanceof Error ? error.message : '未知错误'));
+        }
+      },
+    });
   };
 
   /**
@@ -671,8 +718,9 @@ const ConversationView: React.FC<ConversationViewProps> = ({
         }}>
           <MessageInput
             sessionId={sessionId}
-            disabled={sending}
+            disabled={sending || isArchived}
             onSend={handleSendMessage}
+            placeholder={isArchived ? '已归档的对话不能发送消息' : undefined}
           />
         </div>
       </div>
@@ -708,8 +756,15 @@ const ConversationView: React.FC<ConversationViewProps> = ({
                 {initialPrompt || '对话会话'}
               </span>
 
+              {/* 状态徽章 */}
+              {isArchived && (
+                <Tag icon={<LockOutlined />} color="default" style={{ marginLeft: 8 }}>
+                  已归档
+                </Tag>
+              )}
+
               {(session.context?.mode || mode) === ConversationMode.EDIT && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginTop: 8 }}>
                   {/* 项目名称 */}
                   {session.context?.projectInfo?.workDir && (
                     <div style={{
@@ -790,6 +845,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
                         icon={<GitlabOutlined />}
                         onClick={handleCreateMR}
                         loading={creatingMR}
+                        disabled={isArchived}
                         style={{
                           fontSize: 12,
                           height: 26,
@@ -813,7 +869,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
                         size="small"
                         icon={buttonProps.icon}
                         onClick={buttonProps.onClick || handlePreview}
-                        disabled={buttonProps.disabled}
+                        disabled={buttonProps.disabled || isArchived}
                         style={{
                           fontSize: 12,
                           height: 26,
@@ -866,9 +922,36 @@ const ConversationView: React.FC<ConversationViewProps> = ({
                       </Button>
                     </>
                   )}
+
+                  {/* 归档按钮 - 仅在 EDIT 模式且未归档时显示 */}
+                  {!isArchived && (
+                    <Button
+                      size="small"
+                      icon={<InboxOutlined />}
+                      onClick={handleArchive}
+                      danger // 使用 danger 样式提示这是个重要操作
+                      ghost  // 使用 ghost 样式减少视觉干扰
+                      style={{
+                        fontSize: 12,
+                        height: 26,
+                        padding: '0 10px',
+                        borderRadius: 6,
+                        fontWeight: 500,
+                        opacity: 0.6, // 默认稍微淡一点
+                      }}
+                      onMouseEnter={(e) => { e.currentTarget.style.opacity = '1'; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.opacity = '0.6'; }}
+                    >
+                      归档
+                    </Button>
+                  )}
                 </div>
               )}
             </div>
+            
+            {(session.context?.mode || mode) === ConversationMode.READONLY && (
+              <Tag color="blue">只读模式</Tag>
+            )}
           </div>
         </div>
       )}

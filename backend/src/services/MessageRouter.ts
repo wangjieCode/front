@@ -19,7 +19,7 @@ export class MessageRouter {
   }
 
   /**
-   * 处理用户消息（优化版本，减少数据库查询）
+   * 处理用户消息（简化版本）
    */
   async handleUserMessage(
     sessionId: string,
@@ -32,15 +32,12 @@ export class MessageRouter {
       throw new Error(`会话不存在: ${sessionId}`);
     }
 
-    // 如果会话正在执行中,先暂停
-    if (session.status === ConversationStatus.EXECUTING) {
-      await this.conversationManager.updateSessionStatus(
-        sessionId,
-        ConversationStatus.PAUSED
-      );
+    // 检查会话是否已归档
+    if (session.status === ConversationStatus.ARCHIVED) {
+      throw new Error('已归档的对话不能发送消息');
     }
 
-    // 添加用户消息（传递已存在的会话对象和异步保存标志）
+    // 添加用户消息
     await this.conversationManager.addMessage(
       sessionId,
       MessageRole.USER,
@@ -59,19 +56,24 @@ export class MessageRouter {
   }
 
   /**
-   * 处理 AI 响应（优化版本，减少数据库查询）
+   * 处理 AI 响应（简化版本）
    */
   async handleAIResponse(
     sessionId: string,
     response: AIResponse,
-    existingSession?: any // 可选的已存在会话对象，避免重复查询
+    existingSession?: any
   ): Promise<void> {
     const session = existingSession || await this.conversationManager.getSession(sessionId);
     if (!session) {
       throw new Error(`会话不存在: ${sessionId}`);
     }
 
-    // 添加 AI 消息（传递已存在的会话对象）
+    // 检查会话是否已归档
+    if (session.status === ConversationStatus.ARCHIVED) {
+      throw new Error('已归档的对话不能生成响应');
+    }
+
+    // 添加 AI 消息
     await this.conversationManager.addMessage(
       sessionId,
       MessageRole.ASSISTANT,
@@ -81,18 +83,12 @@ export class MessageRouter {
     );
 
     // Git 信息回写逻辑已移除，MR 创建作为独立操作处理
-
-    // 如果 AI 需要暂停等待用户输入，且当前不是暂停状态
-    if (response.shouldPause && session.status !== ConversationStatus.PAUSED) {
-      await this.conversationManager.updateSessionStatus(
-        sessionId,
-        ConversationStatus.PAUSED
-      );
-    }
+    // 简化状态模型下，不再需要 shouldPause 逻辑
   }
 
   /**
-   * 暂停执行等待用户输入
+   * 暂停执行等待用户输入（简化版本）
+   * 注意：简化状态模型下，此方法主要用于创建询问消息
    */
   async pauseForUserInput(
     sessionId: string,
@@ -102,6 +98,11 @@ export class MessageRouter {
     const session = await this.conversationManager.getSession(sessionId);
     if (!session) {
       throw new Error(`会话不存在: ${sessionId}`);
+    }
+
+    // 检查会话是否已归档
+    if (session.status === ConversationStatus.ARCHIVED) {
+      throw new Error('已归档的对话不能询问');
     }
 
     // 创建询问消息的元数据
@@ -119,12 +120,6 @@ export class MessageRouter {
       metadata
     );
 
-    // 更新状态为暂停
-    await this.conversationManager.updateSessionStatus(
-      sessionId,
-      ConversationStatus.PAUSED
-    );
-
     // 等待用户响应
     return new Promise<string>((resolve) => {
       this.pendingResponses.set(sessionId, resolve);
@@ -132,7 +127,8 @@ export class MessageRouter {
   }
 
   /**
-   * 恢复执行
+   * 恢复执行（简化版本）
+   * 注意：简化状态模型下，此方法主要用于添加用户响应
    */
   async resumeExecution(
     sessionId: string,
@@ -143,9 +139,9 @@ export class MessageRouter {
       throw new Error(`会话不存在: ${sessionId}`);
     }
 
-    // 验证会话处于暂停状态
-    if (session.status !== ConversationStatus.PAUSED) {
-      throw new Error(`会话不在暂停状态: ${session.status}`);
+    // 检查会话是否已归档
+    if (session.status === ConversationStatus.ARCHIVED) {
+      throw new Error('已归档的对话不能恢复执行');
     }
 
     // 添加用户响应
@@ -168,16 +164,10 @@ export class MessageRouter {
         userResponse
       );
     }
-
-    // 恢复执行状态
-    await this.conversationManager.updateSessionStatus(
-      sessionId,
-      ConversationStatus.EXECUTING
-    );
   }
 
   /**
-   * 检查会话是否在等待用户输入
+   * 检查会话是否在等待用户输入（简化版本）
    */
   async isWaitingForInput(sessionId: string): Promise<boolean> {
     const session = await this.conversationManager.getSession(sessionId);
@@ -185,7 +175,8 @@ export class MessageRouter {
       return false;
     }
 
-    if (session.status !== ConversationStatus.PAUSED) {
+    // 已归档的对话不等待输入
+    if (session.status === ConversationStatus.ARCHIVED) {
       return false;
     }
 

@@ -212,14 +212,11 @@ export enum OperationType {
 }
 
 /**
- * 对话会话状态枚举
+ * 对话会话状态枚举（简化版）
  */
 export enum ConversationStatus {
-  PLANNING = 'planning',       // 规划中
-  EXECUTING = 'executing',     // 执行中
-  PAUSED = 'paused',          // 已暂停
-  COMPLETED = 'completed',     // 已完成
-  FAILED = 'failed'           // 失败
+  ACTIVE = 'active',          // 活跃中 - 可以对话、发送消息、预览等
+  ARCHIVED = 'archived'       // 已归档 - 只读，禁用所有编辑功能，可清理 worktree
 }
 
 /**

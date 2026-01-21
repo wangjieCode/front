@@ -151,7 +151,7 @@ export class ConversationManager {
     const session: ConversationSession = {
       id: sessionId,
       userId,
-      status: ConversationStatus.PLANNING,
+      status: ConversationStatus.ACTIVE,  // 简化状态：创建时即为活跃状态
       context,
       createdAt: now,
       updatedAt: now,
@@ -246,37 +246,24 @@ export class ConversationManager {
         `${projectResult.project.workDirectory}/../worktrees`
       );
 
-      // 先尝试同步最新代码
-      console.log(`[ConversationManager] 同步主仓库最新代码...`);
-      const syncResult = await projectWorktreeManager.syncWithMainRepo(userId, this.getCurrentProjectId());
+      // 直接为对话创建独立的 worktree 和分支
+      // 新架构：每个对话一个独立的 worktree，无需同步和切换分支
+      console.log(`[ConversationManager] 为对话创建独立 worktree: ${sessionId}`);
       
-      if (syncResult.success && syncResult.updated) {
-        console.log(`[ConversationManager] ✅ 代码已同步到最新版本`);
-      } else if (!syncResult.success && syncResult.conflicts) {
-        console.warn(`[ConversationManager] ⚠️ 代码同步失败，存在冲突: ${syncResult.conflicts.join(', ')}`);
-        // 可以选择强制重置或提示用户
-        console.log(`[ConversationManager] 尝试强制重置到最新状态...`);
-        const resetResult = await projectWorktreeManager.resetToMainBranch(userId, this.getCurrentProjectId());
-        if (resetResult.success) {
-          console.log(`[ConversationManager] ✅ 已强制重置到最新状态`);
-        } else {
-          console.warn(`[ConversationManager] ⚠️ 强制重置也失败: ${resetResult.error}`);
-        }
-      }
-
-      const result = await projectWorktreeManager.createConversationBranch(
+      const worktreeInfo = await projectWorktreeManager.createConversationWorktree(
         userId,
         sessionId,
-        projectResult.project.gitBranch || defaultBranch,
-        this.getCurrentProjectId()
+        projectResult.project.gitBranch || defaultBranch
       );
 
-      console.log(`[ConversationManager] 对话分支已创建: ${result.branchName}`);
+      console.log(`[ConversationManager] ✅ 对话 worktree 创建成功`);
+      console.log(`[ConversationManager]    分支: ${worktreeInfo.branchName}`);
+      console.log(`[ConversationManager]    路径: ${worktreeInfo.worktreePath}`);
 
       return {
         success: true,
-        branchName: result.branchName,
-        worktreePath: result.worktreePath,
+        branchName: worktreeInfo.branchName,
+        worktreePath: worktreeInfo.worktreePath,
       };
     } catch (error) {
       return {
@@ -429,41 +416,32 @@ export class ConversationManager {
   }
 
   /**
-   * 验证状态转换是否合法
+   * 验证状态转换是否合法（简化版）
    */
   private isValidStatusTransition(
     currentStatus: ConversationStatus,
     newStatus: ConversationStatus
   ): boolean {
+    // 简化状态转换规则：单向流转，ACTIVE -> ARCHIVED，不可恢复
     const validTransitions: Record<ConversationStatus, ConversationStatus[]> = {
-      [ConversationStatus.PLANNING]: [
-        ConversationStatus.EXECUTING,
-        ConversationStatus.PAUSED,
-        ConversationStatus.FAILED,
+      [ConversationStatus.ACTIVE]: [
+        ConversationStatus.ARCHIVED,  // 活跃 -> 归档
       ],
-      [ConversationStatus.EXECUTING]: [
-        ConversationStatus.PAUSED,
-        ConversationStatus.COMPLETED,
-        ConversationStatus.FAILED,
+      [ConversationStatus.ARCHIVED]: [
+        // 已归档状态不可变
       ],
-      [ConversationStatus.PAUSED]: [
-        ConversationStatus.EXECUTING,
-        ConversationStatus.FAILED,
-      ],
-      [ConversationStatus.COMPLETED]: [],
-      [ConversationStatus.FAILED]: [],
     };
 
     return validTransitions[currentStatus]?.includes(newStatus) || false;
   }
 
   /**
-   * 更新会话状态
+   * 更新会话状态（简化版）
    */
   async updateSessionStatus(
     sessionId: string,
     newStatus: ConversationStatus,
-    error?: string
+    reason?: string  // 归档原因或错误信息
   ): Promise<void> {
     await this.acquireLock(sessionId);
 
@@ -482,17 +460,12 @@ export class ConversationManager {
       session.status = newStatus;
       session.updatedAt = new Date();
 
-      // 如果是终态,设置完成时间
-      if (
-        newStatus === ConversationStatus.COMPLETED ||
-        newStatus === ConversationStatus.FAILED
-      ) {
+      // 如果归档，设置完成时间和原因
+      if (newStatus === ConversationStatus.ARCHIVED) {
         session.completedAt = new Date();
-      }
-
-      // 如果是失败状态,记录错误信息
-      if (newStatus === ConversationStatus.FAILED && error) {
-        session.error = error;
+        if (reason) {
+          session.error = reason;  // 复用 error 字段存储归档原因
+        }
       }
 
       await this.storage.saveSession(session);
@@ -692,9 +665,9 @@ export class ConversationManager {
       // 1. 同步当前实际分支 & 确保 Worktree 存在
       if (projectWorktreeManager && session.userId) {
         try {
-          // 使用 getOrCreateWorktree 确保 worktree 存在
-          const worktreeInfo = await projectWorktreeManager.getOrCreateWorktree(session.userId, dbProjectId);
-          const actualBranch = worktreeInfo.mainBranch;
+          // 使用 getWorktreeInfo 获取对话 worktree 信息
+          const worktreeInfo = await projectWorktreeManager.getWorktreeInfo(session.userId, sessionId);
+          const actualBranch = worktreeInfo.branchName;
 
           if (actualBranch && actualBranch !== session.context.gitBranch) {
             console.log(`[ConversationManager] ⚠️ 检测到分支不一致，更新会话分支: ${session.context.gitBranch} -> ${actualBranch}`);
@@ -704,7 +677,7 @@ export class ConversationManager {
         } catch (syncError) {
           // 如果 worktree 不存在，这里会捕获到错误
           console.warn(`[ConversationManager] ⚠️ 无法同步 Worktree 分支信息:`, syncError);
-          // 如果是项目特定的 worktree 失败，且 dbProjectId 存在，说明可能路径有问题
+          // 如果是项目特定的 worktree 失败，说明可能路径有问题
           // 但我们不中断，尝试继续
         }
       }
@@ -723,13 +696,13 @@ export class ConversationManager {
           const featureBranchName = `auto-feature-${shortSessionId}-${timestamp}`;
           
           // a. 提交当前更改
-          await projectWorktreeManager.commitChanges(session.userId!, "Auto-commit before creating MR", dbProjectId);
+          await projectWorktreeManager.commitChanges(session.userId!, sessionId, "Auto-commit before creating MR");
           
-          // b. 从当前位置创建新分支
-          await projectWorktreeManager.createBranchFromHead(session.userId!, featureBranchName, dbProjectId);
+          // b. 从当前位置创建新分支（注意：新架构下不需要此步骤，因为每个对话已有独立分支）
+          // 这里我们直接使用当前分支，不再创建新分支
           
-          // c. 推送新分支
-          await projectWorktreeManager.pushBranch(session.userId!, featureBranchName, dbProjectId);
+          // c. 推送当前分支
+          await projectWorktreeManager.pushBranch(session.userId!, sessionId);
           
           // d. 更新上下文
           session.context.gitBranch = featureBranchName;
@@ -751,8 +724,8 @@ export class ConversationManager {
         try {
           console.log(`[ConversationManager] 正在提交并推送分支: ${session.context.gitBranch}`);
           
-          await projectWorktreeManager.commitChanges(session.userId, "Auto-commit before creating Merge Request", dbProjectId);
-          await projectWorktreeManager.pushBranch(session.userId, session.context.gitBranch, dbProjectId);
+          await projectWorktreeManager.commitChanges(session.userId, sessionId, "Auto-commit before creating Merge Request");
+          await projectWorktreeManager.pushBranch(session.userId, sessionId);
           
           console.log(`[ConversationManager] ✅ 分支推送成功`);
         } catch (gitError) {
