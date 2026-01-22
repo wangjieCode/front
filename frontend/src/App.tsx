@@ -41,8 +41,11 @@ const ChatRoute: React.FC<{
 
   return (
     <ConversationView
+      key={sessionId}
       sessionId={sessionId}
       initialSession={state?.session}
+      autoSend={state?.autoSend}
+      initialContent={state?.initialContent}
       onNewConversation={onNewConversation}
       mode={mode}
       onModeChange={onModeChange}
@@ -143,8 +146,14 @@ const AppContent: React.FC = () => {
       if (response.success) {
         // 刷新列表
         loadConversations();
-        // 跳转到新会话，通过 state 传递初始会话数据，避免前端再次请求可能出现的竞态条件
-        navigate(`/chat/${response.data.id}`, { state: { session: response.data } });
+        // 跳转到新会话，通过 state 传递初始会话数据和自动发送标记
+        navigate(`/chat/${response.data.id}`, { 
+          state: { 
+            session: response.data,
+            autoSend: true,
+            initialContent: promptText
+          } 
+        });
       }
     } catch (error) {
       console.error('创建对话失败:', error);

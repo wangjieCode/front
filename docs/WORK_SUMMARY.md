@@ -111,6 +111,12 @@ export enum ConversationStatus {
    - 记录归档原因和时间
    - **操作不可逆**
 
+2. **创建对话优化**
+   - 创建会话 API 不再耦合消息发送
+   - 创建后立即返回 sessionId
+   - 消息通过单独的流式接口发送
+   - 显著降低用户首屏等待时间
+
 3. **清理 Worktree**
    - 方法: `WorktreeManager.cleanupArchivedWorktrees()`
    - 批量清理归档对话的 worktree

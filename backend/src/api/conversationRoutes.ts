@@ -89,45 +89,12 @@ export function createConversationRoutes(
         req.userId!
       );
 
-      // 发送第一条用户消息并生成AI回复
-      try {
-        console.log('[API] 发送第一条用户消息:', initialPrompt.substring(0, 50) + '...');
-        await messageRouter.handleUserMessage(session.id, initialPrompt);
-        console.log('[API] 第一条用户消息发送成功');
+      
+      res.status(201).json({
+        success: true,
+        data: session,
+      });
 
-        // 立即生成AI回复
-        console.log('[API] 开始生成AI回复...');
-        // 简化状态模型下，不需要更新为 EXECUTING 状态
-
-        const updatedSession = await conversationManager.getSession(session.id);
-        if (updatedSession) {
-          const aiResponse = await aiService.generateResponse(
-            updatedSession.context,
-            initialPrompt,
-            session.id
-          );
-
-          // 直接保存原始内容，不解析
-          await messageRouter.handleAIResponse(session.id, aiResponse);
-          // 简化状态模型下，不需要更新为 COMPLETED 状态
-        }
-
-        // 获取最新的会话数据
-        const finalSession = await conversationManager.getSession(session.id);
-
-        res.status(201).json({
-          success: true,
-          data: finalSession || session,
-        });
-      } catch (messageError) {
-        console.error('[API] 发送第一条消息或生成AI回复失败:', messageError);
-        // 简化状态模型下，错误不更新状态，只记录错误信息
-        const finalSession = await conversationManager.getSession(session.id);
-        res.status(201).json({
-          success: true,
-          data: finalSession || session,
-        });
-      }
     } catch (error) {
       res.status(500).json({
         success: false,
@@ -367,12 +334,7 @@ export function createConversationRoutes(
         });
       }
 
-      if (session.userId !== req.userId) {
-        return res.status(403).json({
-          success: false,
-          error: '无权限删除该会话',
-        });
-      }
+
 
       await conversationManager.deleteSession(sessionId);
 
@@ -437,12 +399,7 @@ export function createConversationRoutes(
         });
       }
 
-      if (session.userId !== req.userId) {
-        return res.status(403).json({
-          success: false,
-          error: '无权限归档该会话',
-        });
-      }
+
 
       await conversationManager.updateSessionStatus(
         sessionId,

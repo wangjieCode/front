@@ -35,9 +35,6 @@ const MessageList: React.FC<MessageListProps> = ({
   messages,
   onMessageClick,
 }) => {
-  // 打字机效果状态：messageId -> 当前显示的字符数
-  const [typingProgress, setTypingProgress] = React.useState<Map<string, number>>(new Map());
-
   // 添加打字机光标动画样式
   React.useEffect(() => {
     const style = document.createElement('style');
@@ -53,54 +50,6 @@ const MessageList: React.FC<MessageListProps> = ({
       document.head.removeChild(style);
     };
   }, []);
-
-  // 打字机效果
-  React.useEffect(() => {
-    const intervals: ReturnType<typeof setInterval>[] = [];
-
-    messages.forEach(message => {
-      // 只对流式 AI 消息应用打字机效果
-      if (message.role === MessageRole.ASSISTANT && (message as any).isStreaming) {
-        const fullText = extractTextContent(message);
-        const currentProgress = typingProgress.get(message.id) || 0;
-
-        if (currentProgress < fullText.length) {
-          const interval = setInterval(() => {
-            setTypingProgress(prev => {
-              const newMap = new Map(prev);
-              const current = newMap.get(message.id) || 0;
-              
-              if (current < fullText.length) {
-                // 每次增加 2-5 个字符，模拟打字速度
-                newMap.set(message.id, Math.min(current + Math.floor(Math.random() * 3) + 2, fullText.length));
-              }
-              
-              return newMap;
-            });
-          }, 30); // 30ms 间隔
-
-          intervals.push(interval);
-        }
-      }
-    });
-
-    return () => {
-      intervals.forEach(interval => clearInterval(interval));
-    };
-  }, [messages, typingProgress]);
-
-  // 清理已完成消息的打字机状态
-  React.useEffect(() => {
-    setTypingProgress(prev => {
-      const newMap = new Map(prev);
-      messages.forEach(message => {
-        if (!(message as any).isStreaming) {
-          newMap.delete(message.id);
-        }
-      });
-      return newMap;
-    });
-  }, [messages]);
 
   /**
    * 获取代码变更图标
@@ -374,11 +323,7 @@ const MessageList: React.FC<MessageListProps> = ({
       ? extractTextContent(message)
       : message.content;
 
-    // 应用打字机效果
-    if (!isUser && !isSystem && (message as any).isStreaming) {
-      const progress = typingProgress.get(message.id) || 0;
-      displayContent = displayContent.substring(0, progress);
-    }
+
 
     // 获取结构化内容（工具调用和结果）
     const structuredContents = !isUser && !isSystem
@@ -441,7 +386,7 @@ const MessageList: React.FC<MessageListProps> = ({
             {!isUser && !isSystem && !displayContent && structuredContents.length === 0 ? (
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#999' }}>
                 <Spin size="small" />
-                <span>思考中...</span>
+                <span>AI 正在处理您的消息...</span>
               </div>
             ) : displayContent ? (
               <>

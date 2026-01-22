@@ -22,6 +22,8 @@ interface ConversationViewProps {
   onNewConversation?: (prompt: string, mode: ConversationMode, projectId: string) => Promise<void>;
   mode?: ConversationMode;
   onModeChange?: (mode: ConversationMode) => void;
+  autoSend?: boolean;
+  initialContent?: string;
 }
 
 /**
@@ -38,6 +40,8 @@ const ConversationView: React.FC<ConversationViewProps> = ({
   onNewConversation,
   mode = ConversationMode.EDIT,
   onModeChange,
+  autoSend,
+  initialContent,
 }) => {
   const [session, setSession] = useState<ConversationSession | null>(initialSession || null);
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
@@ -47,6 +51,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
   const [creatingMR, setCreatingMR] = useState(false);
   const [stoppingPreview, setStoppingPreview] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const hasAutoSentRef = useRef(false);
 
   // New conversation state
   const [prompt, setPrompt] = useState('');
@@ -87,10 +92,10 @@ const ConversationView: React.FC<ConversationViewProps> = ({
 
       const tasks = [loadSession()];
 
-      // Only load messages if there is NO initial prompt.
-      // If there is an initial prompt, we rely on handleSendMessage to create the first message optimistically.
+      // Only load messages if NOT in autoSend mode.
+      // In autoSend mode, we rely on handleSendMessage to create the first message optimistically.
       // Fetching messages immediately would return empty and overwrite the optimistic message.
-      if (!initialPrompt) {
+      if (!autoSend) {
         tasks.push(loadMessages());
       }
 
@@ -105,14 +110,20 @@ const ConversationView: React.FC<ConversationViewProps> = ({
       setPrompt('');
       setSending(false);
     }
-  }, [sessionId, initialSession, initialPrompt]);
+  }, [sessionId, initialSession, autoSend]);
 
-  // 自动加载消息
+
+  // 处理自动发送消息
   useEffect(() => {
-    if (sessionId && !initialPrompt) {
-      loadMessages();
+    if (autoSend && initialContent && sessionId && !hasAutoSentRef.current) {
+      hasAutoSentRef.current = true;
+      console.log('触发自动发送:', initialContent);
+      // 延迟一点点发送，避免组件挂载期的状态竞争
+      setTimeout(() => {
+        handleSendMessage(initialContent);
+      }, 50);
     }
-  }, [sessionId, initialPrompt]);
+  }, [sessionId, autoSend, initialContent]);
 
   // 自动滚动到最新消息
   useEffect(() => {
@@ -170,8 +181,6 @@ const ConversationView: React.FC<ConversationViewProps> = ({
       content,
       timestamp: new Date().toISOString(),
     };
-    setMessages(prev => [...prev, userMessage]);
-
     // 创建临时 AI 消息用于流式更新，显示"正在思考"状态
     const aiMessageId = `ai-${Date.now()}`;
     const aiMessage: ConversationMessage = {
@@ -184,7 +193,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
       isStreaming: true,
       parsedContents: [],
     };
-    setMessages(prev => [...prev, aiMessage]);
+    setMessages(prev => [...prev, userMessage, aiMessage]);
 
     // 立即滚动到底部
     setTimeout(scrollToBottom, 100);
@@ -217,6 +226,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
 
       let buffer = '';
       let accumulatedContents: ParsedContent[] = [];
+      let fullContent = '';
 
       while (true) {
         const { done, value } = await reader.read();
@@ -237,6 +247,9 @@ const ConversationView: React.FC<ConversationViewProps> = ({
               } else if (data.type === 'thinking') {
                 // AI 开始思考，不再显示"正在思考"文本，等待实际内容
               } else if (data.type === 'chunk') {
+                // 累积完整文本内容
+                fullContent += data.content;
+                
                 // 解析 chunk 为结构化内容
                 const parsedContents = parseNeovateChunkStructured(data.content);
                 
@@ -250,7 +263,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
                       msg.id === aiMessageId
                         ? { 
                             ...msg, 
-                            content: data.content, // 保存原始内容
+                            content: fullContent, // 使用累积的完整内容
                             parsedContents: accumulatedContents,
                             isStreaming: true 
                           }
@@ -260,6 +273,19 @@ const ConversationView: React.FC<ConversationViewProps> = ({
                   
                   // 实时滚动到底部
                   setTimeout(scrollToBottom, 50);
+                } else {
+                    // 即使没有结构化内容解析出来（可能是纯空格等），也要更新 content
+                    setMessages(prev =>
+                        prev.map(msg =>
+                          msg.id === aiMessageId
+                            ? { 
+                                ...msg, 
+                                content: fullContent, // 使用累积的完整内容
+                                isStreaming: true 
+                              }
+                            : msg
+                        )
+                      );
                 }
               } else if (data.type === 'complete') {
                 // 流式传输完成
@@ -270,8 +296,8 @@ const ConversationView: React.FC<ConversationViewProps> = ({
                       : msg
                   )
                 );
-                // 重新加载消息获取完整数据（包含元数据）
-                setTimeout(() => loadMessages(), 500);
+                // 不再重新加载消息，因为前端已经通过流式更新维护了完整的消息内容
+                // 重新加载可能会导致消息被清空（如果后端异步保存还未完成）
               } else if (data.type === 'error') {
                 console.error('AI 响应错误:', data.message);
                 setMessages(prev =>
@@ -679,24 +705,6 @@ const ConversationView: React.FC<ConversationViewProps> = ({
         ) : (
           <>
             {/* 状态栏 */}
-            {sending && (
-              <div style={{
-                padding: '8px 16px',
-                background: 'rgba(124, 92, 255, 0.1)',
-                borderLeft: '3px solid #7c5cff',
-                margin: '0 16px 8px 16px',
-                borderRadius: '0 4px 4px 0',
-                fontSize: 13,
-                color: '#7c5cff',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8
-              }}>
-                <Spin size="small" />
-                <span>AI 正在处理您的消息...</span>
-              </div>
-            )}
-            
             <MessageList messages={messages} onMessageClick={handleMessageClick} />
             <div ref={messagesEndRef} />
           </>
