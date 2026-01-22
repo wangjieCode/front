@@ -403,44 +403,85 @@ export class WorktreeManager {
   ): Promise<void> {
     const worktreeInfo = await this.getWorktreeInfo(userId, sessionId);
     
+    console.log(`[WorktreeManager] ========== 开始提交更改 ==========`);
+    console.log(`[WorktreeManager] 用户: ${userId}`);
+    console.log(`[WorktreeManager] 会话: ${sessionId}`);
+    console.log(`[WorktreeManager] 工作目录: ${worktreeInfo.worktreePath}`);
+    console.log(`[WorktreeManager] 提交信息: ${message}`);
+    
     // 检查是否有变更
     const statusResult = await this.executor.executeCommand(
       'git status --porcelain',
       worktreeInfo.worktreePath
     );
 
+    console.log(`[WorktreeManager] Git 状态输出:\n${statusResult.stdout}`);
+
     if (!statusResult.stdout.trim()) {
+      console.log(`[WorktreeManager] 没有变更，跳过提交`);
       return; // 无变更
     }
 
     // 添加所有更改
-    try {
-      await this.executor.executeCommand(
-        'git add -A',
-        worktreeInfo.worktreePath
-      );
-    } catch (error) {
-      // 如果 git add 失败，检查是否有文件被暂存
+    console.log(`[WorktreeManager] 执行: git add .`);
+    const addResult = await this.executor.executeCommand(
+      'git add .',
+      worktreeInfo.worktreePath
+    );
+    
+    if (addResult.exitCode !== 0) {
+      console.error(`[WorktreeManager] ❌ git add 失败`);
+      console.error(`[WorktreeManager] exitCode:`, addResult.exitCode);
+      console.error(`[WorktreeManager] stdout:`, addResult.stdout);
+      console.error(`[WorktreeManager] stderr:`, addResult.stderr);
+      
+      // 检查是否有文件被暂存
       const stagedResult = await this.executor.executeCommand(
         'git diff --cached --name-only',
         worktreeInfo.worktreePath
       );
       
+      console.log(`[WorktreeManager] 已暂存的文件:\n${stagedResult.stdout}`);
+      
       if (!stagedResult.stdout.trim()) {
         console.log(`[WorktreeManager] 没有文件被暂存，跳过提交`);
         return;
       }
+    } else {
+      console.log(`[WorktreeManager] git add 成功`);
+      if (addResult.stdout) console.log(`[WorktreeManager] stdout: ${addResult.stdout}`);
+      if (addResult.stderr) console.log(`[WorktreeManager] stderr: ${addResult.stderr}`);
+    }
+
+    // 再次检查暂存状态
+    const finalStagedResult = await this.executor.executeCommand(
+      'git diff --cached --name-only',
+      worktreeInfo.worktreePath
+    );
+    console.log(`[WorktreeManager] 最终暂存的文件:\n${finalStagedResult.stdout}`);
+
+    if (!finalStagedResult.stdout.trim()) {
+      console.log(`[WorktreeManager] 没有文件被暂存，跳过提交`);
+      return;
     }
 
     // 提交
-    try {
-      await this.executor.executeCommand(
-        `git commit -m "${message}"`,
-        worktreeInfo.worktreePath
-      );
-      console.log(`[WorktreeManager] 已提交更改: ${message}`);
-    } catch (error) {
-      console.error(`[WorktreeManager] 提交失败:`, error);
+    console.log(`[WorktreeManager] 执行: git commit -m "${message}"`);
+    const commitResult = await this.executor.executeCommand(
+      `git commit -m "${message}"`,
+      worktreeInfo.worktreePath
+    );
+    
+    if (commitResult.exitCode !== 0) {
+      console.error(`[WorktreeManager] ❌ 提交失败`);
+      console.error(`[WorktreeManager] exitCode:`, commitResult.exitCode);
+      console.error(`[WorktreeManager] stdout:`, commitResult.stdout);
+      console.error(`[WorktreeManager] stderr:`, commitResult.stderr);
+      console.log(`[WorktreeManager] ========== 提交失败 ==========`);
+    } else {
+      console.log(`[WorktreeManager] ✅ 提交成功: ${message}`);
+      if (commitResult.stdout) console.log(`[WorktreeManager] stdout: ${commitResult.stdout}`);
+      console.log(`[WorktreeManager] ========== 提交完成 ==========`);
     }
   }
 

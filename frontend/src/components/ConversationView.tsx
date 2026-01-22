@@ -151,6 +151,17 @@ const ConversationView: React.FC<ConversationViewProps> = ({
     if (!sessionId) return;
     try {
       const messages = await conversationService.getMessages(sessionId);
+      console.log('[ConversationView] loadMessages - 加载了', messages.length, '条消息');
+      messages.forEach((msg, idx) => {
+        if (msg.role === 'assistant') {
+          console.log(`[ConversationView] loadMessages - 消息 ${idx}:`, {
+            id: msg.id,
+            hasMetadata: !!msg.metadata,
+            hasCodeChanges: !!msg.metadata?.codeChanges,
+            codeChangesCount: msg.metadata?.codeChanges?.length || 0
+          });
+        }
+      });
       setMessages(messages);
     } catch (error) {
       console.error('加载消息失败:', error);
@@ -296,8 +307,15 @@ const ConversationView: React.FC<ConversationViewProps> = ({
                       : msg
                   )
                 );
-                // 不再重新加载消息，因为前端已经通过流式更新维护了完整的消息内容
-                // 重新加载可能会导致消息被清空（如果后端异步保存还未完成）
+                // 延迟加载消息以获取完整的元数据（包括 codeChanges）
+                // 使用较长的延迟（2500ms）确保后端异步保存已完成
+                console.log('[ConversationView] 流式传输完成，将在 2500ms 后加载消息以获取元数据');
+                setTimeout(() => {
+                  console.log('[ConversationView] 开始加载消息以获取元数据...');
+                  loadMessages().then(() => {
+                    console.log('[ConversationView] 消息加载完成');
+                  });
+                }, 2500);
               } else if (data.type === 'error') {
                 console.error('AI 响应错误:', data.message);
                 setMessages(prev =>

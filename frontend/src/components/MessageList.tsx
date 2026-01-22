@@ -9,7 +9,6 @@ import {
   ThunderboltOutlined,
   CheckCircleOutlined,
 } from '@ant-design/icons';
-import ReactMarkdown from 'react-markdown';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import {
@@ -19,6 +18,7 @@ import {
   ParsedContent,
 } from '../types/conversation';
 import { parseNeovateStreamJsonStructured, isStreamJsonFormat } from '../utils/neovateParser';
+import { TypewriterText } from './TypewriterText';
 
 const { Panel } = Collapse;
 
@@ -318,6 +318,7 @@ const MessageList: React.FC<MessageListProps> = ({
     const isUser = message.role === MessageRole.USER;
     const isSystem = message.role === MessageRole.SYSTEM;
 
+
     // 提取文本内容
     let displayContent = !isUser && !isSystem
       ? extractTextContent(message)
@@ -389,74 +390,11 @@ const MessageList: React.FC<MessageListProps> = ({
                 <span>AI 正在处理您的消息...</span>
               </div>
             ) : displayContent ? (
-              <>
-                <ReactMarkdown
-                  components={{
-                    code({ className, children }: any) {
-                      const match = /language-(\w+)/.exec(className || '');
-                      const inline = !match;
-                      return !inline && match ? (
-                        <SyntaxHighlighter
-                          style={vscDarkPlus as any}
-                          language={match[1]}
-                          PreTag="div"
-                          customStyle={{
-                            margin: '12px 0',
-                            borderRadius: 8,
-                            fontSize: 13,
-                            border: '1px solid rgba(0,0,0,0.05)',
-                          }}
-                        >
-                          {String(children).replace(/\n$/, '')}
-                        </SyntaxHighlighter>
-                      ) : (
-                        <code
-                          className={className}
-                          style={{
-                            background: isUser ? 'rgba(255,255,255,0.2)' : '#ebebeb',
-                            color: isUser ? '#fff' : '#c7254e',
-                            padding: '2px 6px',
-                            borderRadius: 4,
-                            fontSize: 13,
-                            fontFamily: 'monospace'
-                          }}
-                        >
-                          {children}
-                        </code>
-                      );
-                    },
-                    p({ children }: any) {
-                      return <p style={{ margin: '0 0 8px 0', lineHeight: 1.6 }}>{children}</p>;
-                    },
-                    ul({ children }: any) {
-                      return <ul style={{ margin: '8px 0', paddingLeft: 24 }}>{children}</ul>;
-                    },
-                    ol({ children }: any) {
-                      return <ol style={{ margin: '8px 0', paddingLeft: 24 }}>{children}</ol>;
-                    },
-                    a({ href, children }: any) {
-                      return <a href={href} style={{ color: isUser ? '#fff' : '#7c5cff', textDecoration: 'underline' }} target="_blank" rel="noopener noreferrer">{children}</a>;
-                    },
-                  }}
-                >
-                  {displayContent}
-                </ReactMarkdown>
-                
-                {/* 流式消息的打字机效果指示器 */}
-                {(message as any).isStreaming && (
-                  <span 
-                    style={{ 
-                      display: 'inline-block',
-                      width: '8px',
-                      height: '16px',
-                      backgroundColor: '#7c5cff',
-                      marginLeft: '2px',
-                      animation: 'blink 1s infinite',
-                      verticalAlign: 'text-bottom'
-                    }}
-                  />
-                )}
-              </>
+              <TypewriterText
+                text={displayContent}
+                isStreaming={(message as any).isStreaming || false}
+                isUser={isUser}
+              />
             ) : null}
           </div>
 
