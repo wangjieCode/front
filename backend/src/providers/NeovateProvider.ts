@@ -2,6 +2,7 @@ import { SSHExecutor } from '../services/SSHExecutor';
 import { ICodeToolProvider, CodeToolResult, CodeChange, ChangeType } from '../types';
 import { createCodeChange, detectChangeType, parseFilePathFromDiff } from '../models/CodeChange';
 import { NeovateMessageParser } from '../utils/NeovateMessageParser';
+import dayjs from 'dayjs';
 
 /**
  * neovate 工具提供者
@@ -20,7 +21,7 @@ export class NeovateProvider implements ICodeToolProvider {
    * @returns 执行结果
    */
   async modifyCode(prompt: string, workDir: string): Promise<CodeToolResult> {
-    const startTime = Date.now();
+    const startTime = dayjs().valueOf();
     console.log('[NeovateProvider] 开始执行 modifyCode');
     console.log('[NeovateProvider] 提示词:', prompt);
     console.log('[NeovateProvider] 工作目录:', workDir);
@@ -40,7 +41,7 @@ export class NeovateProvider implements ICodeToolProvider {
       // 执行命令
       console.log('[NeovateProvider] 开始执行命令...');
       const result = await this.sshExecutor.executeCommand(command, workDir);
-      const executionTime = Date.now() - startTime;
+      const executionTime = dayjs().valueOf() - startTime;
       console.log(`[NeovateProvider] 命令执行完成，耗时: ${executionTime}ms`);
       console.log('[NeovateProvider] 退出码:', result.exitCode);
       
@@ -75,7 +76,7 @@ export class NeovateProvider implements ICodeToolProvider {
         rawOutput: result.stdout,
       };
     } catch (error) {
-      const executionTime = Date.now() - startTime;
+      const executionTime = dayjs().valueOf() - startTime;
       console.error(`[NeovateProvider] ❌ 异常，耗时: ${executionTime}ms`);
       console.error('[NeovateProvider] 错误:', error);
       return {
@@ -105,7 +106,7 @@ export class NeovateProvider implements ICodeToolProvider {
     onSessionId?: (sessionId: string) => void,
     existingSessionId?: string
   ): Promise<CodeToolResult> {
-    const startTime = Date.now();
+    const startTime = dayjs().valueOf();
     console.log('[NeovateProvider] 开始执行 modifyCodeStream (流式)');
     console.log('[NeovateProvider] 提示词:', prompt);
     console.log('[NeovateProvider] 工作目录:', workDir);
@@ -171,7 +172,7 @@ export class NeovateProvider implements ICodeToolProvider {
         onError
       );
       
-      const executionTime = Date.now() - startTime;
+      const executionTime = dayjs().valueOf() - startTime;
       console.log(`[NeovateProvider] 流式执行完成，耗时: ${executionTime}ms`);
       console.log(`[NeovateProvider] 总共接收 ${dataChunks} 个数据块`);
       console.log('[NeovateProvider] 退出码:', result.exitCode);
@@ -201,7 +202,7 @@ export class NeovateProvider implements ICodeToolProvider {
         rawOutput: fullOutput,
       };
     } catch (error) {
-      const executionTime = Date.now() - startTime;
+      const executionTime = dayjs().valueOf() - startTime;
       console.error(`[NeovateProvider] ❌ 流式执行异常，耗时: ${executionTime}ms`);
       console.error('[NeovateProvider] 错误:', error);
       return {

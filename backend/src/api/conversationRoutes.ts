@@ -4,6 +4,7 @@ import { MessageRouter } from '../services/MessageRouter';
 import { ConversationAIService } from '../services/ConversationAIService';
 import { ConversationStatus, ConversationVisibility } from '../types';
 import { requireAuth, AuthRequest } from './authMiddleware';
+import dayjs from 'dayjs';
 
 /**
  * 创建对话路由
@@ -232,7 +233,7 @@ export function createConversationRoutes(
    * 发送用户消息（SSE 流式响应）
    */
   router.post('/:sessionId/messages', requireAuth, async (req: AuthRequest, res: Response) => {
-    const startTime = Date.now();
+    const startTime = dayjs().valueOf();
     console.log(`[conversationRoutes] ========== 开始处理消息 ==========`);
 
     try {
@@ -248,9 +249,9 @@ export function createConversationRoutes(
         });
       }
 
-      const step1Start = Date.now();
+      const step1Start = dayjs().valueOf();
       const session = await conversationManager.getSession(sessionId);
-      const step1Time = Date.now() - step1Start;
+      const step1Time = dayjs().valueOf() - step1Start;
       console.log(`[conversationRoutes] 步骤1: 获取会话完成，耗时 ${step1Time}ms`);
 
       if (!session) {
@@ -275,7 +276,7 @@ export function createConversationRoutes(
         });
       }
 
-      const step2Start = Date.now();
+      const step2Start = dayjs().valueOf();
       res.setHeader('Content-Type', 'text/event-stream');
       res.setHeader('Cache-Control', 'no-cache');
       res.setHeader('Connection', 'keep-alive');
@@ -283,22 +284,22 @@ export function createConversationRoutes(
 
       res.write(`data: ${JSON.stringify({ type: 'user_message', content })}\n\n`);
       res.write(`data: ${JSON.stringify({ type: 'thinking', message: 'AI 正在思考中...' })}\n\n`);
-      const step2Time = Date.now() - step2Start;
+      const step2Time = dayjs().valueOf() - step2Start;
       console.log(`[conversationRoutes] 步骤2: SSE 响应头设置完成，耗时 ${step2Time}ms`);
 
-      const step3Start = Date.now();
+      const step3Start = dayjs().valueOf();
       console.log(`[conversationRoutes] 步骤3: 开始异步处理...`);
 
       (async () => {
         try {
-          const step3aStart = Date.now();
+          const step3aStart = dayjs().valueOf();
           messageRouter.handleUserMessage(sessionId, content, session, true).catch(error => {
             console.error(`[conversationRoutes] 异步保存用户消息失败:`, error);
           });
-          const step3aTime = Date.now() - step3aStart;
+          const step3aTime = dayjs().valueOf() - step3aStart;
           console.log(`[conversationRoutes] 步骤3a: 用户消息异步保存启动，耗时 ${step3aTime}ms`);
 
-          const step3bStart = Date.now();
+          const step3bStart = dayjs().valueOf();
           console.log(`[conversationRoutes] 步骤3b: 开始流式生成 AI 响应...`);
 
           let fullContent = '';
@@ -313,7 +314,7 @@ export function createConversationRoutes(
             }
           );
 
-          const step3bTime = Date.now() - step3bStart;
+          const step3bTime = dayjs().valueOf() - step3bStart;
           console.log(`[conversationRoutes] 步骤3b: AI 响应生成完成，耗时 ${step3bTime}ms`);
 
           const parsedAiResponse = {
@@ -331,16 +332,16 @@ export function createConversationRoutes(
           res.write(`data: ${JSON.stringify({ type: 'error', message: '处理失败' })}\n\n`);
         } finally {
           res.end();
-          const totalTime = Date.now() - startTime;
+          const totalTime = dayjs().valueOf() - startTime;
           console.log(`[conversationRoutes] ========== 消息处理完成，总耗时: ${totalTime}ms ==========`);
         }
       })();
 
-      const step3Time = Date.now() - step3Start;
+      const step3Time = dayjs().valueOf() - step3Start;
       console.log(`[conversationRoutes] 步骤3: 异步处理启动完成，耗时 ${step3Time}ms`);
 
     } catch (error) {
-      const totalTime = Date.now() - startTime;
+      const totalTime = dayjs().valueOf() - startTime;
       console.error(`[conversationRoutes] 消息处理失败，总耗时: ${totalTime}ms:`, error);
       res.status(500).json({
         success: false,

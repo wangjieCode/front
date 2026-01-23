@@ -11,6 +11,7 @@ import {
 } from '../types';
 import * as path from 'path';
 import * as fs from 'fs';
+import dayjs from 'dayjs';
 
 /**
  * 项目预览服务
@@ -52,7 +53,7 @@ export class ProjectPreviewService {
     forceRebuild: boolean = false,
     apiTarget?: string
   ): Promise<PreviewResult> {
-    const startTime = Date.now();
+    const startTime = dayjs().valueOf();
     console.log(`[ProjectPreviewService] 开始创建预览: sessionId=${sessionId}`);
 
     try {
@@ -110,7 +111,7 @@ export class ProjectPreviewService {
         url: '',
         containerId: '',
         branchName: gitBranch,
-        deployedAt: new Date(),
+        deployedAt: dayjs().toDate(),
         status: PreviewStatus.BUILDING,
         ports: [{ host: hostPort, container: 8001, service: 'web' }]
       });
@@ -126,7 +127,7 @@ export class ProjectPreviewService {
           url: '',
           containerId: '',
           branchName: gitBranch,
-          deployedAt: new Date(),
+          deployedAt: dayjs().toDate(),
           status: PreviewStatus.ERROR
         });
         return { success: false, error: errorMsg };
@@ -159,14 +160,14 @@ export class ProjectPreviewService {
         url: previewUrl,
         containerId,
         branchName: gitBranch,
-        deployedAt: new Date(),
+        deployedAt: dayjs().toDate(),
         status: PreviewStatus.RUNNING,
         isRunning: true,
         accessUrl: previewUrl,
         ports: [{ host: hostPort, container: 8001, service: 'web' }]
       });
 
-      const totalTime = Math.round((Date.now() - startTime) / 1000);
+      const totalTime = Math.round((dayjs().valueOf() - startTime) / 1000);
       return {
         success: true,
         previewUrl,
@@ -259,7 +260,7 @@ export class ProjectPreviewService {
           url: '',
           containerId: '',
           branchName: '',
-          deployedAt: new Date(),
+          deployedAt: dayjs().toDate(),
           status: PreviewStatus.STOPPED,
           isRunning: false
         });

@@ -4,6 +4,7 @@ import { createServer } from 'http';
 import { SSHExecutor, GitService, CodeToolService, GitLabMCPService } from './services';
 import { WorktreeManager } from './services/WorktreeManager';
 import { createConversationRoutes } from './api/conversationRoutes';
+import dayjs from 'dayjs';
 import {
   errorHandler,
   requestLogger,
@@ -196,7 +197,7 @@ app.use(validateRequest);
 app.get('/health', (req, res) => {
   res.json({
     status: 'ok',
-    timestamp: new Date().toISOString(),
+    timestamp: dayjs().toISOString(),
     uptime: process.uptime(),
   });
 });
@@ -300,4 +301,3 @@ process.on('SIGINT', async () => {
 // 导出实例供其他模块使用
 export { app };
 export default app;
-

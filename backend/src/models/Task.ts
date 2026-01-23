@@ -1,6 +1,7 @@
-import { v4 as uuidv4 } from 'uuid';
 import { Task, TaskStatus, TaskType } from '../types';
 import { validatePrompt } from '../utils/validation';
+import { newId } from '../utils/id';
+import dayjs from 'dayjs';
 
 /**
  * 创建新任务
@@ -13,8 +14,8 @@ export function createTask(prompt: string, type: TaskType = TaskType.CODE_CHANGE
   // 验证提示词
   validatePrompt(prompt);
 
-  const taskId = uuidv4();
-  const timestamp = Date.now();
+  const taskId = newId();
+  const timestamp = dayjs().valueOf();
   
   // 仅为 CODE_CHANGE 类型生成分支名称
   const branchName = type === TaskType.CODE_CHANGE 
@@ -27,7 +28,7 @@ export function createTask(prompt: string, type: TaskType = TaskType.CODE_CHANGE
     type,
     status: TaskStatus.PENDING,
     branchName,
-    createdAt: new Date(),
+    createdAt: dayjs().toDate(),
   };
 }
 
@@ -69,7 +70,7 @@ export function updateTaskStatus(task: Task, newStatus: TaskStatus): void {
 
   // 如果任务完成或失败，记录完成时间
   if (newStatus === TaskStatus.SUCCESS || newStatus === TaskStatus.FAILED) {
-    task.completedAt = new Date();
+    task.completedAt = dayjs().toDate();
   }
 }
 
@@ -81,7 +82,7 @@ export function updateTaskStatus(task: Task, newStatus: TaskStatus): void {
 export function setTaskError(task: Task, error: string): void {
   task.error = error;
   task.status = TaskStatus.FAILED;
-  task.completedAt = new Date();
+  task.completedAt = dayjs().toDate();
 }
 
 /**

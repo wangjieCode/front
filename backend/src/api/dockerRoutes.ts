@@ -4,6 +4,7 @@ import { Client } from 'ssh2';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as tar from 'tar-stream';
+import dayjs from 'dayjs';
 
 const router = Router();
 
@@ -226,7 +227,7 @@ router.post('/images/build', async (req: Request, res: Response) => {
     });
 
     // 创建临时目录和 Dockerfile
-    const tmpDir = `/tmp/docker-build-${Date.now()}`;
+    const tmpDir = `/tmp/docker-build-${dayjs().valueOf()}`;
     await execSSH(ssh, `mkdir -p ${tmpDir}`);
     await execSSH(ssh, `cat > ${tmpDir}/Dockerfile << 'EOF'\n${dockerfile}\nEOF`);
 

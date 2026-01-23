@@ -1,6 +1,7 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { Task, LogEntry } from '../types';
+import dayjs from 'dayjs';
 
 /**
  * 任务存储接口
@@ -66,9 +67,9 @@ export class FileSystemTaskStorage implements ITaskStorage {
       const task = JSON.parse(data);
 
       // 转换日期字符串
-      task.createdAt = new Date(task.createdAt);
+      task.createdAt = dayjs(task.createdAt).toDate();
       if (task.completedAt) {
-        task.completedAt = new Date(task.completedAt);
+        task.completedAt = dayjs(task.completedAt).toDate();
       }
 
       return task;
@@ -146,7 +147,7 @@ export class FileSystemTaskStorage implements ITaskStorage {
       // 转换日期字符串
       return logs.map((log: any) => ({
         ...log,
-        timestamp: new Date(log.timestamp),
+        timestamp: dayjs(log.timestamp).toDate(),
       }));
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') {

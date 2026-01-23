@@ -1,4 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
+import dayjs from 'dayjs';
 import {
   ConversationSession,
   ConversationMessage,
@@ -99,7 +100,7 @@ export class ConversationManager {
 
     const sessionId = uuidv4();
     const mainBranchId = uuidv4(); // 使用 UUID 作为分支 ID
-    const now = new Date();
+    const now = dayjs().toDate();
 
     // 创建主分支
     const mainBranch: ConversationBranch = {
@@ -397,7 +398,7 @@ export class ConversationManager {
 
       const context = session.context;
       const messageId = uuidv4();
-      const now = new Date();
+    const now = dayjs().toDate();
 
       // 创建消息
       const message: ConversationMessage = {
@@ -510,14 +511,14 @@ export class ConversationManager {
 
       // 更新状态
       session.status = newStatus;
-      session.updatedAt = new Date();
+      session.updatedAt = dayjs().toDate();
 
       // 如果是终态,设置完成时间
       if (
         newStatus === ConversationStatus.COMPLETED ||
         newStatus === ConversationStatus.FAILED
       ) {
-        session.completedAt = new Date();
+        session.completedAt = dayjs().toDate();
       }
 
       // 如果是失败状态,记录错误信息
@@ -574,7 +575,7 @@ export class ConversationManager {
       session.context.variables[key] = value;
       await this.storage.saveContext(sessionId, session.context);
 
-      session.updatedAt = new Date();
+      session.updatedAt = dayjs().toDate();
       await this.storage.saveSession(session);
     } finally {
       this.releaseLock(sessionId);
@@ -604,7 +605,7 @@ export class ConversationManager {
       }
 
       const branchId = uuidv4();
-      const now = new Date();
+      const now = dayjs().toDate();
 
       // 获取从根到分支点的所有消息
       const parentBranch = session.context.branches.find(
@@ -676,7 +677,7 @@ export class ConversationManager {
       // 保存上下文
       await this.storage.saveContext(sessionId, session.context);
 
-      session.updatedAt = new Date();
+      session.updatedAt = dayjs().toDate();
       await this.storage.saveSession(session);
     } finally {
       this.releaseLock(sessionId);

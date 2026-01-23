@@ -3,6 +3,8 @@ import { eq } from 'drizzle-orm';
 import postgres from 'postgres';
 import { neovateSessions } from '../db/schema';
 import { NeovateSessionInfo } from '../types';
+import { newId } from '../utils/id';
+import dayjs from 'dayjs';
 
 /**
  * Neovate 会话管理器（数据库版本）
@@ -81,8 +83,6 @@ export class NeovateSessionManagerDB {
     try {
       console.log(`[NeovateSessionManagerDB] 保存对话 ${conversationId} 的会话 ID: ${neovateSessionId}`);
 
-      const now = new Date();
-
       // 检查是否已存在
       const existing = await this.db
         .select()
@@ -98,11 +98,11 @@ export class NeovateSessionManagerDB {
       } else {
         // 插入新记录
         await this.db.insert(neovateSessions).values({
+          id: newId(),
           conversationId,
           neovateSessionId,
           workDir,
-          createdAt: now,
-          lastUsedAt: now,
+          lastUsedAt: dayjs().toDate(),
         });
 
         console.log(`[NeovateSessionManagerDB] 会话信息已创建`);
@@ -177,7 +177,7 @@ export class NeovateSessionManagerDB {
     try {
       await this.db
         .update(neovateSessions)
-        .set({ lastUsedAt: new Date() })
+        .set({ lastUsedAt: dayjs().toDate() })
         .where(eq(neovateSessions.conversationId, conversationId));
     } catch (error) {
       console.error(`[NeovateSessionManagerDB] 更新最后使用时间失败:`, error);
@@ -194,7 +194,7 @@ export class NeovateSessionManagerDB {
 
     try {
       const expirationTime = 24 * 60 * 60 * 1000; // 24 小时（毫秒）
-      const expirationDate = new Date(Date.now() - expirationTime);
+      const expirationDate = dayjs().subtract(expirationTime, 'millisecond').toDate();
 
       // 查询过期会话
       const expiredSessions = await this.db

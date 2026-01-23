@@ -43,6 +43,7 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
+    "dayjs": "^1.11.19",
     "dockerode": "^4.0.9",
     "dotenv": "^16.3.1",
     "drizzle-orm": "^0.44.7",
@@ -51,6 +52,7 @@
     "postgres": "^3.4.7",
     "ssh2": "^1.15.0",
     "uuid": "^9.0.1",
+    "uuidv7": "^1.1.0",
     "ws": "^8.14.2"
   },
   "devDependencies": {

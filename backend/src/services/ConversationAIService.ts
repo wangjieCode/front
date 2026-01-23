@@ -10,6 +10,7 @@ import { NeovateAIService, NeovateAIResult } from './NeovateAIService';
 import { NeovateSessionManagerDB } from './NeovateSessionManagerDB';
 import { GitService } from './GitService';
 import { GitLabMCPService } from './GitLabMCPService';
+import dayjs from 'dayjs';
 
 /**
  * 对话 AI 服务类
@@ -274,7 +275,7 @@ export class ConversationAIService {
           success: result.success,
           changesCount: result.changes.length,
         },
-        timestamp: new Date(),
+        timestamp: dayjs().toDate(),
       });
     }
 

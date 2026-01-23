@@ -1,4 +1,3 @@
-import { v4 as uuidv4 } from "uuid";
 import { LRUCache } from "lru-cache";
 import {
   ConversationSession,
@@ -18,6 +17,8 @@ import { ModeValidator } from "./ModeValidator";
 import { GitLabMCPService } from "./GitLabMCPService";
 import { WorktreeManager } from "./WorktreeManager";
 import { ProjectService } from "./ProjectService";
+import { newId } from "../utils/id";
+import dayjs from "dayjs";
 
 /**
  * 对话管理器类
@@ -133,8 +134,8 @@ export class ConversationManager {
     //   workDir: completeProjectInfo.workDir
     // });
 
-    const sessionId = uuidv4();
-    const now = new Date();
+    const sessionId = newId();
+    const now = dayjs().toDate();
 
     // 临时存储当前项目ID供handleEditModeSetup使用
     (this as any).currentProjectId = projectInfo.projectId;
@@ -377,8 +378,8 @@ export class ConversationManager {
       }
 
       const context = session.context;
-      const messageId = uuidv4();
-      const now = new Date();
+      const messageId = newId();
+      const now = dayjs().toDate();
 
       // 创建消息
       const message: ConversationMessage = {
@@ -483,11 +484,11 @@ export class ConversationManager {
 
       // 更新状态
       session.status = newStatus;
-      session.updatedAt = new Date();
+      session.updatedAt = dayjs().toDate();
 
       // 如果归档，设置完成时间和原因
       if (newStatus === ConversationStatus.ARCHIVED) {
-        session.completedAt = new Date();
+        session.completedAt = dayjs().toDate();
         if (reason) {
           session.error = reason;  // 复用 error 字段存储归档原因
         }
@@ -515,7 +516,7 @@ export class ConversationManager {
       }
 
       session.visibility = visibility;
-      session.updatedAt = new Date();
+      session.updatedAt = dayjs().toDate();
 
       await this.storage.saveSession(session);
       this.clearSessionCache(sessionId);
@@ -565,7 +566,7 @@ export class ConversationManager {
       }
 
       session.context.variables[key] = value;
-      session.updatedAt = new Date();
+      session.updatedAt = dayjs().toDate();
       await this.storage.saveSession(session);
     } finally {
       this.releaseLock(sessionId);
@@ -739,7 +740,7 @@ export class ConversationManager {
         
         try {
           const shortSessionId = sessionId.substring(0, 8);
-          const timestamp = Date.now();
+          const timestamp = dayjs().valueOf();
           const featureBranchName = `auto-feature-${shortSessionId}-${timestamp}`;
           
           // a. 提交当前更改

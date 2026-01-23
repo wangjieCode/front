@@ -11,6 +11,8 @@ import {
   type Message,
   type NewMessage,
 } from '../db/schema';
+import { newId } from '../utils/id';
+import dayjs from 'dayjs';
 
 /**
  * 分页选项
@@ -89,7 +91,6 @@ export class DrizzleConversationStorage {
       title: session.title,
       summary: session.summary,
       projectName: session.projectName || session.context?.projectInfo?.projectName,
-      createdAt: session.createdAt,
       updatedAt: session.updatedAt,
       completedAt: session.completedAt,
       error: session.error,
@@ -276,7 +277,7 @@ export class DrizzleConversationStorage {
       .update(conversations)
       .set({
         ...updates,
-        updatedAt: new Date(),
+        updatedAt: dayjs().toDate(),
       })
       .where(eq(conversations.id, sessionId));
 
@@ -463,12 +464,13 @@ export class DrizzleConversationStorage {
         .update(conversationContexts)
         .set({
           ...contextData,
-          updatedAt: new Date(),
+          updatedAt: dayjs().toDate(),
         })
         .where(eq(conversationContexts.conversationId, conversationId));
     } else {
       // 插入新上下文
       await db.insert(conversationContexts).values({
+        id: newId(),
         conversationId,
         ...contextData,
       });
@@ -549,6 +551,7 @@ export class DrizzleConversationStorage {
     } else {
       // 插入新元数据
       await db.insert(messageMetadata).values({
+        id: newId(),
         messageId,
         ...metadata,
       });

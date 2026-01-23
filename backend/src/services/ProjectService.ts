@@ -1,4 +1,3 @@
-import { v4 as uuidv4 } from 'uuid';
 import { eq, and, desc } from 'drizzle-orm';
 import { DatabaseManager } from '../db/DatabaseManager';
 import { projects, users } from '../db/schema';
@@ -9,6 +8,8 @@ import {
 import { GitOperationError, ValidationError } from '../errors/CustomErrors';
 import { RepositoryService, CloneProgressCallback } from './RepositoryService';
 import { ICommandExecutor } from '../types';
+import { newId } from '../utils/id';
+import dayjs from 'dayjs';
 
 // 从schema导出类型
 type Project = typeof projects.$inferSelect;
@@ -112,7 +113,7 @@ export class ProjectService {
 
       // 创建项目记录
       const newProject: NewProject = {
-        id: uuidv4(),
+        id: newId(),
         name: data.name.trim(),
         description: data.description?.trim() || null,
         repoDir: workDirectory,
@@ -310,7 +311,7 @@ export class ProjectService {
       // 执行更新
       const [updatedProject] = await this.db
         .update(projects)
-        .set({ ...updateData, updatedAt: new Date() })
+        .set({ ...updateData, updatedAt: dayjs().toDate() })
         .where(eq(projects.id, projectId))
         .returning();
 
@@ -558,7 +559,7 @@ export class ProjectService {
       // 更新 last_pulled_at 时间
       await this.db
         .update(projects)
-        .set({ lastPulledAt: new Date() })
+        .set({ lastPulledAt: dayjs().toDate() })
         .where(eq(projects.id, projectId));
 
       return {

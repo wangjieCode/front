@@ -7,7 +7,7 @@ import { pgTable, uuid, varchar, text, boolean, timestamp, jsonb, index } from '
 export const users = pgTable(
   'users',
   {
-    id: uuid('id').primaryKey().defaultRandom(),
+    id: uuid('id').primaryKey(),
     username: varchar('username', { length: 50 }).notNull().unique(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     lastLoginAt: timestamp('last_login_at', { withTimezone: true }).notNull().defaultNow(),
@@ -24,7 +24,7 @@ export const users = pgTable(
 export const conversations = pgTable(
   'conversations',
   {
-    id: uuid('id').primaryKey().defaultRandom(),
+    id: uuid('id').primaryKey(),
     userId: uuid('user_id').notNull(),
     projectId: uuid('project_id'),
     status: varchar('status', { length: 50 }).notNull(),
@@ -54,7 +54,7 @@ export const conversations = pgTable(
 export const conversationContexts = pgTable(
   'conversation_contexts',
   {
-    id: uuid('id').primaryKey().defaultRandom(),
+    id: uuid('id').primaryKey(),
     conversationId: uuid('conversation_id').notNull(),
     workDir: text('work_dir').notNull(),
     worktreePath: text('worktree_path'), // 对话关联的 worktree 路径
@@ -85,7 +85,7 @@ export const conversationContexts = pgTable(
 export const messages = pgTable(
   'messages',
   {
-    id: uuid('id').primaryKey().defaultRandom(),
+    id: uuid('id').primaryKey(),
     conversationId: uuid('conversation_id').notNull(),
     role: varchar('role', { length: 50 }).notNull(),
     content: text('content').notNull(),
@@ -107,7 +107,7 @@ export const messages = pgTable(
 export const neovateSessions = pgTable(
   'neovate_sessions',
   {
-    id: uuid('id').primaryKey().defaultRandom(),
+    id: uuid('id').primaryKey(),
     conversationId: uuid('conversation_id').notNull(),
     neovateSessionId: varchar('neovate_session_id', { length: 255 }).notNull(),
     workDir: text('work_dir').notNull(),
@@ -128,7 +128,7 @@ export const neovateSessions = pgTable(
 export const messageMetadata = pgTable(
   'message_metadata',
   {
-    id: uuid('id').primaryKey().defaultRandom(),
+    id: uuid('id').primaryKey(),
     messageId: uuid('message_id').notNull(),
     toolCalls: jsonb('tool_calls'),
     codeChanges: jsonb('code_changes'),
@@ -174,7 +174,7 @@ export type NewNeovateSession = typeof neovateSessions.$inferInsert;
 export const projects = pgTable(
   'projects',
   {
-    id: uuid('id').primaryKey().defaultRandom(),
+    id: uuid('id').primaryKey(),
     name: varchar('name', { length: 255 }).notNull(),
     description: text('description'),
     repoDir: text('repo_dir').notNull(),

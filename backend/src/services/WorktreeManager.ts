@@ -1,4 +1,5 @@
 import path from 'path';
+import dayjs from 'dayjs';
 import { ICommandExecutor } from '../types';
 
 /**
@@ -95,7 +96,7 @@ export class WorktreeManager {
       
       // 2. 生成对话分支名
       const shortSessionId = sessionId.substring(0, 8);
-      const timestamp = Date.now();
+      const timestamp = dayjs().valueOf();
       const branchName = `conversation-${shortSessionId}-${timestamp}`;
       
       console.log(`[WorktreeManager] 创建分支: ${branchName}`);
@@ -121,7 +122,7 @@ export class WorktreeManager {
         throw new Error(`创建 worktree 失败: ${result.stderr}`);
       }
 
-      const now = new Date();
+      const now = dayjs().toDate();
       const worktreeInfo: WorktreeInfo = {
         userId,
         sessionId,
@@ -202,7 +203,7 @@ export class WorktreeManager {
     // 先从缓存获取
     if (this.worktreeCache.has(cacheKey)) {
       const info = this.worktreeCache.get(cacheKey)!;
-      info.lastUsedAt = new Date();
+      info.lastUsedAt = dayjs().toDate();
       return info;
     }
 
@@ -219,7 +220,7 @@ export class WorktreeManager {
       worktreePath
     );
 
-    const now = new Date();
+    const now = dayjs().toDate();
     const worktreeInfo: WorktreeInfo = {
       userId,
       sessionId,

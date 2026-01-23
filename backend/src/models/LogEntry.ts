@@ -1,4 +1,5 @@
 import { LogEntry, LogLevel } from '../types';
+import dayjs from 'dayjs';
 
 /**
  * 创建日志条目
@@ -13,7 +14,7 @@ export function createLogEntry(
   message: string
 ): LogEntry {
   return {
-    timestamp: new Date(),
+    timestamp: dayjs().toDate(),
     level,
     source,
     message,
@@ -46,7 +47,7 @@ export function createErrorLog(source: string, message: string): LogEntry {
  * @returns 格式化后的日志字符串
  */
 export function formatLogEntry(log: LogEntry): string {
-  const timestamp = log.timestamp.toISOString();
+  const timestamp = dayjs(log.timestamp).toISOString();
   const level = log.level.toUpperCase().padEnd(5);
   return `[${timestamp}] [${level}] [${log.source}] ${log.message}`;
 }

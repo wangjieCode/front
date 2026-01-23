@@ -1,5 +1,6 @@
 import { SSHExecutor } from './SSHExecutor';
 import { CommandResult, MergeRequestInfo } from '../types';
+import dayjs from 'dayjs';
 
 /**
  * Git 操作结果接口
@@ -443,7 +444,7 @@ export class GitService {
     try {
       // 生成分支名称：conversation-{sessionId前8位}-{时间戳}
       const shortSessionId = sessionId.substring(0, 8);
-      const timestamp = Date.now();
+      const timestamp = dayjs().valueOf();
       const branchName = `conversation-${shortSessionId}-${timestamp}`;
 
       // 创建分支
