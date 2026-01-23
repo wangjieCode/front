@@ -1,4 +1,3 @@
-version: "3"
 services:
   web:
     build:
@@ -6,7 +5,7 @@ services:
       context: ${PROJECT_DIR:-../front-workspace/scrm-boss}
       # Path to the Dockerfile. We use an absolute path default or allow override.
       # When running from this directory, we can use an absolute path to ensure clarity.
-      dockerfile: ${DOCKERFILE:-/Users/gangqiang/Desktop/front-intern/infrastructure/Dockerfile}
+      dockerfile: ${DOCKERFILE:-Dockerfile}
     ports:
       - "${HOST_PORT:-8001}:8001"
     volumes:

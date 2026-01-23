@@ -1,4 +1,6 @@
 import express, { Express } from 'express';
+import fs from 'fs';
+import path from 'path';
 import dotenv from 'dotenv';
 import { createServer } from 'http';
 import { SSHExecutor, GitService, CodeToolService, GitLabMCPService } from './services';
@@ -236,6 +238,22 @@ async function startServer() {
   const { DockerComposeService } = require('./services/DockerComposeService');
   const dockerComposeService = new DockerComposeService(executor);
   app.use('/api/docker-compose', createDockerComposeRoutes(dockerComposeService));
+
+  // 静态资源服务
+  const publicDir = path.resolve(__dirname, '../public');
+  const indexPath = path.join(publicDir, 'index.html');
+  if (fs.existsSync(publicDir)) {
+    app.use(express.static(publicDir));
+    app.get('*', (req, res, next) => {
+      if (req.path.startsWith('/api')) {
+        return next();
+      }
+      if (fs.existsSync(indexPath)) {
+        return res.sendFile(indexPath);
+      }
+      return next();
+    });
+  }
 
   // 404 处理
   app.use(notFoundHandler);

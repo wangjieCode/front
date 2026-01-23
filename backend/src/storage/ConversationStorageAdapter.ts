@@ -91,7 +91,31 @@ export class ConversationStorageAdapter implements IConversationStorage {
     }
 
     if ((dbSession as any).context) {
-      return dbSession as unknown as ConversationSession;
+      const existingContext = (dbSession as any).context as ConversationContext;
+      const projectInfo = {
+        projectId: dbSession.projectId || existingContext.projectInfo?.projectId,
+        projectName: dbSession.projectName || (dbSession as any).projectNameJoined || existingContext.projectInfo?.projectName || '',
+        gitRepositoryUrl: (dbSession as any).projectRepoUrl || existingContext.projectInfo?.gitRepositoryUrl || '',
+        workDir: existingContext.projectInfo?.workDir || '',
+        gitBranch: existingContext.projectInfo?.gitBranch || undefined,
+        relevantFiles: existingContext.projectInfo?.relevantFiles || [],
+      };
+
+      return {
+        id: dbSession.id,
+        userId: dbSession.userId,
+        status: dbSession.status as ConversationStatus,
+        visibility: (dbSession as any).visibility || 'private',
+        context: {
+          ...existingContext,
+          projectInfo,
+        },
+        createdAt: dbSession.createdAt,
+        updatedAt: dbSession.updatedAt,
+        completedAt: dbSession.completedAt || undefined,
+        error: dbSession.error || undefined,
+        title: dbSession.title || undefined,
+      };
     }
 
     const dbContext = await this.storage.loadContext(sessionId);
