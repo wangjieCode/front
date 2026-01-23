@@ -1,8 +1,8 @@
-import { Router, Request, Response } from 'express';
+import { Router, Response } from 'express';
 import { ConversationManager } from '../services/ConversationManager';
 import { MessageRouter } from '../services/MessageRouter';
 import { ConversationAIService } from '../services/ConversationAIService';
-import { ConversationStatus } from '../types';
+import { ConversationStatus, ConversationVisibility } from '../types';
 import { requireAuth, AuthRequest } from './authMiddleware';
 
 /**
@@ -16,6 +16,14 @@ export function createConversationRoutes(
   // 获取 ConversationManager 中的 ProjectService 实例
   const projectService = (conversationManager as any).projectService;
   const router = Router();
+  const isCreator = (session: any, userId?: string) => {
+    if (!userId) return false;
+    return session.userId === userId;
+  };
+  const canReadSession = (session: any, userId?: string) => {
+    if (session.visibility === ConversationVisibility.PUBLIC) return true;
+    return isCreator(session, userId);
+  };
 
   /**
    * POST /api/conversations
@@ -104,12 +112,13 @@ export function createConversationRoutes(
   });
 
   /**
-   * GET /api/conversations
-   * 获取所有对话会话列表
-   */
+    * GET /api/conversations
+    * 获取所有对话会话列表（根据用户权限过滤）
+    */
   router.get('/', requireAuth, async (req: AuthRequest, res: Response) => {
     try {
-      const sessions = await conversationManager.listSessions();
+      const userId = req.userId!;
+      const sessions = await conversationManager.listSessions(userId);
       const simplifiedSessions = sessions.map(session => {
         const overview = session.context.taskDescription;
 
@@ -127,6 +136,7 @@ export function createConversationRoutes(
           mode: session.context.mode,
           overview: overview,
           status: session.status,
+          visibility: session.visibility,
           createdAt: session.createdAt,
           updatedAt: session.updatedAt,
         };
@@ -161,6 +171,13 @@ export function createConversationRoutes(
         });
       }
 
+      if (!canReadSession(session, req.userId)) {
+        return res.status(403).json({
+          success: false,
+          error: '无权访问该会话',
+        });
+      }
+
       res.json({
         success: true,
         data: session,
@@ -189,6 +206,13 @@ export function createConversationRoutes(
         });
       }
 
+      if (!canReadSession(session, req.userId)) {
+        return res.status(403).json({
+          success: false,
+          error: '无权访问该会话',
+        });
+      }
+
       const messages = await conversationManager.getMessageHistory(sessionId);
 
       res.json({
@@ -207,7 +231,7 @@ export function createConversationRoutes(
    * POST /api/conversations/:sessionId/messages
    * 发送用户消息（SSE 流式响应）
    */
-  router.post('/:sessionId/messages', async (req: Request, res: Response) => {
+  router.post('/:sessionId/messages', requireAuth, async (req: AuthRequest, res: Response) => {
     const startTime = Date.now();
     console.log(`[conversationRoutes] ========== 开始处理消息 ==========`);
 
@@ -233,6 +257,13 @@ export function createConversationRoutes(
         return res.status(404).json({
           success: false,
           error: '会话不存在',
+        });
+      }
+
+      if (!isCreator(session, req.userId)) {
+        return res.status(403).json({
+          success: false,
+          error: '只有创建者可以发送消息',
         });
       }
 
@@ -334,7 +365,12 @@ export function createConversationRoutes(
         });
       }
 
-
+      if (!isCreator(session, req.userId)) {
+        return res.status(403).json({
+          success: false,
+          error: '只有创建者可以删除对话',
+        });
+      }
 
       await conversationManager.deleteSession(sessionId);
 
@@ -359,6 +395,21 @@ export function createConversationRoutes(
       const { sessionId } = req.params;
       const { targetBranch } = req.body;
 
+      const session = await conversationManager.getSession(sessionId);
+      if (!session) {
+        return res.status(404).json({
+          success: false,
+          error: '会话不存在',
+        });
+      }
+
+      if (!isCreator(session, req.userId)) {
+        return res.status(403).json({
+          success: false,
+          error: '只有创建者可以创建 Merge Request',
+        });
+      }
+
       const result = await conversationManager.createMergeRequest(sessionId, targetBranch);
 
       if (result.success) {
@@ -382,10 +433,10 @@ export function createConversationRoutes(
     }
   });
 
-  /**
-   * POST /api/conversations/:sessionId/archive
-   * 归档对话（禁用所有编辑功能，便于清理 worktree）
-   */
+   /**
+    * POST /api/conversations/:sessionId/archive
+    * 归档对话（禁用所有编辑功能，便于清理 worktree）
+    */
   router.post('/:sessionId/archive', requireAuth, async (req: AuthRequest, res: Response) => {
     try {
       const { sessionId } = req.params;
@@ -399,7 +450,12 @@ export function createConversationRoutes(
         });
       }
 
-
+      if (!isCreator(session, req.userId)) {
+        return res.status(403).json({
+          success: false,
+          error: '只有创建者可以归档对话',
+        });
+      }
 
       await conversationManager.updateSessionStatus(
         sessionId,
@@ -415,6 +471,54 @@ export function createConversationRoutes(
       res.status(500).json({
         success: false,
         error: error instanceof Error ? error.message : '归档对话失败',
+      });
+    }
+  });
+
+  /**
+   * PATCH /api/conversations/:sessionId/visibility
+   * 更新对话可见性（仅创建者可操作）
+   */
+  router.patch('/:sessionId/visibility', requireAuth, async (req: AuthRequest, res: Response) => {
+    try {
+      const { sessionId } = req.params;
+      const { visibility } = req.body;
+
+      if (!visibility || (visibility !== 'private' && visibility !== 'public')) {
+        return res.status(400).json({
+          success: false,
+          error: '无效的可见性值，必须是 "private" 或 "public"',
+        });
+      }
+
+      const session = await conversationManager.getSession(sessionId);
+      if (!session) {
+        return res.status(404).json({
+          success: false,
+          error: '会话不存在',
+        });
+      }
+
+      // 验证是否是创建者
+      if (!isCreator(session, req.userId)) {
+        return res.status(403).json({
+          success: false,
+          error: '只有对话创建者才能修改可见性',
+        });
+      }
+
+      // 更新存储中的可见性
+      await conversationManager.updateVisibility(sessionId, visibility);
+
+      res.json({
+        success: true,
+        message: '可见性已更新',
+        data: { visibility },
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : '更新可见性失败',
       });
     }
   });

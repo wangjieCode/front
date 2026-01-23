@@ -28,6 +28,7 @@ export const conversations = pgTable(
     userId: uuid('user_id').notNull(),
     projectId: uuid('project_id'),
     status: varchar('status', { length: 50 }).notNull(),
+    visibility: varchar('visibility', { length: 50 }).notNull().default('private'),
     title: varchar('title', { length: 500 }),
     summary: text('summary'),
     projectName: varchar('project_name', { length: 255 }),
@@ -40,6 +41,7 @@ export const conversations = pgTable(
     userIdIdx: index('idx_conversations_user_id').on(table.userId),
     projectIdIdx: index('idx_conversations_project_id').on(table.projectId),
     statusIdx: index('idx_conversations_status').on(table.status),
+    visibilityIdx: index('idx_conversations_visibility').on(table.visibility),
     createdAtIdx: index('idx_conversations_created_at').on(table.createdAt),
     titleIdx: index('idx_conversations_title').on(table.title),
   })

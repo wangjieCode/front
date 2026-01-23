@@ -46,6 +46,7 @@ export class ConversationStorageAdapter implements IConversationStorage {
       userId: session.userId,
       projectId: session.context.projectInfo.projectId,
       status: session.status,
+      visibility: session.visibility,
       title,
       summary,
       projectName,
@@ -122,6 +123,7 @@ export class ConversationStorageAdapter implements IConversationStorage {
       id: dbSession.id,
       userId: dbSession.userId,
       status: dbSession.status as ConversationStatus,
+      visibility: (dbSession as any).visibility || 'private',
       context,
       createdAt: dbSession.createdAt,
       updatedAt: dbSession.updatedAt,
@@ -141,6 +143,7 @@ export class ConversationStorageAdapter implements IConversationStorage {
         id: dbSession.id,
         userId: dbSession.userId || undefined,
         status: dbSession.status as ConversationStatus,
+        visibility: (dbSession as any).visibility || 'private',
         context: {
           projectInfo: {
             projectId: dbSession.projectId || undefined,

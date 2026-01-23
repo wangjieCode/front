@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Spin, Typography, Button, Input, message, Modal, Descriptions, Tag } from 'antd';
-import { ThunderboltOutlined, SendOutlined, RocketOutlined, CheckOutlined, WarningOutlined, StopOutlined, GitlabOutlined, ClockCircleOutlined, LinkOutlined, LockOutlined, InboxOutlined } from '@ant-design/icons';
+import { Spin, Typography, Button, Input, message, Modal, Descriptions, Tag, Tooltip } from 'antd';
+import { ThunderboltOutlined, SendOutlined, RocketOutlined, CheckOutlined, WarningOutlined, StopOutlined, GitlabOutlined, ClockCircleOutlined, LinkOutlined, LockOutlined, InboxOutlined, GlobalOutlined } from '@ant-design/icons';
 import ModeSelector from './ModeSelector';
 import ProjectSelector from './ProjectSelector';
 import {
@@ -8,18 +8,21 @@ import {
   ConversationMessage,
   ConversationMode,
   ConversationStatus,
+  ConversationVisibility,
   PreviewStatus,
 } from '../types/conversation';
 import MessageInput from './MessageInput';
 import MessageList from './MessageList';
 import { conversationService } from '../services/conversationService';
 import { parseNeovateChunkStructured, ParsedContent } from '../utils/neovateParser';
+import { authUtils } from '../utils/auth';
 
 interface ConversationViewProps {
   sessionId?: string;
   initialPrompt?: string;
   initialSession?: ConversationSession;
   onNewConversation?: (prompt: string, mode: ConversationMode, projectId: string) => Promise<void>;
+  onVisibilityChange?: (sessionId: string, visibility: ConversationVisibility) => void;
   mode?: ConversationMode;
   onModeChange?: (mode: ConversationMode) => void;
   autoSend?: boolean;
@@ -38,6 +41,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
   initialPrompt,
   initialSession,
   onNewConversation,
+  onVisibilityChange,
   mode = ConversationMode.EDIT,
   onModeChange,
   autoSend,
@@ -50,8 +54,10 @@ const ConversationView: React.FC<ConversationViewProps> = ({
   const [sending, setSending] = useState(false);
   const [creatingMR, setCreatingMR] = useState(false);
   const [stoppingPreview, setStoppingPreview] = useState(false);
+  const [updatingVisibility, setUpdatingVisibility] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const hasAutoSentRef = useRef(false);
+  const currentUserId = authUtils.getUserId();
 
   // New conversation state
   const [prompt, setPrompt] = useState('');
@@ -117,7 +123,6 @@ const ConversationView: React.FC<ConversationViewProps> = ({
   useEffect(() => {
     if (autoSend && initialContent && sessionId && !hasAutoSentRef.current) {
       hasAutoSentRef.current = true;
-      console.log('触发自动发送:', initialContent);
       // 延迟一点点发送，避免组件挂载期的状态竞争
       setTimeout(() => {
         handleSendMessage(initialContent);
@@ -137,10 +142,6 @@ const ConversationView: React.FC<ConversationViewProps> = ({
     if (!sessionId) return;
     try {
       const session = await conversationService.getSession(sessionId);
-      console.log('[ConversationView] loadSession - 返回的session:', session);
-      console.log('[ConversationView] loadSession - context.mode:', session.context?.mode);
-      console.log('[ConversationView] loadSession - context.gitBranch:', session.context?.gitBranch);
-      console.log('[ConversationView] loadSession - context.mrUrl:', session.context?.mrUrl);
       setSession(session);
     } catch (error) {
       console.error('加载会话失败:', error);
@@ -151,17 +152,6 @@ const ConversationView: React.FC<ConversationViewProps> = ({
     if (!sessionId) return;
     try {
       const messages = await conversationService.getMessages(sessionId);
-      console.log('[ConversationView] loadMessages - 加载了', messages.length, '条消息');
-      messages.forEach((msg, idx) => {
-        if (msg.role === 'assistant') {
-          console.log(`[ConversationView] loadMessages - 消息 ${idx}:`, {
-            id: msg.id,
-            hasMetadata: !!msg.metadata,
-            hasCodeChanges: !!msg.metadata?.codeChanges,
-            codeChangesCount: msg.metadata?.codeChanges?.length || 0
-          });
-        }
-      });
       setMessages(messages);
     } catch (error) {
       console.error('加载消息失败:', error);
@@ -547,9 +537,35 @@ const ConversationView: React.FC<ConversationViewProps> = ({
       disabled: false,
       style: { background: '#7c5cff', borderColor: '#7c5cff', color: '#fff' },
     };
-  };
+   };
 
-  const renderLandingContent = () => (
+   /**
+    * 切换对话可见性
+    */
+  const handleToggleVisibility = async () => {
+     if (!sessionId || !session) return;
+
+     setUpdatingVisibility(true);
+     try {
+       const currentVisibility = session.visibility || ConversationVisibility.PRIVATE;
+       const newVisibility = currentVisibility === ConversationVisibility.PRIVATE
+         ? ConversationVisibility.PUBLIC
+         : ConversationVisibility.PRIVATE;
+       await conversationService.updateVisibility(sessionId, newVisibility);
+
+       // 更新本地状态
+       setSession(prev => prev ? { ...prev, visibility: newVisibility } : null);
+       onVisibilityChange?.(sessionId, newVisibility);
+       message.success(newVisibility === 'public' ? '对话已设为公开' : '对话已设为私密');
+     } catch (error) {
+       console.error('更新可见性失败:', error);
+       message.error('更新可见性失败');
+     } finally {
+       setUpdatingVisibility(false);
+     }
+   };
+
+   const renderLandingContent = () => (
     <div style={{
       maxWidth: 800,
       margin: '0 auto',
@@ -949,28 +965,54 @@ const ConversationView: React.FC<ConversationViewProps> = ({
                     </>
                   )}
 
-                  {/* 归档按钮 - 仅在 EDIT 模式且未归档时显示 */}
-                  {!isArchived && (
-                    <Button
-                      size="small"
-                      icon={<InboxOutlined />}
-                      onClick={handleArchive}
-                      danger // 使用 danger 样式提示这是个重要操作
-                      ghost  // 使用 ghost 样式减少视觉干扰
-                      style={{
-                        fontSize: 12,
-                        height: 26,
-                        padding: '0 10px',
-                        borderRadius: 6,
-                        fontWeight: 500,
-                        opacity: 0.6, // 默认稍微淡一点
-                      }}
-                      onMouseEnter={(e) => { e.currentTarget.style.opacity = '1'; }}
-                      onMouseLeave={(e) => { e.currentTarget.style.opacity = '0.6'; }}
-                    >
-                      归档
-                    </Button>
-                  )}
+                   {/* 可见性切换按钮 - 仅对创建者显示 */}
+                   {session?.userId === currentUserId && (
+                     <Tooltip title={(session?.visibility || ConversationVisibility.PRIVATE) === ConversationVisibility.PRIVATE ? '设为公开' : '设为私密'}>
+                       <Button
+                         size="small"
+                         icon={(session?.visibility || ConversationVisibility.PRIVATE) === ConversationVisibility.PRIVATE ? <GlobalOutlined /> : <LockOutlined />}
+                         onClick={handleToggleVisibility}
+                         loading={updatingVisibility}
+                         style={{
+                           fontSize: 12,
+                           height: 26,
+                           padding: '0 10px',
+                           borderRadius: 6,
+                           fontWeight: 500,
+                           color: (session?.visibility || ConversationVisibility.PRIVATE) === ConversationVisibility.PRIVATE ? '#52c41a' : '#fa8c16',
+                           borderColor: (session?.visibility || ConversationVisibility.PRIVATE) === ConversationVisibility.PRIVATE ? '#52c41a' : '#fa8c16',
+                           opacity: 0.6, // 默认稍微淡一点
+                         }}
+                         onMouseEnter={(e) => { e.currentTarget.style.opacity = '1'; }}
+                         onMouseLeave={(e) => { e.currentTarget.style.opacity = '0.6'; }}
+                       >
+                         {(session?.visibility || ConversationVisibility.PRIVATE) === ConversationVisibility.PRIVATE ? '私密' : '公开'}
+                       </Button>
+                     </Tooltip>
+                   )}
+
+                   {/* 归档按钮 - 仅在 EDIT 模式且未归档时显示 */}
+                   {!isArchived && (
+                     <Button
+                       size="small"
+                       icon={<InboxOutlined />}
+                       onClick={handleArchive}
+                       danger // 使用 danger 样式提示这是个重要操作
+                       ghost  // 使用 ghost 样式减少视觉干扰
+                       style={{
+                         fontSize: 12,
+                         height: 26,
+                         padding: '0 10px',
+                         borderRadius: 6,
+                         fontWeight: 500,
+                         opacity: 0.6, // 默认稍微淡一点
+                       }}
+                       onMouseEnter={(e) => { e.currentTarget.style.opacity = '1'; }}
+                       onMouseLeave={(e) => { e.currentTarget.style.opacity = '0.6'; }}
+                     >
+                       归档
+                     </Button>
+                   )}
                 </div>
               )}
             </div>

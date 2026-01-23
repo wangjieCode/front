@@ -2,6 +2,7 @@ import {
   ConversationSession,
   ConversationMessage,
   ConversationStatus,
+  ConversationVisibility,
   PreviewResult,
   PreviewStatusResponse,
   SimplifiedConversation,
@@ -494,22 +495,37 @@ class ConversationService {
     }
   }
 
-  /**
-   * 归档对话
-   */
-  async archiveConversation(sessionId: string, reason?: string): Promise<void> {
-    const response = await fetchWithAuth(`${this.baseUrl}/api/conversations/${sessionId}/archive`, {
-      method: 'POST',
-      body: JSON.stringify({ reason }),
-    });
+   /**
+    * 归档对话
+    */
+   async archiveConversation(sessionId: string, reason?: string): Promise<void> {
+     const response = await fetchWithAuth(`${this.baseUrl}/api/conversations/${sessionId}/archive`, {
+       method: 'POST',
+       body: JSON.stringify({ reason }),
+     });
 
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({ error: '归档失败' }));
-      throw new Error(error.error || '归档失败');
-    }
-  }
+     if (!response.ok) {
+       const error = await response.json().catch(() => ({ error: '归档失败' }));
+       throw new Error(error.error || '归档失败');
+     }
+   }
 
-}
+   /**
+    * 更新对话可见性
+    */
+   async updateVisibility(sessionId: string, visibility: ConversationVisibility): Promise<void> {
+     const response = await fetchWithAuth(`${this.baseUrl}/api/conversations/${sessionId}/visibility`, {
+       method: 'PATCH',
+       body: JSON.stringify({ visibility }),
+     });
+
+     if (!response.ok) {
+       const error = await response.json().catch(() => ({ error: '更新可见性失败' }));
+       throw new Error(error.error || '更新可见性失败');
+     }
+   }
+
+ }
 
 // 导出单例
 export const conversationService = new ConversationService();

@@ -220,6 +220,14 @@ export enum ConversationStatus {
 }
 
 /**
+ * 对话可见性枚举
+ */
+export enum ConversationVisibility {
+  PRIVATE = 'private',        // 私密 - 仅创建者可见
+  PUBLIC = 'public'           // 公开 - 所有登录用户可见
+}
+
+/**
  * 消息角色枚举
  */
 export enum MessageRole {
@@ -339,6 +347,7 @@ export interface ConversationSession {
   id: string;                 // 会话 ID（对话 ID）
   userId?: string;            // 用户 ID
   status: ConversationStatus; // 会话状态
+  visibility: ConversationVisibility; // 可见性
   context: ConversationContext; // 会话上下文
   createdAt: Date;            // 创建时间
   updatedAt: Date;            // 更新时间

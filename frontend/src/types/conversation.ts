@@ -31,6 +31,11 @@ export enum ConversationStatus {
   ARCHIVED = 'archived',    // 已归档 - 只读，禁用所有编辑功能
 }
 
+export enum ConversationVisibility {
+  PRIVATE = 'private',      // 私密 - 仅创建者可见
+  PUBLIC = 'public',        // 公开 - 所有登录用户可见
+}
+
 export enum MessageRole {
   USER = 'user',
   ASSISTANT = 'assistant',
@@ -116,6 +121,7 @@ export interface SimplifiedConversation {
   mode: ConversationMode;
   overview: string;
   status: ConversationStatus;
+  visibility: ConversationVisibility;
   createdAt: string;
   updatedAt: string;
   title?: string;
@@ -123,7 +129,9 @@ export interface SimplifiedConversation {
 
 export interface ConversationSession {
   id: string;
+  userId: string;
   status: ConversationStatus;
+  visibility: ConversationVisibility;
   context: ConversationContext;
   createdAt: string;
   updatedAt: string;

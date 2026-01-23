@@ -12,6 +12,8 @@ import {
   FolderOpenOutlined,
   EditOutlined,
   ReadOutlined,
+  LockOutlined,
+  GlobalOutlined,
 } from '@ant-design/icons';
 import IntroPage from './pages/IntroPage';
 import ConversationView from './components/ConversationView';
@@ -19,7 +21,7 @@ import LoginModal from './components/LoginModal';
 import ProjectsPage from './pages/ProjectsPage';
 import { conversationService, setLoginModalCallback } from './services/conversationService';
 import { setLoginModalCallback as setProjectLoginModalCallback } from './services/projectService';
-import { ConversationMode } from './types/conversation';
+import { ConversationMode, ConversationVisibility } from './types/conversation';
 import { authUtils } from './utils/auth';
 import './App.css';
 
@@ -35,7 +37,8 @@ const ChatRoute: React.FC<{
   onNewConversation: (prompt: string, mode: ConversationMode, projectId: string) => Promise<void>;
   mode: ConversationMode;
   onModeChange: (mode: ConversationMode) => void;
-}> = ({ onNewConversation, mode, onModeChange }) => {
+  onVisibilityChange: (sessionId: string, visibility: ConversationVisibility) => void;
+}> = ({ onNewConversation, mode, onModeChange, onVisibilityChange }) => {
   const { sessionId } = useParams();
   const { state } = useLocation();
 
@@ -47,6 +50,7 @@ const ChatRoute: React.FC<{
       autoSend={state?.autoSend}
       initialContent={state?.initialContent}
       onNewConversation={onNewConversation}
+      onVisibilityChange={onVisibilityChange}
       mode={mode}
       onModeChange={onModeChange}
     />
@@ -135,8 +139,6 @@ const AppContent: React.FC = () => {
     }
 
     try {
-      console.log('创建对话 - projectId:', projectId); // 调试日志
-
       const response = await conversationService.createConversation({
         initialPrompt: promptText,
         projectId: projectId,
@@ -190,6 +192,16 @@ const AppContent: React.FC = () => {
     setIsLoggedIn(false);
     setCurrentUser(null);
     message.success('已退出登录');
+  };
+
+  const handleVisibilityChange = (sessionId: string, visibility: ConversationVisibility) => {
+    setConversations(prev =>
+      prev.map(conv =>
+        conv.id === sessionId
+          ? { ...conv, visibility }
+          : conv
+      )
+    );
   };
 
   // 取消登录
@@ -289,6 +301,11 @@ const AppContent: React.FC = () => {
 
                     <div className="conversation-content">
                       <div className="conversation-title" title={conv.title || conv.overview || conv.context?.taskDescription || '新对话'}>
+                        {conv.visibility === ConversationVisibility.PUBLIC ? (
+                          <GlobalOutlined style={{ marginRight: 6, color: '#52c41a' }} />
+                        ) : (
+                          <LockOutlined style={{ marginRight: 6, color: '#999' }} />
+                        )}
                         {conv.title || conv.overview || conv.context?.taskDescription || '新对话'}
                       </div>
 
@@ -350,6 +367,8 @@ const AppContent: React.FC = () => {
             />
           )}
         </div>
+
+
       </Layout.Sider>
 
       <Layout style={{ marginLeft: 300, background: '#f5f5f5', height: '100vh', overflow: 'hidden' }}>
@@ -473,6 +492,7 @@ const AppContent: React.FC = () => {
                 onNewConversation={handleSubmit}
                 mode={mode}
                 onModeChange={setMode}
+                onVisibilityChange={handleVisibilityChange}
               />
             } />
             <Route path="/" element={
@@ -480,6 +500,7 @@ const AppContent: React.FC = () => {
                 onNewConversation={handleSubmit}
                 mode={mode}
                 onModeChange={setMode}
+                onVisibilityChange={handleVisibilityChange}
               />
             } />
           </Routes>

@@ -5,6 +5,7 @@ import {
   ConversationMessage,
   ConversationContext,
   ConversationStatus,
+  ConversationVisibility,
   MessageRole,
   MessageMetadata,
   ProjectInfo,
@@ -152,6 +153,7 @@ export class ConversationManager {
       id: sessionId,
       userId,
       status: ConversationStatus.ACTIVE,  // 简化状态：创建时即为活跃状态
+      visibility: ConversationVisibility.PRIVATE, // 默认私密
       context,
       createdAt: now,
       updatedAt: now,
@@ -282,19 +284,24 @@ export class ConversationManager {
     // 检查缓存
     const cached = this.sessionCache.get(sessionId);
     if (cached) {
-      console.log(`[ConversationManager] 使用缓存的会话: ${sessionId}`);
       return cached;
     }
 
     // 从数据库加载
     const session = await this.storage.loadSession(sessionId);
+    const normalized = session
+      ? {
+          ...session,
+          visibility: session.visibility ?? ConversationVisibility.PRIVATE,
+        }
+      : null;
     
     // 更新缓存
-    if (session) {
-      this.sessionCache.set(sessionId, session);
+    if (normalized) {
+      this.sessionCache.set(sessionId, normalized);
     }
     
-    return session;
+    return normalized;
   }
 
   /**
@@ -304,11 +311,29 @@ export class ConversationManager {
     this.sessionCache.delete(sessionId);
   }
 
-  /**
-   * 获取所有会话列表
-   */
-  async listSessions(): Promise<ConversationSession[]> {
-    return await this.storage.listSessions();
+   /**
+     * 获取所有会话列表（支持用户过滤）
+     * - 返回公开对话
+     * - 加上该用户创建的所有对话（包括私密的）
+     */
+  async listSessions(userId?: string): Promise<ConversationSession[]> {
+    const rawAll = await this.storage.listSessions();
+    const all = rawAll.map((s: any) => ({
+      ...s,
+      visibility: s.visibility ?? 'private',
+    }));
+    
+    if (!userId) {
+      // 未登录用户只能看到公开对话
+      const filtered = all.filter((s: any) => s.visibility === ConversationVisibility.PUBLIC);
+      return filtered as ConversationSession[];
+    }
+    
+    // 登录用户：公开对话 + 自己创建的对话
+    const filtered = all.filter((s: any) => 
+      s.visibility === ConversationVisibility.PUBLIC || s.userId === userId
+    );
+    return filtered as ConversationSession[];
   }
 
   /**
@@ -471,6 +496,28 @@ export class ConversationManager {
       await this.storage.saveSession(session);
       
       // 清除缓存
+      this.clearSessionCache(sessionId);
+    } finally {
+      this.releaseLock(sessionId);
+    }
+  }
+
+  /**
+   * 更新会话可见性
+   */
+  async updateVisibility(sessionId: string, visibility: ConversationVisibility): Promise<void> {
+    await this.acquireLock(sessionId);
+
+    try {
+      const session = await this.getSession(sessionId);
+      if (!session) {
+        throw new Error(`会话不存在: ${sessionId}`);
+      }
+
+      session.visibility = visibility;
+      session.updatedAt = new Date();
+
+      await this.storage.saveSession(session);
       this.clearSessionCache(sessionId);
     } finally {
       this.releaseLock(sessionId);

@@ -85,6 +85,7 @@ export class DrizzleConversationStorage {
       userId: session.userId,
       projectId: session.projectId || session.context?.projectInfo?.projectId,
       status: session.status,
+      visibility: session.visibility || 'private',
       title: session.title,
       summary: session.summary,
       projectName: session.projectName || session.context?.projectInfo?.projectName,
@@ -103,18 +104,19 @@ export class DrizzleConversationStorage {
 
     if (existing.length > 0) {
       // 更新现有会话
-      await db
-        .update(conversations)
+       await db
+       .update(conversations)
         .set({
           status: conversationData.status,
+          visibility: conversationData.visibility,
           title: conversationData.title,
           summary: conversationData.summary,
-          projectId: conversationData.projectId,
-          projectName: conversationData.projectName,
-          updatedAt: conversationData.updatedAt,
-          completedAt: conversationData.completedAt,
-          error: conversationData.error,
-        })
+           projectId: conversationData.projectId,
+           projectName: conversationData.projectName,
+           updatedAt: conversationData.updatedAt,
+           completedAt: conversationData.completedAt,
+           error: conversationData.error,
+         })
         .where(eq(conversations.id, session.id));
     } else {
       // 插入新会话
@@ -213,22 +215,23 @@ export class DrizzleConversationStorage {
     return session;
   }
 
-  /**
-   * 列出所有会话（优化版，包含项目名称和第一条消息）
-   */
-  async listSessions(): Promise<Conversation[]> {
-    // 检查缓存
-    const cached = this.getCached<Conversation[]>('sessions:list');
-    if (cached) {
-      return cached;
-    }
-
+   /**
+    * 列出所有会话
+    */
+  async listSessions(): Promise<any[]> {
     const db = this.getDb();
 
-    // 直接查询 conversations 表，并关联 projects 表获取最新的项目名称，以及 conversationContexts 获取 mode 和其他必要信息
     const results = await db
       .select({
-        conversation: conversations,
+        id: conversations.id,
+        userId: conversations.userId,
+        visibility: conversations.visibility,
+        status: conversations.status,
+        title: conversations.title,
+        projectId: conversations.projectId,
+        projectName: conversations.projectName,
+        createdAt: conversations.createdAt,
+        updatedAt: conversations.updatedAt,
         projectNameJoined: projects.name,
         mode: conversationContexts.mode,
         taskDescription: conversationContexts.taskDescription,
@@ -239,23 +242,28 @@ export class DrizzleConversationStorage {
       .leftJoin(conversationContexts, eq(conversations.id, conversationContexts.conversationId))
       .orderBy(desc(conversations.createdAt));
 
-    // 使用关联查询的项目名称作为备选，并构造 context 对象包含 mode
-    const sessions = results.map(row => ({
-      ...row.conversation,
-      projectName: row.conversation.projectName || row.projectNameJoined || null,
+    return results.map(row => ({
+      id: row.id,
+      userId: row.userId,
+      visibility: row.visibility || 'private',
+      status: row.status,
+      title: row.title,
+      projectName: row.projectName || row.projectNameJoined || null,
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
       context: {
-        mode: row.mode || 'edit', // Default to edit if missing
-        taskDescription: row.taskDescription,
+        mode: row.mode || 'edit',
+        taskDescription: row.taskDescription || '',
         projectInfo: {
-          workDir: row.workDir
+          workDir: row.workDir || '',
+          projectId: row.projectId || null,
+          projectName: row.projectName || row.projectNameJoined || null,
+          gitRepositoryUrl: '',
+          gitBranch: null,
+          relevantFiles: [],
         }
       }
     }));
-
-    // 缓存结果
-    this.setCache('sessions:list', sessions);
-
-    return sessions;
   }
 
   /**
