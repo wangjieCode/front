@@ -5,6 +5,7 @@ import { neovateSessions } from '../db/schema';
 import { NeovateSessionInfo } from '../types';
 import { newId } from '../utils/id';
 import dayjs from 'dayjs';
+import { convertToProjectRelativePath, resolveProjectRelativePath } from '../utils/PathUtils';
 
 /**
  * Neovate 会话管理器（数据库版本）
@@ -101,7 +102,7 @@ export class NeovateSessionManagerDB {
           id: newId(),
           conversationId,
           neovateSessionId,
-          workDir,
+          workDir: convertToProjectRelativePath(workDir) || '',
           lastUsedAt: dayjs().toDate(),
         });
 
@@ -156,7 +157,7 @@ export class NeovateSessionManagerDB {
         return {
           taskId: session.conversationId, // 保持兼容性
           neovateSessionId: session.neovateSessionId,
-          workDir: session.workDir,
+          workDir: resolveProjectRelativePath(session.workDir),
           createdAt: session.createdAt,
           lastUsedAt: session.lastUsedAt,
         };
@@ -227,7 +228,7 @@ export class NeovateSessionManagerDB {
       return results.map(session => ({
         taskId: session.conversationId, // 保持兼容性
         neovateSessionId: session.neovateSessionId,
-        workDir: session.workDir,
+        workDir: resolveProjectRelativePath(session.workDir),
         createdAt: session.createdAt,
         lastUsedAt: session.lastUsedAt,
       }));

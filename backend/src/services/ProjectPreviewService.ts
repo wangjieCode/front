@@ -86,16 +86,16 @@ export class ProjectPreviewService {
 
       // 4. 准备环境变量
       const finalApiTarget = apiTarget || process.env.API_TARGET || '';
+      const dockerfilePath = path.join(this.infrastructureDir, 'Dockerfile');
       const envVars = [
         `PROJECT_DIR=${workDir}`,
         `HOST_PORT=${hostPort}`,
         `IS_PREVIEW=true`,
-        `COMPOSE_PROJECT_NAME=${projectName}`
+        `COMPOSE_PROJECT_NAME=${projectName}`,
+        `DOCKERFILE=${dockerfilePath}`
       ];
       
-      if (finalApiTarget) {
-        envVars.push(`API_TARGET=${finalApiTarget}`);
-      }
+      envVars.push(`API_TARGET=${finalApiTarget}`);
 
       // 5. 构建并启动
       // 使用 -p 指定项目名，实现多租户隔离

@@ -13,6 +13,8 @@ import {
 } from '../db/schema';
 import { newId } from '../utils/id';
 import dayjs from 'dayjs';
+import { convertToProjectRelativePath, resolveProjectRelativePath } from '../utils/PathUtils';
+import path from 'path';
 
 /**
  * 分页选项
@@ -439,8 +441,8 @@ export class DrizzleConversationStorage {
 
     // 提取上下文字段
     const contextData = {
-      workDir: context.projectInfo?.workDir || context.workDir,
-      worktreePath: context.projectInfo?.worktreePath || context.worktreePath,
+      workDir: convertToProjectRelativePath(context.projectInfo?.workDir || context.workDir) || '',
+      worktreePath: convertToProjectRelativePath(context.projectInfo?.worktreePath || context.worktreePath),
       gitBranch: context.gitBranch || context.projectInfo?.gitBranch,
       relevantFiles: context.projectInfo?.relevantFiles || context.relevantFiles,
       taskDescription: context.taskDescription,
@@ -507,8 +509,8 @@ export class DrizzleConversationStorage {
     // 转换为应用层期望的 ConversationContext 格式
     const context = {
       projectInfo: {
-        workDir: rawContext.workDir,
-        worktreePath: rawContext.worktreePath,
+        workDir: resolveProjectRelativePath(rawContext.workDir),
+        worktreePath: rawContext.worktreePath ? resolveProjectRelativePath(rawContext.worktreePath) : null,
         gitBranch: rawContext.gitBranch,
         relevantFiles: rawContext.relevantFiles || [],
       },

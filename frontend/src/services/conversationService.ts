@@ -276,10 +276,9 @@ class ConversationService {
   /**
    * 为会话创建 Merge Request
    */
-  async createMergeRequest(sessionId: string, targetBranch?: string): Promise<{ mrUrl: string }> {
+  async createMergeRequest(sessionId: string): Promise<{ mrUrl: string }> {
     const response = await fetchWithAuth(`${this.baseUrl}/api/conversations/${sessionId}/merge-request`, {
       method: 'POST',
-      body: JSON.stringify({ targetBranch }),
     });
 
     if (!response.ok) {

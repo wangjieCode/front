@@ -394,8 +394,6 @@ export function createConversationRoutes(
   router.post('/:sessionId/merge-request', requireAuth, async (req: AuthRequest, res: Response) => {
     try {
       const { sessionId } = req.params;
-      const { targetBranch } = req.body;
-
       const session = await conversationManager.getSession(sessionId);
       if (!session) {
         return res.status(404).json({
@@ -411,7 +409,7 @@ export function createConversationRoutes(
         });
       }
 
-      const result = await conversationManager.createMergeRequest(sessionId, targetBranch);
+      const result = await conversationManager.createMergeRequest(sessionId);
 
       if (result.success) {
         res.json({

@@ -210,18 +210,18 @@ export class ConversationAIService {
     userMessage: string
   ): Promise<void> {
     try {
-      // console.log(`[ConversationAIService] 提交变更`);
+      const workDir = context.projectInfo.workDir;
 
       // 添加所有变更
-      await this.gitService.addAll();
+      await this.gitService.addAll(workDir);
 
       // 提交变更
       const commitMessage = `AI: ${userMessage.substring(0, 50)}${userMessage.length > 50 ? '...' : ''}`;
-      const commitResult = await this.gitService.commit(commitMessage);
+      const commitResult = await this.gitService.commit(commitMessage, workDir);
 
       if (commitResult.success && context.gitBranch) {
         // 推送到远程
-        await this.gitService.push(context.gitBranch);
+        await this.gitService.push(context.gitBranch, 'origin', false, workDir);
         // console.log(`[ConversationAIService] ✅ 变更已提交并推送`);
       }
     } catch (error) {
