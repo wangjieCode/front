@@ -56,6 +56,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
   const [stoppingPreview, setStoppingPreview] = useState(false);
   const [updatingVisibility, setUpdatingVisibility] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const chatContainerRef = useRef<HTMLDivElement>(null);
   const hasAutoSentRef = useRef(false);
   const currentUserId = authUtils.getUserId();
 
@@ -134,6 +135,30 @@ const ConversationView: React.FC<ConversationViewProps> = ({
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
+
+  // 处理内容高度变化导致的滚动（解决打字机效果不跟随滚动的问题）
+  useEffect(() => {
+    const container = chatContainerRef.current;
+    if (!container) return;
+
+    const observer = new ResizeObserver(() => {
+      // 只有在正在发送或流式传输时才自动滚动
+      const isStreaming = messages.some(msg => (msg as any).isStreaming);
+      if (sending || isStreaming) {
+        scrollToBottom();
+      }
+    });
+
+    // 观察内部消息列表的高度变化
+    const messageListElement = container.querySelector('.message-list-inner');
+    if (messageListElement) {
+      observer.observe(messageListElement);
+    } else {
+      observer.observe(container);
+    }
+
+    return () => observer.disconnect();
+  }, [sending, messages]);
 
   // 检查对话是否已归档
   const isArchived = session?.status === ConversationStatus.ARCHIVED;
@@ -723,11 +748,14 @@ const ConversationView: React.FC<ConversationViewProps> = ({
       height: '100%'
     }}>
       {/* Messages */}
-      <div style={{
-        flex: 1,
-        overflowY: 'auto',
-        padding: '20px 0'
-      }}>
+      <div 
+        ref={chatContainerRef}
+        style={{
+          flex: 1,
+          overflowY: 'auto',
+          padding: '20px 0'
+        }}
+      >
         {loadingMessages ? (
           <div style={{ textAlign: 'center', padding: '40px 0' }}>
             <Spin size="large" tip="加载消息..." />
@@ -737,11 +765,11 @@ const ConversationView: React.FC<ConversationViewProps> = ({
             暂无消息
           </div>
         ) : (
-          <>
+          <div className="message-list-inner">
             {/* 状态栏 */}
             <MessageList messages={messages} onMessageClick={handleMessageClick} />
             <div ref={messagesEndRef} />
-          </>
+          </div>
         )}
       </div>
 
