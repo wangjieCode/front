@@ -145,7 +145,9 @@ export class ConversationManager {
       projectInfo: completeProjectInfo,
       taskDescription: initialPrompt,
       messageHistory: [],
-      variables: {},
+      variables: {
+        environment: process.env.APP_ENV || 'local',
+      },
       mode,
     };
 
@@ -334,7 +336,16 @@ export class ConversationManager {
     const filtered = all.filter((s: any) => 
       s.visibility === ConversationVisibility.PUBLIC || s.userId === userId
     );
-    return filtered as ConversationSession[];
+
+    // 根据 environment 过滤
+    const currentEnv = process.env.APP_ENV || 'local';
+    const envFiltered = filtered.filter((s: any) => {
+      const vars = s.context?.variables || {};
+      const sessionEnv = vars.environment;
+      return sessionEnv === currentEnv;
+    });
+
+    return envFiltered as ConversationSession[];
   }
 
   /**

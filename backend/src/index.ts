@@ -54,137 +54,101 @@ async function initializeServices() {
 
   // 2. 然后初始化其他服务
   try {
-  const gitlabConfig = loadGitLabConfig();
-  const workDir = getGitWorkDir();
-  const defaultBranch = getGitDefaultBranch();
-
-  if (runMode === 'local') {
-    // 本机模式：使用 LocalExecutor
-    const { LocalExecutor } = require('./services');
-    executor = new LocalExecutor();
-    console.log('✅ 本机执行器已初始化');
-
-    // 确保工作目录存在
-    const { existsSync, mkdirSync } = require('fs');
-    const { resolve } = require('path');
-    const absWorkDir = resolve(workDir);
-    if (!existsSync(absWorkDir)) {
-      mkdirSync(absWorkDir, { recursive: true });
-      console.log(`📁 创建工作目录: ${absWorkDir}`);
-    }
-  } else {
-    // 远程模式：使用 SSHExecutor
-    const sshConfig = loadSSHConfig();
-    console.log('🔌 SSH 配置:');
-    console.log('  host:', sshConfig.host);
-    console.log('  port:', sshConfig.port);
-    console.log('  username:', sshConfig.username);
-    console.log('  认证方式:', sshConfig.privateKey ? '私钥' : '密码');
+    const appEnv = process.env.APP_ENV || 'local';
+    const workDir = getGitWorkDir();
+    const defaultBranch = getGitDefaultBranch();
     
-    executor = new SSHExecutor();
+    console.log(`🌍 当前应用环境 (APP_ENV): ${appEnv}`);
+    console.log(`🔧 运行模式 (RUN_MODE): ${runMode}`);
+    console.log(`📂 工作目录: ${workDir}`);
 
-    // 连接 SSH（等待连接完成）
-    try {
-      console.log('🔌 正在连接 SSH...');
-      await executor.connect(sshConfig);
-      console.log('✅ SSH 连接已建立');
-      
-      // 测试 SSH 连接
-      console.log('🧪 测试 SSH 连接...');
-      const testResult = await executor.testConnection();
-      if (testResult) {
-        console.log('✅ SSH 连接测试成功');
-      } else {
-        console.warn('⚠️  SSH 连接测试失败');
+    if (runMode === 'local') {
+      const { LocalExecutor } = require('./services');
+      executor = new LocalExecutor();
+      console.log('✅ 本机执行器已初始化');
+
+      // 确保工作目录存在
+      const { existsSync, mkdirSync } = require('fs');
+      if (!existsSync(workDir)) {
+        try {
+          mkdirSync(workDir, { recursive: true });
+          console.log(`📁 已自动创建本地工作目录: ${workDir}`);
+        } catch (e: any) {
+          console.warn(`⚠️ 无法创建工作目录 ${workDir}: ${e.message}`);
+        }
       }
-      
-      // 测试基本命令
-      console.log('🧪 测试基本命令执行...');
-      const echoResult = await executor.executeCommand('echo "Hello from SSH"');
-      console.log('  exitCode:', echoResult.exitCode);
-      console.log('  stdout:', echoResult.stdout);
-      
-      // 检查 shell 类型
-      const shellResult = await executor.executeCommand('echo $SHELL');
-      console.log('🐚 远程 Shell:', shellResult.stdout.trim());
-      
-      // 检查 PATH
-      const pathResult = await executor.executeCommand('echo $PATH');
-      console.log('📍 远程 PATH:', pathResult.stdout.trim());
-      
-      // 检查 Node.js 版本
-      const nodeResult = await executor.executeCommand('node -v');
-      console.log('📦 Node.js 版本:', nodeResult.exitCode === 0 ? nodeResult.stdout.trim() : '未安装或不在 PATH 中');
-      
-      // 检查 fnm
-      const fnmResult = await executor.executeCommand('which fnm');
-      console.log('🔧 fnm 路径:', fnmResult.exitCode === 0 ? fnmResult.stdout.trim() : '未找到');
-      
-      // 检查 docker
-      const dockerResult = await executor.executeCommand('which docker');
-      console.log('🐳 docker 路径:', dockerResult.exitCode === 0 ? dockerResult.stdout.trim() : '未找到');
-      
-      // 检查 docker-compose
-      const dockerComposeResult = await executor.executeCommand('which docker-compose');
-      console.log('🐳 docker-compose 路径:', dockerComposeResult.exitCode === 0 ? dockerComposeResult.stdout.trim() : '未找到');
-      
-    } catch (error) {
-      console.error('❌ SSH 连接失败:', error instanceof Error ? error.message : error);
-      throw error;
+    } else {
+      // 远程模式：使用 SSHExecutor
+      console.log('🔌 运行在远程模式，正在尝试加载 SSH 配置...');
+      try {
+        const sshConfig = loadSSHConfig();
+        const { SSHExecutor } = require('./services');
+        executor = new SSHExecutor();
+        
+        console.log('🔌 正在连接 SSH...');
+        await executor.connect(sshConfig);
+        console.log('✅ SSH 连接已建立');
+      } catch (error) {
+        console.error('❌ SSH 初始化/连接失败:', error instanceof Error ? error.message : error);
+        console.warn('⚠️ SSH 连接失败，系统将尝试以只读/本地受限模式运行');
+        const { LocalExecutor } = require('./services');
+        executor = new LocalExecutor();
+      }
     }
-  }
 
-  const codeToolService = new CodeToolService(executor);
+    const codeToolService = new CodeToolService(executor);
 
-  // 获取工具信息并记录
-  const info = await codeToolService.getToolInfo(workDir);
-  console.log(`🔧 代码工具: ${info.name} (${info.version})`);
-  console.log(`✅ 工具可用性: ${info.available ? '可用' : '不可用'}`);
+    // 获取工具信息并记录
+    try {
+      const info = await codeToolService.getToolInfo(workDir);
+      console.log(`🔧 代码工具: ${info.name} (${info.version})`);
+      console.log(`✅ 工具可用性: ${info.available ? '可用' : '不可用'}`);
+    } catch (e) {
+      console.warn('⚠️ 无法获取代码工具信息');
+    }
 
+    // 创建对话服务实例
+    const { ConversationManager } = require('./services/ConversationManager');
+    const { MessageRouter } = require('./services/MessageRouter');
+    const { ConversationAIService } = require('./services/ConversationAIService');
+    const { NeovateAIService } = require('./services/NeovateAIService');
+    const { ConversationStorageAdapter } = require('./storage/ConversationStorageAdapter');
+    const { GitService } = require('./services/GitService');
+    const { GitLabMCPService } = require('./services/GitLabMCPService');
+    const { ProjectService } = require('./services/ProjectService');
 
+    // 使用 Drizzle 存储
+    if (!conversationStorage) {
+      throw new Error('数据库存储未初始化');
+    }
+    
+    // 使用适配器包装存储
+    const storageAdapter = new ConversationStorageAdapter(conversationStorage);
+    const gitService = new GitService(executor, workDir);
+    const gitlabService = new GitLabMCPService({
+      url: process.env.GITLAB_URL || '',
+      token: process.env.GITLAB_TOKEN || '',
+      projectId: process.env.GITLAB_PROJECT_ID || '',
+    });
+    
+    // 创建 WorktreeManager
+    const worktreeBaseDir = process.env.WORKTREE_BASE_DIR || `${workDir}/../worktrees`;
+    const worktreeManager = new WorktreeManager(executor, workDir, worktreeBaseDir);
+    console.log(`📁 Worktree 基础目录: ${worktreeBaseDir}`);
+    
+    // 创建 ProjectService
+    const projectService = new ProjectService(executor);
+    
+    conversationManager = new ConversationManager(storageAdapter, projectService, gitlabService, worktreeManager);
+    const databaseUrl = process.env.DATABASE_URL || '';
+    const neovateAIService = new NeovateAIService(executor, workDir, databaseUrl);
+    conversationAIService = new ConversationAIService(neovateAIService, databaseUrl, gitService, gitlabService);
+    messageRouter = new MessageRouter(conversationManager, conversationAIService);
 
-  // 创建对话服务实例
-  const { ConversationManager } = require('./services/ConversationManager');
-  const { MessageRouter } = require('./services/MessageRouter');
-  const { ConversationAIService } = require('./services/ConversationAIService');
-  const { NeovateAIService } = require('./services/NeovateAIService');
-  const { ConversationStorageAdapter } = require('./storage/ConversationStorageAdapter');
-  const { GitService } = require('./services/GitService');
-  const { GitLabMCPService } = require('./services/GitLabMCPService');
-  const { ProjectService } = require('./services/ProjectService');
-
-  // 使用 Drizzle 存储
-  if (!conversationStorage) {
-    throw new Error('数据库未初始化，无法启动对话服务');
-  }
-  
-  // 使用适配器包装存储
-  const storageAdapter = new ConversationStorageAdapter(conversationStorage);
-  const gitService = new GitService(executor, workDir);
-  const gitlabService = new GitLabMCPService({
-    url: process.env.GITLAB_URL || '',
-    token: process.env.GITLAB_TOKEN || '',
-    projectId: process.env.GITLAB_PROJECT_ID || '',
-  });
-  
-  // 创建 WorktreeManager
-  const worktreeBaseDir = process.env.WORKTREE_BASE_DIR || `${workDir}/../worktrees`;
-  const worktreeManager = new WorktreeManager(executor, workDir, worktreeBaseDir);
-  console.log(`📁 Worktree 基础目录: ${worktreeBaseDir}`);
-  
-  // 创建 ProjectService
-  const projectService = new ProjectService(executor);
-  
-  conversationManager = new ConversationManager(storageAdapter, projectService, gitlabService, worktreeManager);
-  const databaseUrl = process.env.DATABASE_URL || '';
-  const neovateAIService = new NeovateAIService(executor, workDir, databaseUrl);
-  conversationAIService = new ConversationAIService(neovateAIService, databaseUrl, gitService, gitlabService);
-  messageRouter = new MessageRouter(conversationManager, conversationAIService);
-
-  console.log('✅ 对话服务已初始化 (存储: Drizzle/Supabase)');
+    console.log('✅ 对话服务已初始化 (存储: Drizzle/Supabase)');
   } catch (error) {
-    console.warn('⚠️  服务初始化失败（可能缺少配置）:', error instanceof Error ? error.message : error);
-    console.warn('⚠️  系统将以只读模式运行（仅支持查询任务）');
+    console.error('❌ 服务初始化过程中发生严重错误:', error);
+    console.warn('⚠️ 系统将以受限模式运行');
   }
 }
 
@@ -263,7 +227,7 @@ async function startServer() {
 
   // 3. 启动服务器
   const HOST = process.env.HOST || '0.0.0.0'; // 监听所有网络接口
-  server.listen(PORT, HOST, async () => {
+  server.listen(Number(PORT), HOST, async () => {
     console.log(`🚀 后端服务器运行在:`);
     console.log(`   - 本地访问: http://localhost:${PORT}`);
     console.log(`   - 局域网访问: http://<your-ip>:${PORT}`);

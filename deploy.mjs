@@ -131,13 +131,16 @@ pnpm install --frozen-lockfile
 echo "==> Initialize projects"
 pnpm init:projects --base-dir="${DEPLOY_DIR}"
 
-echo "==> Start or reload PM2"
+echo "==> Start or Restart PM2"
 if pm2 describe "${APP_NAME}" >/dev/null 2>&1; then
-  pm2 reload "${APP_NAME}" --update-env
+  echo "Stopping and restarting ${APP_NAME} to ensure code update..."
+  pm2 restart "${APP_NAME}" --update-env
 else
+  echo "First time starting ${APP_NAME}..."
   pm2 start pnpm --name "${APP_NAME}" -- start
 fi
-pm2 save
+pm2 save --force
+pm2 list
 
 echo "==> 检查应用状态"
 sleep 2

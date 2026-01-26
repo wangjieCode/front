@@ -84,8 +84,6 @@ export class DrizzleConversationStorage {
     // 1. 构建对话数据
     const conversationData = {
       id: session.id,
-      sessionId: session.sessionId || session.id, // 确保有 sessionId
-      taskId: session.taskId,
       userId: session.userId,
       projectId: session.projectId || session.context?.projectInfo?.projectId,
       status: session.status,
@@ -204,7 +202,7 @@ export class DrizzleConversationStorage {
     const result = await db
       .select()
       .from(conversations)
-      .where(eq(conversations.sessionId, agentSessionId))
+      .where(eq(conversations.id, agentSessionId))
       .limit(1);
 
     const session = result[0] || null;
@@ -239,6 +237,7 @@ export class DrizzleConversationStorage {
         mode: conversationContexts.mode,
         taskDescription: conversationContexts.taskDescription,
         workDir: conversationContexts.workDir,
+        variables: conversationContexts.variables,
       })
       .from(conversations)
       .leftJoin(projects, eq(conversations.projectId, projects.id))
@@ -257,6 +256,7 @@ export class DrizzleConversationStorage {
       context: {
         mode: row.mode || 'edit',
         taskDescription: row.taskDescription || '',
+        variables: row.variables || {}, // 确保变量始终是一个对象
         projectInfo: {
           workDir: row.workDir || '',
           projectId: row.projectId || null,
@@ -330,9 +330,7 @@ export class DrizzleConversationStorage {
 
     await db.insert(messages).values(message);
 
-    // 清除相关缓存
     this.deleteCache(`messages:${message.conversationId}`);
-    this.deleteCache(`messages:${message.conversationId}:${message.branchId}`);
   }
 
   /**

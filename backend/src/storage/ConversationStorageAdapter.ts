@@ -178,7 +178,7 @@ export class ConversationStorageAdapter implements IConversationStorage {
           taskDescription: (dbSession as any).context?.taskDescription || dbSession.summary || '',
           mode: (dbSession as any).context?.mode || ConversationMode.EDIT,
           messageHistory: [],
-          variables: {},
+          variables: (dbSession as any).context?.variables || {},
         } as ConversationContext,
         createdAt: dbSession.createdAt,
         updatedAt: dbSession.updatedAt,
@@ -186,7 +186,6 @@ export class ConversationStorageAdapter implements IConversationStorage {
         error: dbSession.error || undefined,
         title: dbSession.title || '',
       }));
-
       return sessions;
     } catch (error) {
       console.error('[ConversationStorageAdapter] listSessions 错误:', error);

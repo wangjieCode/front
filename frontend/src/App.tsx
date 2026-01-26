@@ -316,7 +316,9 @@ const AppContent: React.FC = () => {
                             <span>{projectName}</span>
                           </div>
                         )}
-                        <span className="date-text">{dateStr}</span>
+                        <div style={{ marginTop: 4, display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <span className="date-text">{dateStr}</span>
+                        </div>
                       </div>
                     </div>
 
