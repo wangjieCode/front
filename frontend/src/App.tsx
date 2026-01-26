@@ -47,6 +47,7 @@ const ChatRoute: React.FC<{
       key={sessionId}
       sessionId={sessionId}
       initialSession={state?.session}
+      initialPrompt={state?.initialPrompt }
       autoSend={state?.autoSend}
       initialContent={state?.initialContent}
       onNewConversation={onNewConversation}
@@ -153,7 +154,8 @@ const AppContent: React.FC = () => {
           state: { 
             session: response.data,
             autoSend: true,
-            initialContent: promptText
+            initialContent: promptText,
+            initialPrompt: promptText
           } 
         });
       }
@@ -166,7 +168,7 @@ const AppContent: React.FC = () => {
   // 点击历史对话
   const handleConversationClick = (conversation: any) => {
     setMode(conversation.mode);
-    navigate(`/chat/${conversation.id}`);
+    navigate(`/chat/${conversation.id}`, { state: { session: conversation } });
   };
 
   // 新建对话
