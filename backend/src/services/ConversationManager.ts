@@ -18,6 +18,7 @@ import { GitLabMCPService } from "./GitLabMCPService";
 import { WorktreeManager } from "./WorktreeManager";
 import { ProjectService } from "./ProjectService";
 import { newId } from "../utils/id";
+import { getWorktreeBaseDir } from "../utils/config";
 import dayjs from "dayjs";
 
 /**
@@ -245,10 +246,12 @@ export class ConversationManager {
       }
 
       // 创建项目 WorktreeManager 并创建对话分支
+      const workDir = projectResult.project.workDirectory || projectResult.project.repoDir;
+      const worktreeBaseDir = getWorktreeBaseDir(workDir);
       const projectWorktreeManager = new WorktreeManager(
         (this.projectService as any).executor,
-        projectResult.project.workDirectory || projectResult.project.repoDir,
-        `${projectResult.project.workDirectory}/../worktrees`
+        workDir,
+        worktreeBaseDir
       );
 
       // 直接为对话创建独立的 worktree 和分支

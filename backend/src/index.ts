@@ -14,7 +14,7 @@ import {
   validateRequest,
   notFoundHandler,
 } from './api/middleware';
-import { loadSSHConfig, loadGitLabConfig, getGitWorkDir, getGitDefaultBranch } from './utils/config';
+import { loadSSHConfig, loadGitLabConfig, getGitWorkDir, getGitDefaultBranch, getWorktreeBaseDir } from './utils/config';
 
 // 加载环境变量
 dotenv.config();
@@ -132,7 +132,7 @@ async function initializeServices() {
     });
     
     // 创建 WorktreeManager
-    const worktreeBaseDir = process.env.WORKTREE_BASE_DIR || `${workDir}/../worktrees`;
+    const worktreeBaseDir = getWorktreeBaseDir(workDir);
     const worktreeManager = new WorktreeManager(executor, workDir, worktreeBaseDir);
     console.log(`📁 Worktree 基础目录: ${worktreeBaseDir}`);
     
