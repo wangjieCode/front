@@ -4,22 +4,17 @@ import {
   Typography,
   Button,
   Card,
-  List,
   Input,
-  Modal,
-  Form,
   Select,
   Switch,
   Space,
   Tag,
   Popconfirm,
   message,
-  Spin,
-  Empty,
   Tooltip,
+  Table,
   Row,
   Col,
-  Statistic,
 } from 'antd';
 import {
   PlusOutlined,
@@ -32,21 +27,20 @@ import {
   ReloadOutlined,
   SettingOutlined,
 } from '@ant-design/icons';
-import { Project, ProjectFilters, RepositoryStatus } from '../types/project';
+import { Project, ProjectFilters } from '../types/project';
 import { projectService } from '../services/projectService';
 import CreateProjectModal from '../components/CreateProjectModal';
 import ProjectDetailModal from '../components/ProjectDetailModal';
 import './ProjectsPage.css';
 
 const { Content } = Layout;
-const { Title, Text, Paragraph } = Typography;
-const { Search } = Input;
+const { Text } = Typography;
 const { Option } = Select;
+const { Column } = Table;
 
 const ProjectsPage: React.FC = () => {
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
-  const [searchLoading, setSearchLoading] = useState(false);
   const [total, setTotal] = useState(0);
 
   // 模态框状态
@@ -88,7 +82,6 @@ const ProjectsPage: React.FC = () => {
 
   // 搜索处理
   const handleSearch = async (value: string) => {
-    setSearchLoading(true);
     const newFilters = { ...filters, search: value };
     setFilters(newFilters);
     setSearchValue(value);
@@ -96,7 +89,7 @@ const ProjectsPage: React.FC = () => {
     try {
       await loadProjects(newFilters);
     } finally {
-      setSearchLoading(false);
+      // searchLoading removed
     }
   };
 
@@ -182,109 +175,19 @@ const ProjectsPage: React.FC = () => {
 
   // 移除角色标签功能
 
-  // 渲染项目卡片
-  const renderProjectCard = (project: Project) => (
-    <List.Item>
-      <Card
-        key={project.id}
-        className="project-card"
-        hoverable
-        actions={[
-          <Tooltip title="查看详情">
-            <Button
-              type="text"
-              icon={<EditOutlined />}
-              onClick={() => handleViewProject(project)}
-            />
-          </Tooltip>,
-          <Tooltip title="更新代码">
-            <Button
-              type="text"
-              icon={<ReloadOutlined />}
-              onClick={() => handlePullRepository(project)}
-            />
-          </Tooltip>,
-          <Tooltip title={project.isActive ? '停用项目' : '启用项目'}>
-            <Switch
-              size="small"
-              checked={project.isActive}
-              onChange={() => handleStatusToggle(project)}
-            />
-          </Tooltip>,
-          <Tooltip title="删除项目">
-            <Popconfirm
-              title="确定要删除这个项目吗？"
-              description="删除后将无法恢复，请谨慎操作。"
-              onConfirm={() => handleDeleteProject(project.id)}
-              okText="删除"
-              cancelText="取消"
-              okButtonProps={{ danger: true }}
-            >
-              <Button
-                type="text"
-                danger
-                icon={<DeleteOutlined />}
-              />
-            </Popconfirm>
-          </Tooltip>,
-        ]}
-      >
-        <Card.Meta
-          title={
-            <Space>
-              <span className="project-title">{project.name}</span>
-              {!project.isActive && <Tag color="red">已停用</Tag>}
-            </Space>
-          }
-          description={
-            <div className="project-description">
-              <Paragraph ellipsis={{ rows: 2 }}>
-                {project.description || '暂无描述'}
-              </Paragraph>
-            </div>
-          }
-        />
-
-        <div className="project-info">
-          <div className="info-item">
-            <GithubOutlined className="info-icon" />
-            <Tooltip title={project.gitRepositoryUrl}>
-              <Text className="info-text" ellipsis>
-                {getRepoName(project.gitRepositoryUrl)}
-              </Text>
-            </Tooltip>
-          </div>
-
-          <div className="info-item">
-            <BranchesOutlined className="info-icon" />
-            <Text className="info-text">{project.gitBranch}</Text>
-          </div>
-
-          <div className="info-item">
-            <FolderOutlined className="info-icon" />
-            <Tooltip title={project.workDirectory}>
-              <Text className="info-text" ellipsis>
-                {project.workDirectory.split('/').pop()}
-              </Text>
-            </Tooltip>
-          </div>
-
-          <div className="info-item">
-            <Text type="secondary" className="info-text">
-              创建于 {new Date(project.createdAt).toLocaleDateString()}
-            </Text>
-          </div>
-
-          {project.lastPulledAt && (
-            <div className="info-item">
-              <Text type="secondary" className="info-text">
-                更新于 {new Date(project.lastPulledAt).toLocaleString()}
-              </Text>
-            </div>
-          )}
+  // 渲染统计卡片
+  const renderStatCard = (title: string, value: number, icon: React.ReactNode, color: string, bgColor: string) => (
+    <Card bordered={false} className="stat-card-new">
+      <div className="stat-card-content">
+        <div className="stat-card-info">
+          <Text className="stat-card-title">{title}</Text>
+          <div className="stat-card-value">{value}</div>
         </div>
-      </Card>
-    </List.Item>
+        <div className="stat-card-icon-wrapper" style={{ backgroundColor: bgColor, color: color }}>
+          {icon}
+        </div>
+      </div>
+    </Card>
   );
 
   return (
@@ -292,41 +195,41 @@ const ProjectsPage: React.FC = () => {
       <Content className="projects-content">
         {/* 1. 顶部统计数据 */}
         <Row gutter={[24, 24]} style={{ marginBottom: 32 }}>
-          <Col xs={12} sm={6} md={6} lg={6}>
-            <Card bordered={false} hoverable className="stat-card">
-              <Statistic
-                title="总项目数"
-                value={total}
-                prefix={<FolderOutlined style={{ color: '#7c5cff', background: 'rgba(124, 92, 255, 0.1)', padding: 8, borderRadius: 8 }} />}
-              />
-            </Card>
+          <Col xs={12} sm={12} md={6} lg={6} xl={6}>
+            {renderStatCard(
+              '总项目数',
+              total,
+              <FolderOutlined style={{ fontSize: 24 }} />,
+              '#7c5cff',
+              'rgba(124, 92, 255, 0.1)'
+            )}
           </Col>
-          <Col xs={12} sm={6} md={6} lg={6}>
-            <Card bordered={false} hoverable className="stat-card">
-              <Statistic
-                title="活跃项目"
-                value={projects.filter(p => p.isActive).length}
-                prefix={<GithubOutlined style={{ color: '#52c41a', background: 'rgba(82, 196, 26, 0.1)', padding: 8, borderRadius: 8 }} />}
-              />
-            </Card>
+          <Col xs={12} sm={12} md={6} lg={6} xl={6}>
+            {renderStatCard(
+              '活跃项目',
+              projects.filter(p => p.isActive).length,
+              <GithubOutlined style={{ fontSize: 24 }} />,
+              '#52c41a',
+              'rgba(82, 196, 26, 0.1)'
+            )}
           </Col>
-          <Col xs={12} sm={6} md={6} lg={6}>
-            <Card bordered={false} hoverable className="stat-card">
-              <Statistic
-                title="停用项目"
-                value={projects.filter(p => !p.isActive).length}
-                prefix={<SettingOutlined style={{ color: '#ff4d4f', background: 'rgba(255, 77, 79, 0.1)', padding: 8, borderRadius: 8 }} />}
-              />
-            </Card>
+          <Col xs={12} sm={12} md={6} lg={6} xl={6}>
+            {renderStatCard(
+              '已停用',
+              projects.filter(p => !p.isActive).length,
+              <SettingOutlined style={{ fontSize: 24 }} />,
+              '#ff4d4f',
+              'rgba(255, 77, 79, 0.1)'
+            )}
           </Col>
-          <Col xs={12} sm={6} md={6} lg={6}>
-            <Card bordered={false} hoverable className="stat-card">
-              <Statistic
-                title="我的项目"
-                value={projects.length}
-                prefix={<GithubOutlined style={{ color: '#faad14', background: 'rgba(250, 173, 20, 0.1)', padding: 8, borderRadius: 8 }} />}
-              />
-            </Card>
+          <Col xs={12} sm={12} md={6} lg={6} xl={6}>
+            {renderStatCard(
+              '我的项目',
+              projects.length,
+              <GithubOutlined style={{ fontSize: 24 }} />,
+              '#faad14',
+              'rgba(250, 173, 20, 0.1)'
+            )}
           </Col>
         </Row>
 
@@ -334,12 +237,12 @@ const ProjectsPage: React.FC = () => {
         <div className="toolbar-container">
           <div className="toolbar-left">
             <Input
-              placeholder="搜索项目名称或描述..."
+              placeholder="搜索项目..."
               prefix={<SearchOutlined style={{ color: '#bfbfbf' }} />}
               value={searchValue}
               onChange={(e) => setSearchValue(e.target.value)}
               onPressEnter={(e) => handleSearch(e.currentTarget.value)}
-              style={{ width: 320, borderRadius: 8 }}
+              style={{ width: 260, borderRadius: 10, height: 40 }}
               allowClear
             />
             <Select
@@ -352,76 +255,165 @@ const ProjectsPage: React.FC = () => {
                 setFilters(newFilters);
                 loadProjects(newFilters);
               }}
-              style={{ width: 140 }}
+              style={{ width: 120 }}
               bordered={false}
               className="custom-select"
             >
               <Option value="all">全部状态</Option>
-              <Option value="true">🟢 活跃中</Option>
-              <Option value="false">🔴 已停用</Option>
+              <Option value="true">🟢 活跃</Option>
+              <Option value="false">🔴 停用</Option>
             </Select>
           </div>
 
-          <Space size={16}>
-            <Button
-              icon={<ReloadOutlined />}
-              onClick={() => loadProjects()}
-              loading={loading}
-              shape="circle"
-              size="large"
-              style={{ border: 'none', boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}
-            />
+          <Space size={12}>
+            <Tooltip title="刷新列表">
+              <Button
+                icon={<ReloadOutlined />}
+                onClick={() => loadProjects()}
+                loading={loading}
+                shape="circle"
+                size="large"
+                style={{ border: 'none', background: '#f5f5f5' }}
+              />
+            </Tooltip>
             <Button
               type="primary"
               icon={<PlusOutlined />}
               onClick={() => setCreateModalVisible(true)}
-              size="large"
               className="btn-primary"
-              style={{ padding: '0 24px', height: 40, borderRadius: 20 }}
             >
               新建项目
             </Button>
           </Space>
         </div>
 
-        {/* 3. 项目列表网格 */}
-        <div className="project-grid-container">
-          {loading ? (
-            <div className="loading-container">
-              <Spin size="large" />
-              <Text type="secondary" style={{ marginTop: 16 }}>加载项目中...</Text>
-            </div>
-          ) : projects.length === 0 ? (
-            <Empty
-              description="暂无项目"
-              image={Empty.PRESENTED_IMAGE_SIMPLE}
-              style={{ padding: '80px 0', background: '#fff', borderRadius: 12 }}
-            >
-              <Button
-                type="primary"
-                icon={<PlusOutlined />}
-                onClick={() => setCreateModalVisible(true)}
-                className="btn-primary"
-              >
-                创建第一个项目
-              </Button>
-            </Empty>
-          ) : (
-            <List
-              grid={{
-                gutter: [24, 24],
-                xs: 1,
-                sm: 2,
-                md: 2,
-                lg: 3,
-                xl: 3,
-                xxl: 4,
-              }}
-              dataSource={projects}
-              renderItem={renderProjectCard}
+        {/* 3. 项目列表表格 */}
+        <Card bordered={false} className="table-card">
+          <Table
+            dataSource={projects}
+            loading={loading}
+            rowKey="id"
+            pagination={{
+              total: total,
+              pageSize: 10,
+              showSizeChanger: true,
+              showTotal: (total) => `共 ${total} 条项目`,
+            }}
+            className="project-table"
+          >
+            <Column
+              title="项目名称"
+              key="name"
+              render={(project: Project) => (
+                <div className="table-project-info">
+                  <div className="table-project-name">
+                    <Text strong>{project.name}</Text>
+                    {!project.isActive && <Tag color="red" style={{ marginLeft: 8 }}>已停用</Tag>}
+                  </div>
+                  <Text type="secondary" className="table-project-desc" ellipsis style={{ fontSize: '12px' }}>
+                    {project.description || '暂无描述'}
+                  </Text>
+                </div>
+              )}
             />
-          )}
-        </div>
+            <Column
+              title="代码仓库"
+              key="repo"
+              render={(project: Project) => (
+                <div className="table-repo-info">
+                  <div className="repo-url">
+                    <GithubOutlined className="icon" />
+                    <Tooltip title={project.gitRepositoryUrl}>
+                      <Text ellipsis style={{ maxWidth: 150 }}>{getRepoName(project.gitRepositoryUrl)}</Text>
+                    </Tooltip>
+                  </div>
+                  <div className="repo-branch">
+                    <BranchesOutlined className="icon" />
+                    <Text type="secondary">{project.gitBranch}</Text>
+                  </div>
+                </div>
+              )}
+            />
+            <Column
+              title="工作目录"
+              key="path"
+              render={(project: Project) => (
+                <div className="table-path-info">
+                  <FolderOutlined className="icon" />
+                  <Tooltip title={project.workDirectory}>
+                    <Text ellipsis style={{ maxWidth: 120 }}>{project.workDirectory.split('/').pop()}</Text>
+                  </Tooltip>
+                </div>
+              )}
+            />
+            <Column
+              title="状态"
+              key="status"
+              width={100}
+              render={(project: Project) => (
+                <Tooltip title={project.isActive ? '运行中' : '已停止'}>
+                  <Switch
+                    checked={project.isActive}
+                    onChange={() => handleStatusToggle(project)}
+                    size="small"
+                  />
+                </Tooltip>
+              )}
+            />
+            <Column
+              title="更新时间"
+              key="updatedAt"
+              render={(project: Project) => (
+                <div className="table-date-info">
+                  <Text type="secondary" style={{ fontSize: '12px' }}>
+                    {project.lastPulledAt ? new Date(project.lastPulledAt).toLocaleString() : new Date(project.createdAt).toLocaleDateString()}
+                  </Text>
+                </div>
+              )}
+            />
+            <Column
+              title="操作"
+              key="actions"
+              width={180}
+              render={(project: Project) => (
+                <Space size="middle">
+                  <Tooltip title="详情">
+                    <Button
+                      type="text"
+                      icon={<EditOutlined />}
+                      onClick={() => handleViewProject(project)}
+                      className="action-btn"
+                    />
+                  </Tooltip>
+                  <Tooltip title="更新代码">
+                    <Button
+                      type="text"
+                      icon={<ReloadOutlined />}
+                      onClick={() => handlePullRepository(project)}
+                      className="action-btn"
+                    />
+                  </Tooltip>
+                  <Popconfirm
+                    title="确定要删除这个项目吗？"
+                    onConfirm={() => handleDeleteProject(project.id)}
+                    okText="删除"
+                    cancelText="取消"
+                    okButtonProps={{ danger: true }}
+                  >
+                    <Tooltip title="删除">
+                      <Button
+                        type="text"
+                        danger
+                        icon={<DeleteOutlined />}
+                        className="action-btn danger"
+                      />
+                    </Tooltip>
+                  </Popconfirm>
+                </Space>
+              )}
+            />
+          </Table>
+        </Card>
       </Content>
 
       <CreateProjectModal
