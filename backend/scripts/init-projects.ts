@@ -19,6 +19,7 @@ const isDryRun = args.includes('--dry-run');
 const shouldUpdateDb = !args.includes('--no-update-db');
 const baseDirArg = args.find(arg => arg.startsWith('--base-dir='));
 const baseDir = baseDirArg ? baseDirArg.split('=')[1] : null;
+const shouldPull = args.includes('--pull');
 
 // 加载环境变量
 if (existsSync('.env.production')) {
@@ -110,6 +111,19 @@ async function initializeProject(project: any): Promise<{
       // 验证是否是有效的 Git 仓库
       if (existsSync(path.join(mappedDir, '.git'))) {
         console.log(`   ✓ 有效的 Git 仓库`);
+        
+        // 如果指定了 --pull，则强制更新
+        if (shouldPull) {
+          console.log(`   🔄 正在强制更新代码 (--pull)...`);
+          const branch = project.gitBranch || 'master';
+          try {
+            executeCommand(`git fetch origin ${branch}`, mappedDir);
+            executeCommand(`git reset --hard origin/${branch}`, mappedDir);
+            console.log(`   ✅ 代码更新成功`);
+          } catch (pullError: any) {
+            console.warn(`   ⚠️  代码更新失败: ${pullError.message}`);
+          }
+        }
       } else {
         console.log(`   ⚠️  目录存在但不是 Git 仓库，将重新克隆`);
         if (!isDryRun) {

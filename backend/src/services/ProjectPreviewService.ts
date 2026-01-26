@@ -103,8 +103,23 @@ export class ProjectPreviewService {
       // --build 确保重新构建镜像 (如果 Dockerfile 变了)
       const command = `${envVars.join(' ')} docker-compose up -d`;
       
+      console.log(`[ProjectPreviewService] 正在启动预览模式...`);
+      console.log(`[ProjectPreviewService] 工作目录 (CWD): ${this.infrastructureDir}`);
       console.log(`[ProjectPreviewService] 执行命令: ${command}`);
-      console.log(`[ProjectPreviewService] 工作目录: ${this.infrastructureDir}`);
+
+      // 验证目录是否存在
+      if (!fs.existsSync(this.infrastructureDir)) {
+        const errorMsg = `Infrastructure 目录不存在: ${this.infrastructureDir}`;
+        console.error(`[ProjectPreviewService] ❌ ${errorMsg}`);
+        await this.updatePreviewStatus(sessionId, {
+          url: '',
+          containerId: '',
+          branchName: gitBranch,
+          deployedAt: dayjs().toDate(),
+          status: PreviewStatus.ERROR
+        });
+        return { success: false, error: errorMsg };
+      }
       
       // 更新状态: 构建中
       await this.updatePreviewStatus(sessionId, {

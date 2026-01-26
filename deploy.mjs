@@ -67,6 +67,7 @@ const archiveItems = [
   'backend/pnpm-lock.yaml',
   'backend/.env.production',  // 部署生产环境配置
   'backend/scripts',          // 添加脚本目录
+  'infrastructure',           // 添加 Docker Compose 配置文件目录
 ];
 const templatesDir = path.join(rootDir, 'backend', 'templates');
 if (existsSync(templatesDir)) {
@@ -129,7 +130,7 @@ echo "==> Install deps"
 pnpm install --frozen-lockfile
 
 echo "==> Initialize projects"
-pnpm init:projects --base-dir="${DEPLOY_DIR}"
+pnpm init:projects --base-dir="${DEPLOY_DIR}" --pull
 
 echo "==> Start or Restart PM2"
 if pm2 describe "${APP_NAME}" >/dev/null 2>&1; then

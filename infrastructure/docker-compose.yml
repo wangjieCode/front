@@ -11,13 +11,18 @@ services:
     volumes:
       # Mount the project directory code into the container
       - ${PROJECT_DIR:-../front-workspace/scrm-boss}:/app
-      # Conserve node_modules in the container (anonymous volume)
+      # Conserve node_modules and umi cache in the container (anonymous volumes)
+      # to prevent host/container binary compatibility issues (e.g. esbuild Go panics)
       - /app/node_modules
+      - /app/src/.umi
     environment:
       - HOST=0.0.0.0
       - PORT=8001
       # Ensure Umi doesn't try to open browser
       - BROWSER=none
+      # Watcher stability in Docker
+      - CHOKIDAR_USEPOLLING=true
+      - WATCHPACK_POLLING=true
       # Dynamic API Configuration
       - API_TARGET=${API_TARGET}
       - IS_PREVIEW=true
