@@ -809,21 +809,21 @@ const ConversationView: React.FC<ConversationViewProps> = ({
         <div style={{
           padding: '16px 24px',
           borderBottom: '1px solid #e5e5e5',
-          background: (session.context?.mode || mode) === ConversationMode.EDIT ? 'linear-gradient(135deg, #f5f7fa 0%, #e8eef5 100%)' : '#fff'
+          background: '#fff'
         }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
             <div style={{ flex: 1, minWidth: 0 }}>
               <span style={{
                 fontSize: 14,
                 color: '#333',
-                fontWeight: 500,
+                fontWeight: 600,
                 display: 'block',
                 overflow: 'hidden',
                 textOverflow: 'ellipsis',
                 whiteSpace: 'nowrap',
-                marginBottom: (session.context?.mode || mode) === ConversationMode.EDIT ? 8 : 0
+                marginBottom: 8
               }}>
-                {initialPrompt || '对话会话'}
+                {session?.title || session?.context?.taskDescription || initialPrompt || '-'}
               </span>
 
               {/* 状态徽章 */}
@@ -833,52 +833,53 @@ const ConversationView: React.FC<ConversationViewProps> = ({
                 </Tag>
               )}
 
-              {(session.context?.mode || mode) === ConversationMode.EDIT && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginTop: 8 }}>
-                  {/* 项目名称 */}
-                  {session.context?.projectInfo?.workDir && (
-                    <div style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 6,
-                      padding: '4px 10px',
-                      background: 'rgba(255,255,255,0.8)',
-                      borderRadius: 6,
-                      fontSize: 12,
-                      color: '#666',
-                      border: '1px solid rgba(0,0,0,0.06)'
-                    }}>
-                      <span>📁</span>
-                      <span style={{ fontFamily: 'monospace', fontWeight: 500 }}>
-                        {session.context.projectInfo.workDir.split('/').pop() || session.context.projectInfo.workDir}
-                      </span>
-                    </div>
-                  )}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginTop: 4 }}>
+                {/* 项目名称 */}
+                {session.context?.projectInfo?.workDir && (
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    padding: '4px 10px',
+                    background: '#f8f9fa',
+                    borderRadius: 6,
+                    fontSize: 12,
+                    color: '#666',
+                    border: '1px solid #eee'
+                  }}>
+                    <span>📁</span>
+                    <span style={{ fontFamily: 'monospace', fontWeight: 500 }}>
+                      {session.context.projectInfo.workDir.split('/').pop() || session.context.projectInfo.workDir}
+                    </span>
+                  </div>
+                )}
 
-                  {/* Git 分支 */}
-                  {(session.context?.gitBranch || session.context?.projectInfo?.gitBranch) && (
-                    <div style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 6,
-                      padding: '4px 10px',
-                      background: 'rgba(102, 126, 234, 0.1)',
-                      borderRadius: 6,
-                      fontSize: 12,
-                      color: '#667eea',
-                      fontWeight: 500,
-                      border: '1px solid rgba(102, 126, 234, 0.2)'
-                    }}>
-                      <span>🌿</span>
-                      <span style={{ fontFamily: 'monospace' }}>
-                        {session.context.gitBranch || session.context.projectInfo.gitBranch}
-                      </span>
-                    </div>
-                  )}
+                {/* Git 分支 */}
+                {(session.context?.gitBranch || session.context?.projectInfo?.gitBranch) && (
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    padding: '4px 10px',
+                    background: 'rgba(102, 126, 234, 0.08)',
+                    borderRadius: 6,
+                    fontSize: 12,
+                    color: '#667eea',
+                    fontWeight: 500,
+                    border: '1px solid rgba(102, 126, 234, 0.15)'
+                  }}>
+                    <span>🌿</span>
+                    <span style={{ fontFamily: 'monospace' }}>
+                      {session.context.gitBranch || session.context.projectInfo.gitBranch}
+                    </span>
+                  </div>
+                )}
 
-                  {/* MR 链接或创建按钮 */}
-                  {session.context?.mode === 'edit' && (
-                    session.context?.mrUrl ? (
+                {/* 开发工具组（仅在编辑模式显示） */}
+                {session.context?.mode === 'edit' && (
+                  <>
+                    {/* MR 链接或创建按钮 */}
+                    {session.context.mrUrl ? (
                       <a
                         href={session.context.mrUrl}
                         target="_blank"
@@ -888,22 +889,13 @@ const ConversationView: React.FC<ConversationViewProps> = ({
                           alignItems: 'center',
                           gap: 6,
                           padding: '4px 10px',
-                          background: 'rgba(82, 196, 26, 0.1)',
+                          background: 'rgba(52, 191, 103, 0.08)',
                           borderRadius: 6,
                           fontSize: 12,
-                          color: '#52c41a',
+                          color: '#34bf67',
                           fontWeight: 500,
-                          border: '1px solid rgba(82, 196, 26, 0.2)',
-                          textDecoration: 'none',
-                          transition: 'all 0.2s'
-                        }}
-                        onMouseEnter={(e) => {
-                          e.currentTarget.style.background = 'rgba(82, 196, 26, 0.15)';
-                          e.currentTarget.style.transform = 'translateY(-1px)';
-                        }}
-                        onMouseLeave={(e) => {
-                          e.currentTarget.style.background = 'rgba(82, 196, 26, 0.1)';
-                          e.currentTarget.style.transform = 'translateY(0)';
+                          border: '1px solid rgba(52, 191, 103, 0.15)',
+                          textDecoration: 'none'
                         }}
                       >
                         <span>🔗</span>
@@ -919,135 +911,117 @@ const ConversationView: React.FC<ConversationViewProps> = ({
                         style={{
                           fontSize: 12,
                           height: 26,
-                          padding: '0 10px',
                           borderRadius: 6,
                           fontWeight: 500,
                           color: '#fc6d26',
                           borderColor: '#fc6d26',
+                          background: 'transparent'
                         }}
                       >
                         创建 MR
                       </Button>
-                    )
-                  )}
+                    )}
 
-            {/* 预览按钮 */}
-            {session.context?.gitBranch && (() => {
-                    const buttonProps = getPreviewButtonProps();
-                    return (
-                      <Button
-                        size="small"
-                        icon={buttonProps.icon}
-                        onClick={buttonProps.onClick || handlePreview}
-                        disabled={buttonProps.disabled || isArchived}
-                        style={{
-                          fontSize: 12,
-                          height: 26,
-                          padding: '0 10px',
-                          borderRadius: 6,
-                          fontWeight: 500,
-                          ...buttonProps.style,
-                        }}
-                      >
-                        {buttonProps.text}
-                      </Button>
-                    );
-                  })()}
+                    {/* 预览按钮 */}
+                    {session.context?.gitBranch && (() => {
+                      const buttonProps = getPreviewButtonProps();
+                      return (
+                        <Button
+                          size="small"
+                          icon={buttonProps.icon}
+                          onClick={buttonProps.onClick || handlePreview}
+                          disabled={buttonProps.disabled || isArchived}
+                          style={{
+                            fontSize: 12,
+                            height: 26,
+                            borderRadius: 6,
+                            fontWeight: 500,
+                            ...buttonProps.style,
+                            marginLeft: 12
+                          }}
+                        >
+                          {buttonProps.text}
+                        </Button>
+                      );
+                    })()}
 
-                  {/* 停止预览按钮 */}
-                  {session.context?.previewInfo?.status === PreviewStatus.RUNNING && (
-                    <>
-                      <Button
-                        size="small"
-                        icon={<ClockCircleOutlined />}
-                        onClick={() => setShowDeploymentModal(true)}
-                        style={{
-                          fontSize: 12,
-                          height: 26,
-                          padding: '0 10px',
-                          borderRadius: 6,
-                          fontWeight: 500,
-                          color: '#7c5cff',
-                          borderColor: '#7c5cff',
-                        }}
-                      >
-                        部署详情
-                      </Button>
-                      <Button
-                        size="small"
-                        icon={<StopOutlined />}
-                        onClick={handleStopPreview}
-                        loading={stoppingPreview}
-                        style={{
-                          fontSize: 12,
-                          height: 26,
-                          padding: '0 10px',
-                          borderRadius: 6,
-                          fontWeight: 500,
-                          color: '#ff4d4f',
-                          borderColor: '#ff4d4f',
-                        }}
-                      >
-                        停止
-                      </Button>
-                    </>
-                  )}
+                    {/* 停止预览/详情 */}
+                    {session.context?.previewInfo?.status === PreviewStatus.RUNNING && (
+                      <div style={{ display: 'flex', gap: 12, marginLeft: 12 }}>
+                        <Button
+                          size="small"
+                          icon={<ClockCircleOutlined />}
+                          onClick={() => setShowDeploymentModal(true)}
+                          style={{
+                            fontSize: 12,
+                            height: 26,
+                            borderRadius: 6,
+                            color: '#7c5cff',
+                            borderColor: '#7c5cff'
+                          }}
+                        >
+                          部署详情
+                        </Button>
+                        <Button
+                          size="small"
+                          icon={<StopOutlined />}
+                          onClick={handleStopPreview}
+                          loading={stoppingPreview}
+                          danger
+                          style={{
+                            fontSize: 12,
+                            height: 26,
+                            borderRadius: 6
+                          }}
+                        >
+                          停止
+                        </Button>
+                      </div>
+                    )}
+                  </>
+                )}
 
-                   {/* 可见性切换按钮 - 仅对创建者显示 */}
-                   {session?.userId === currentUserId && (
-                     <Tooltip title={(session?.visibility || ConversationVisibility.PRIVATE) === ConversationVisibility.PRIVATE ? '设为公开' : '设为私密'}>
-                       <Button
-                         size="small"
-                         icon={(session?.visibility || ConversationVisibility.PRIVATE) === ConversationVisibility.PRIVATE ? <GlobalOutlined /> : <LockOutlined />}
-                         onClick={handleToggleVisibility}
-                         loading={updatingVisibility}
-                         style={{
-                           fontSize: 12,
-                           height: 26,
-                           padding: '0 10px',
-                           borderRadius: 6,
-                           fontWeight: 500,
-                           color: (session?.visibility || ConversationVisibility.PRIVATE) === ConversationVisibility.PRIVATE ? '#52c41a' : '#fa8c16',
-                           borderColor: (session?.visibility || ConversationVisibility.PRIVATE) === ConversationVisibility.PRIVATE ? '#52c41a' : '#fa8c16',
-                           opacity: 0.6, // 默认稍微淡一点
-                         }}
-                         onMouseEnter={(e) => { e.currentTarget.style.opacity = '1'; }}
-                         onMouseLeave={(e) => { e.currentTarget.style.opacity = '0.6'; }}
-                       >
-                         {(session?.visibility || ConversationVisibility.PRIVATE) === ConversationVisibility.PRIVATE ? '私密' : '公开'}
-                       </Button>
-                     </Tooltip>
-                   )}
+                {/* 可见性 */}
+                {session?.userId === currentUserId && (
+                  <Tooltip title={(session?.visibility || ConversationVisibility.PRIVATE) === ConversationVisibility.PRIVATE ? '设为公开' : '设为私密'}>
+                    <Button
+                      size="small"
+                      icon={(session?.visibility || ConversationVisibility.PRIVATE) === ConversationVisibility.PRIVATE ? <GlobalOutlined /> : <LockOutlined />}
+                      onClick={handleToggleVisibility}
+                      loading={updatingVisibility}
+                      style={{
+                        fontSize: 12,
+                        height: 26,
+                        borderRadius: 6,
+                        color: (session?.visibility || ConversationVisibility.PRIVATE) === ConversationVisibility.PRIVATE ? '#52c41a' : '#fa8c16',
+                        borderColor: (session?.visibility || ConversationVisibility.PRIVATE) === ConversationVisibility.PRIVATE ? '#52c41a' : '#fa8c16',
+                        opacity: 0.8
+                      }}
+                    >
+                      {(session?.visibility || ConversationVisibility.PRIVATE) === ConversationVisibility.PRIVATE ? '私密' : '公开'}
+                    </Button>
+                  </Tooltip>
+                )}
 
-                   {/* 归档按钮 - 仅在 EDIT 模式且未归档时显示 */}
-                   {!isArchived && (
-                     <Button
-                       size="small"
-                       icon={<InboxOutlined />}
-                       onClick={handleArchive}
-                       danger // 使用 danger 样式提示这是个重要操作
-                       ghost  // 使用 ghost 样式减少视觉干扰
-                       style={{
-                         fontSize: 12,
-                         height: 26,
-                         padding: '0 10px',
-                         borderRadius: 6,
-                         fontWeight: 500,
-                         opacity: 0.6, // 默认稍微淡一点
-                       }}
-                       onMouseEnter={(e) => { e.currentTarget.style.opacity = '1'; }}
-                       onMouseLeave={(e) => { e.currentTarget.style.opacity = '0.6'; }}
-                     >
-                       归档
-                     </Button>
-                   )}
-                </div>
-              )}
+                {!isArchived && (
+                  <Button
+                    size="small"
+                    icon={<InboxOutlined />}
+                    onClick={handleArchive}
+                    danger
+                    ghost
+                    style={{
+                      fontSize: 12,
+                      height: 26,
+                      borderRadius: 6,
+                      opacity: 0.8
+                    }}
+                  >
+                    归档
+                  </Button>
+                )}
+              </div>
             </div>
-            
-            {(session.context?.mode || mode) === ConversationMode.READONLY && (
-              <Tag color="blue">只读模式</Tag>
-            )}
           </div>
         </div>
       )}
