@@ -2,6 +2,7 @@ import {
   ConversationSession,
   ConversationMessage,
   ConversationStatus,
+  ConversationVisibility,
   PreviewResult,
   PreviewStatusResponse,
   SimplifiedConversation,
@@ -110,26 +111,7 @@ class ConversationService {
     this.retryCount = new Map();
   }
 
-  /**
-   * 获取认证 headers
-   */
-  private getAuthHeaders(): Record<string, string> {
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-    };
-    
-    const userId = localStorage.getItem('user_id');
-    if (userId) {
-      headers['x-user-id'] = userId;
-      
-      const username = localStorage.getItem('username');
-      if (username) {
-        headers['x-username'] = username;
-      }
-    }
-    
-    return headers;
-  }
+
 
   /**
    * 创建新的对话会话
@@ -294,10 +276,9 @@ class ConversationService {
   /**
    * 为会话创建 Merge Request
    */
-  async createMergeRequest(sessionId: string, targetBranch?: string): Promise<{ mrUrl: string }> {
+  async createMergeRequest(sessionId: string): Promise<{ mrUrl: string }> {
     const response = await fetchWithAuth(`${this.baseUrl}/api/conversations/${sessionId}/merge-request`, {
       method: 'POST',
-      body: JSON.stringify({ targetBranch }),
     });
 
     if (!response.ok) {
@@ -370,7 +351,7 @@ class ConversationService {
 
       // 根据状态决定是否继续轮询
       if (this.shouldContinuePolling(status.status)) {
-        const interval = this.getPollingInterval(sessionId, status.status);
+        const interval = this.getPollingInterval(sessionId);
         const timer = setTimeout(() => {
           this.poll(sessionId, onUpdate, onError);
         }, interval);
@@ -411,19 +392,14 @@ class ConversationService {
    * 判断是否应该继续轮询
    */
   private shouldContinuePolling(status: ConversationStatus): boolean {
-    // 已完成或失败的会话停止轮询
-    return status !== ConversationStatus.COMPLETED && status !== ConversationStatus.FAILED;
+    // 已归档的会话停止轮询
+    return status !== ConversationStatus.ARCHIVED;
   }
 
   /**
    * 获取轮询间隔
    */
-  private getPollingInterval(sessionId: string, status: ConversationStatus): number {
-    // 如果状态是 EXECUTING 或 PAUSED，使用活跃轮询间隔
-    if (status === ConversationStatus.EXECUTING || status === ConversationStatus.PAUSED) {
-      return this.pollingConfig.activeInterval;
-    }
-
+  private getPollingInterval(sessionId: string): number {
     // 检查最后活动时间
     const lastActivity = this.lastActivityTime.get(sessionId) || Date.now();
     const timeSinceLastActivity = Date.now() - lastActivity;
@@ -517,7 +493,38 @@ class ConversationService {
       return { success: false, error: error instanceof Error ? error.message : '删除失败' };
     }
   }
-}
+
+   /**
+    * 归档对话
+    */
+   async archiveConversation(sessionId: string, reason?: string): Promise<void> {
+     const response = await fetchWithAuth(`${this.baseUrl}/api/conversations/${sessionId}/archive`, {
+       method: 'POST',
+       body: JSON.stringify({ reason }),
+     });
+
+     if (!response.ok) {
+       const error = await response.json().catch(() => ({ error: '归档失败' }));
+       throw new Error(error.error || '归档失败');
+     }
+   }
+
+   /**
+    * 更新对话可见性
+    */
+   async updateVisibility(sessionId: string, visibility: ConversationVisibility): Promise<void> {
+     const response = await fetchWithAuth(`${this.baseUrl}/api/conversations/${sessionId}/visibility`, {
+       method: 'PATCH',
+       body: JSON.stringify({ visibility }),
+     });
+
+     if (!response.ok) {
+       const error = await response.json().catch(() => ({ error: '更新可见性失败' }));
+       throw new Error(error.error || '更新可见性失败');
+     }
+   }
+
+ }
 
 // 导出单例
 export const conversationService = new ConversationService();

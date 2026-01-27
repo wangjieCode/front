@@ -1,4 +1,5 @@
 import { readFileSync } from 'fs';
+import path from 'path';
 import { SSHConfig } from '../types';
 
 /**
@@ -139,4 +140,26 @@ export function loadGitLabConfig(): {
   }
 
   return { url, token, projectId };
+}
+
+/**
+ * 获取 Worktree 基础目录
+ * @param workDir Git 工作目录（用于回退）
+ * @returns Worktree 基础目录路径
+ */
+export function getWorktreeBaseDir(workDir: string): string {
+  const runMode = process.env.RUN_MODE || 'local';
+  
+  // 优先使用 WORKTREE_BASE_DIR
+  let worktreeBaseDir = process.env.WORKTREE_BASE_DIR;
+  
+  // 如果没有，根据运行模式选择
+  if (!worktreeBaseDir) {
+    if (runMode === 'remote') {
+      worktreeBaseDir = process.env.REMOTE_WORKTREE_BASE_DIR;
+    }
+  }
+  
+  // 最终回退到 workDir 的同级目录
+  return worktreeBaseDir || path.resolve(workDir, '..', 'worktrees');
 }

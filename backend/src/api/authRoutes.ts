@@ -2,6 +2,8 @@ import { Router, Request, Response } from 'express';
 import { DatabaseManager } from '../db/DatabaseManager';
 import { users } from '../db/schema';
 import { eq } from 'drizzle-orm';
+import { newId } from '../utils/id';
+import dayjs from 'dayjs';
 
 export function createAuthRoutes(): Router {
   const router = Router();
@@ -38,12 +40,13 @@ export function createAuthRoutes(): Router {
 
       if (!user) {
         const [newUser] = await db.insert(users).values({
+          id: newId(),
           username,
         }).returning();
         user = newUser;
       } else {
         await db.update(users)
-          .set({ lastLoginAt: new Date() })
+          .set({ lastLoginAt: dayjs().toDate() })
           .where(eq(users.id, user.id));
       }
 

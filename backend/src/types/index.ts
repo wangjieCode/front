@@ -212,14 +212,19 @@ export enum OperationType {
 }
 
 /**
- * 对话会话状态枚举
+ * 对话会话状态枚举（简化版）
  */
 export enum ConversationStatus {
-  PLANNING = 'planning',       // 规划中
-  EXECUTING = 'executing',     // 执行中
-  PAUSED = 'paused',          // 已暂停
-  COMPLETED = 'completed',     // 已完成
-  FAILED = 'failed'           // 失败
+  ACTIVE = 'active',          // 活跃中 - 可以对话、发送消息、预览等
+  ARCHIVED = 'archived'       // 已归档 - 只读，禁用所有编辑功能，可清理 worktree
+}
+
+/**
+ * 对话可见性枚举
+ */
+export enum ConversationVisibility {
+  PRIVATE = 'private',        // 私密 - 仅创建者可见
+  PUBLIC = 'public'           // 公开 - 所有登录用户可见
 }
 
 /**
@@ -342,6 +347,7 @@ export interface ConversationSession {
   id: string;                 // 会话 ID（对话 ID）
   userId?: string;            // 用户 ID
   status: ConversationStatus; // 会话状态
+  visibility: ConversationVisibility; // 可见性
   context: ConversationContext; // 会话上下文
   createdAt: Date;            // 创建时间
   updatedAt: Date;            // 更新时间

@@ -1,4 +1,5 @@
-import { v4 as uuidv4 } from 'uuid';
+import { newId } from './id';
+import dayjs from 'dayjs';
 
 /**
  * neovate 对话消息类型定义
@@ -117,7 +118,7 @@ export class NeovateMessageParser {
           id: this.generateId(),
           type: 'system',
           subtype: 'init',
-          timestamp: new Date().toISOString(),
+          timestamp: dayjs().toISOString(),
           sessionId: data.sessionId || '',
           model: data.model || '',
           cwd: data.cwd || '',
@@ -132,7 +133,7 @@ export class NeovateMessageParser {
           id: this.generateId(),
           type: 'assistant',
           role: 'assistant',
-          timestamp: data.timestamp || new Date().toISOString(),
+          timestamp: data.timestamp || dayjs().toISOString(),
           sessionId: data.sessionId || '',
           uuid: data.uuid || '',
           parentUuid: data.parentUuid || '',
@@ -150,7 +151,7 @@ export class NeovateMessageParser {
           id: this.generateId(),
           type: 'tool',
           role: 'tool',
-          timestamp: data.timestamp || new Date().toISOString(),
+          timestamp: data.timestamp || dayjs().toISOString(),
           sessionId: data.sessionId || '',
           uuid: data.uuid || '',
           parentUuid: data.parentUuid || '',
@@ -165,7 +166,7 @@ export class NeovateMessageParser {
           id: this.generateId(),
           type: 'result',
           subtype: data.subtype || 'success',
-          timestamp: new Date().toISOString(),
+          timestamp: dayjs().toISOString(),
           sessionId: data.sessionId || '',
           isError: data.isError || false,
           content: data.content || '',
@@ -206,6 +207,6 @@ export class NeovateMessageParser {
    * 生成唯一 ID
    */
   private generateId(): string {
-    return uuidv4();
+    return newId();
   }
 }

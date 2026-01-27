@@ -1,5 +1,6 @@
 import { SSHExecutor } from './SSHExecutor';
 import { CommandResult, MergeRequestInfo } from '../types';
+import dayjs from 'dayjs';
 
 /**
  * Git 操作结果接口
@@ -38,13 +39,14 @@ export class GitService {
    * @param baseBranch 基础分支（可选，默认为当前分支）
    * @returns 操作结果
    */
-  async createBranch(branchName: string, baseBranch?: string): Promise<GitOperationResult> {
+  async createBranch(branchName: string, baseBranch?: string, cwd?: string): Promise<GitOperationResult> {
+    const targetDir = cwd || this.workDir;
     try {
       // 如果指定了基础分支，先切换到基础分支
       if (baseBranch) {
         const checkoutResult = await this.sshExecutor.executeCommand(
           `git checkout ${baseBranch}`,
-          this.workDir
+          targetDir
         );
         
         if (checkoutResult.exitCode !== 0) {
@@ -59,7 +61,7 @@ export class GitService {
       // 创建并切换到新分支
       const result = await this.sshExecutor.executeCommand(
         `git checkout -b ${branchName}`,
-        this.workDir
+        targetDir
       );
 
       if (result.exitCode === 0) {
@@ -89,11 +91,12 @@ export class GitService {
    * @param branchName 分支名称
    * @returns 操作结果
    */
-  async checkoutBranch(branchName: string): Promise<GitOperationResult> {
+  async checkoutBranch(branchName: string, cwd?: string): Promise<GitOperationResult> {
+    const targetDir = cwd || this.workDir;
     try {
       const result = await this.sshExecutor.executeCommand(
         `git checkout ${branchName}`,
-        this.workDir
+        targetDir
       );
 
       if (result.exitCode === 0) {
@@ -122,19 +125,20 @@ export class GitService {
    * 获取当前仓库状态
    * @returns Git 状态信息
    */
-  async getStatus(): Promise<GitStatus> {
+  async getStatus(cwd?: string): Promise<GitStatus> {
+    const targetDir = cwd || this.workDir;
     try {
       // 获取当前分支
       const branchResult = await this.sshExecutor.executeCommand(
         'git branch --show-current',
-        this.workDir
+        targetDir
       );
       const currentBranch = branchResult.stdout.trim();
 
       // 获取状态
       const statusResult = await this.sshExecutor.executeCommand(
         'git status --porcelain',
-        this.workDir
+        targetDir
       );
 
       const modifiedFiles: string[] = [];
@@ -175,12 +179,13 @@ export class GitService {
    * @param files 文件路径数组，如果为空则添加所有文件
    * @returns 操作结果
    */
-  async addFiles(files: string[] = []): Promise<GitOperationResult> {
+  async addFiles(files: string[] = [], cwd?: string): Promise<GitOperationResult> {
+    const targetDir = cwd || this.workDir;
     try {
       const fileArgs = files.length > 0 ? files.join(' ') : '.';
       const result = await this.sshExecutor.executeCommand(
         `git add ${fileArgs}`,
-        this.workDir
+        targetDir
       );
 
       if (result.exitCode === 0) {
@@ -212,14 +217,15 @@ export class GitService {
    * @param message 提交信息
    * @returns 操作结果
    */
-  async commit(message: string): Promise<GitOperationResult> {
+  async commit(message: string, cwd?: string): Promise<GitOperationResult> {
+    const targetDir = cwd || this.workDir;
     try {
       // 转义提交信息中的引号
       const escapedMessage = message.replace(/"/g, '\\"');
       
       const result = await this.sshExecutor.executeCommand(
         `git commit -m "${escapedMessage}"`,
-        this.workDir
+        targetDir
       );
 
       if (result.exitCode === 0) {
@@ -259,7 +265,8 @@ export class GitService {
    * @param force 是否强制推送
    * @returns 操作结果
    */
-  async push(branchName: string, remote: string = 'origin', force: boolean = false): Promise<GitOperationResult> {
+  async push(branchName: string, remote: string = 'origin', force: boolean = false, cwd?: string): Promise<GitOperationResult> {
+    const targetDir = cwd || this.workDir;
     try {
       // 在推送前配置 Git 认证（使用 GitLab Token）
       const gitlabToken = process.env.GITLAB_TOKEN;
@@ -274,7 +281,7 @@ export class GitService {
         
         await this.sshExecutor.executeCommand(
           `git remote set-url ${remote} ${authUrl}`,
-          this.workDir
+          targetDir
         );
         
         console.log(`[GitService] 已配置 Git 远程认证`);
@@ -283,7 +290,7 @@ export class GitService {
       const forceFlag = force ? '-f' : '';
       const result = await this.sshExecutor.executeCommand(
         `git push ${forceFlag} ${remote} ${branchName}`,
-        this.workDir
+        targetDir
       );
 
       if (result.exitCode === 0) {
@@ -313,10 +320,11 @@ export class GitService {
    * @param staged 是否只获取暂存区的 diff
    * @returns diff 内容
    */
-  async getDiff(staged: boolean = false): Promise<string> {
+  async getDiff(staged: boolean = false, cwd?: string): Promise<string> {
+    const targetDir = cwd || this.workDir;
     try {
       const command = staged ? 'git diff --cached' : 'git diff';
-      const result = await this.sshExecutor.executeCommand(command, this.workDir);
+      const result = await this.sshExecutor.executeCommand(command, targetDir);
       return result.stdout;
     } catch (error) {
       throw new Error(`获取 diff 失败: ${error instanceof Error ? error.message : String(error)}`);
@@ -329,11 +337,12 @@ export class GitService {
    * @param to 结束提交
    * @returns diff 内容
    */
-  async getDiffBetween(from: string, to: string): Promise<string> {
+  async getDiffBetween(from: string, to: string, cwd?: string): Promise<string> {
+    const targetDir = cwd || this.workDir;
     try {
       const result = await this.sshExecutor.executeCommand(
         `git diff ${from}..${to}`,
-        this.workDir
+        targetDir
       );
       return result.stdout;
     } catch (error) {
@@ -387,14 +396,15 @@ export class GitService {
    * @param checkRemote 是否检查远程分支（默认为 false）
    * @returns 如果存在返回 true
    */
-  async branchExists(branchName: string, checkRemote: boolean = false): Promise<boolean> {
+  async branchExists(branchName: string, checkRemote: boolean = false, cwd?: string): Promise<boolean> {
+    const targetDir = cwd || this.workDir;
     try {
       if (checkRemote) {
         // 检查远程分支
         // 使用简单的格式，然后检查输出中是否包含分支名
         const result = await this.sshExecutor.executeCommand(
           `git ls-remote --heads origin`,
-          this.workDir
+          targetDir
         );
         // 检查输出中是否包含该分支
         return result.stdout.includes(`refs/heads/${branchName}`);
@@ -402,7 +412,7 @@ export class GitService {
         // 检查本地分支
         const result = await this.sshExecutor.executeCommand(
           `git branch --list ${branchName}`,
-          this.workDir
+          targetDir
         );
         console.log(`[GitService] 检查本地分支: ${branchName}, result: ${JSON.stringify(result)}`);
         return result.stdout.trim().length > 0;
@@ -416,11 +426,12 @@ export class GitService {
    * 检查是否有未提交的变更
    * @returns 如果有未提交的变更返回 true
    */
-  async hasUncommittedChanges(): Promise<boolean> {
+  async hasUncommittedChanges(cwd?: string): Promise<boolean> {
+    const targetDir = cwd || this.workDir;
     try {
       const result = await this.sshExecutor.executeCommand(
         'git status --porcelain',
-        this.workDir
+        targetDir
       );
       // 如果输出为空，说明工作区是干净的（没有变更）
       return result.stdout.trim().length > 0;
@@ -438,16 +449,18 @@ export class GitService {
    */
   async createBranchForConversation(
     sessionId: string,
-    baseBranch: string = 'main'
+    baseBranch: string = 'main',
+    cwd?: string
   ): Promise<string> {
     try {
+      const targetDir = cwd || this.workDir;
       // 生成分支名称：conversation-{sessionId前8位}-{时间戳}
       const shortSessionId = sessionId.substring(0, 8);
-      const timestamp = Date.now();
+      const timestamp = dayjs().valueOf();
       const branchName = `conversation-${shortSessionId}-${timestamp}`;
 
       // 创建分支
-      const result = await this.createBranch(branchName, baseBranch);
+      const result = await this.createBranch(branchName, baseBranch, targetDir);
 
       if (!result.success) {
         throw new Error(result.error || result.message);
@@ -473,14 +486,16 @@ export class GitService {
     sourceBranch: string,
     targetBranch: string,
     title: string,
-    description: string
+    description: string,
+    cwd?: string
   ): Promise<MergeRequestInfo> {
+    const targetDir = cwd || this.workDir;
     try {
       // 注意：这里需要根据实际的 Git 平台（GitLab/GitHub）来实现
       // 这里提供一个基础实现，假设使用 GitLab CLI
       
       // 首先推送分支
-      const pushResult = await this.push(sourceBranch);
+      const pushResult = await this.push(sourceBranch, 'origin', false, targetDir);
       if (!pushResult.success) {
         throw new Error(`推送分支失败: ${pushResult.error}`);
       }
@@ -494,7 +509,7 @@ export class GitService {
       
       const result = await this.sshExecutor.executeCommand(
         `glab mr create --source-branch ${sourceBranch} --target-branch ${targetBranch} --title "${escapedTitle}" --description "${escapedDescription}" --yes`,
-        this.workDir
+        targetDir
       );
 
       if (result.exitCode !== 0) {
@@ -530,11 +545,12 @@ export class GitService {
    * 硬重置到 HEAD（丢弃所有变更）
    * @returns 操作结果
    */
-  async resetHard(): Promise<GitOperationResult> {
+  async resetHard(cwd?: string): Promise<GitOperationResult> {
+    const targetDir = cwd || this.workDir;
     try {
       const result = await this.sshExecutor.executeCommand(
         'git reset --hard HEAD',
-        this.workDir
+        targetDir
       );
 
       if (result.exitCode === 0) {
@@ -563,7 +579,7 @@ export class GitService {
    * 添加所有文件到暂存区
    * @returns 操作结果
    */
-  async addAll(): Promise<GitOperationResult> {
-    return this.addFiles([]);
+  async addAll(cwd?: string): Promise<GitOperationResult> {
+    return this.addFiles([], cwd);
   }
 }

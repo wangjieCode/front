@@ -1,4 +1,5 @@
 import { MergeRequest, MRParams } from '../types';
+import dayjs from 'dayjs';
 
 /**
  * 创建 Merge Request 对象
@@ -74,7 +75,7 @@ ${taskPrompt}
 ## 任务信息
 
 - 任务 ID: ${taskId}
-- 创建时间: ${new Date().toISOString()}
+- 创建时间: ${dayjs().toISOString()}
 - 创建方式: Web 前端实习生助手系统
 
 ## 变更说明

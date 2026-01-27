@@ -3,6 +3,7 @@ import { createTask, updateTaskStatus as updateStatus, setTaskError, setTaskMRUr
 import { createLogEntry } from '../models/LogEntry';
 import { validateTaskId } from '../utils/validation';
 import { ITaskStorage } from '../storage/TaskStorage';
+import dayjs from 'dayjs';
 
 /**
  * 任务管理器类
@@ -226,7 +227,7 @@ export class TaskManager {
       const lastLog = taskLogs[taskLogs.length - 1];
       if (log.timestamp < lastLog.timestamp) {
         // 如果新日志的时间戳早于最后一条日志，调整为当前时间
-        log.timestamp = new Date();
+        log.timestamp = dayjs().toDate();
       }
     }
 

@@ -1,10 +1,10 @@
-import { v4 as uuidv4 } from "uuid";
 import { LRUCache } from "lru-cache";
 import {
   ConversationSession,
   ConversationMessage,
   ConversationContext,
   ConversationStatus,
+  ConversationVisibility,
   MessageRole,
   MessageMetadata,
   ProjectInfo,
@@ -17,6 +17,9 @@ import { ModeValidator } from "./ModeValidator";
 import { GitLabMCPService } from "./GitLabMCPService";
 import { WorktreeManager } from "./WorktreeManager";
 import { ProjectService } from "./ProjectService";
+import { newId } from "../utils/id";
+import { getWorktreeBaseDir } from "../utils/config";
+import dayjs from "dayjs";
 
 /**
  * 对话管理器类
@@ -132,8 +135,8 @@ export class ConversationManager {
     //   workDir: completeProjectInfo.workDir
     // });
 
-    const sessionId = uuidv4();
-    const now = new Date();
+    const sessionId = newId();
+    const now = dayjs().toDate();
 
     // 临时存储当前项目ID供handleEditModeSetup使用
     (this as any).currentProjectId = projectInfo.projectId;
@@ -143,7 +146,9 @@ export class ConversationManager {
       projectInfo: completeProjectInfo,
       taskDescription: initialPrompt,
       messageHistory: [],
-      variables: {},
+      variables: {
+        environment: process.env.APP_ENV || 'local',
+      },
       mode,
     };
 
@@ -151,7 +156,8 @@ export class ConversationManager {
     const session: ConversationSession = {
       id: sessionId,
       userId,
-      status: ConversationStatus.PLANNING,
+      status: ConversationStatus.ACTIVE,  // 简化状态：创建时即为活跃状态
+      visibility: ConversationVisibility.PRIVATE, // 默认私密
       context,
       createdAt: now,
       updatedAt: now,
@@ -240,43 +246,32 @@ export class ConversationManager {
       }
 
       // 创建项目 WorktreeManager 并创建对话分支
+      const workDir = projectResult.project.workDirectory || projectResult.project.repoDir;
+      const worktreeBaseDir = getWorktreeBaseDir(workDir);
       const projectWorktreeManager = new WorktreeManager(
         (this.projectService as any).executor,
-        projectResult.project.workDirectory || projectResult.project.repoDir,
-        `${projectResult.project.workDirectory}/../worktrees`
+        workDir,
+        worktreeBaseDir
       );
 
-      // 先尝试同步最新代码
-      console.log(`[ConversationManager] 同步主仓库最新代码...`);
-      const syncResult = await projectWorktreeManager.syncWithMainRepo(userId, this.getCurrentProjectId());
+      // 直接为对话创建独立的 worktree 和分支
+      // 新架构：每个对话一个独立的 worktree，无需同步和切换分支
+      console.log(`[ConversationManager] 为对话创建独立 worktree: ${sessionId}`);
       
-      if (syncResult.success && syncResult.updated) {
-        console.log(`[ConversationManager] ✅ 代码已同步到最新版本`);
-      } else if (!syncResult.success && syncResult.conflicts) {
-        console.warn(`[ConversationManager] ⚠️ 代码同步失败，存在冲突: ${syncResult.conflicts.join(', ')}`);
-        // 可以选择强制重置或提示用户
-        console.log(`[ConversationManager] 尝试强制重置到最新状态...`);
-        const resetResult = await projectWorktreeManager.resetToMainBranch(userId, this.getCurrentProjectId());
-        if (resetResult.success) {
-          console.log(`[ConversationManager] ✅ 已强制重置到最新状态`);
-        } else {
-          console.warn(`[ConversationManager] ⚠️ 强制重置也失败: ${resetResult.error}`);
-        }
-      }
-
-      const result = await projectWorktreeManager.createConversationBranch(
+      const worktreeInfo = await projectWorktreeManager.createConversationWorktree(
         userId,
         sessionId,
-        projectResult.project.gitBranch || defaultBranch,
-        this.getCurrentProjectId()
+        projectResult.project.gitBranch || defaultBranch
       );
 
-      console.log(`[ConversationManager] 对话分支已创建: ${result.branchName}`);
+      console.log(`[ConversationManager] ✅ 对话 worktree 创建成功`);
+      console.log(`[ConversationManager]    分支: ${worktreeInfo.branchName}`);
+      console.log(`[ConversationManager]    路径: ${worktreeInfo.worktreePath}`);
 
       return {
         success: true,
-        branchName: result.branchName,
-        worktreePath: result.worktreePath,
+        branchName: worktreeInfo.branchName,
+        worktreePath: worktreeInfo.worktreePath,
       };
     } catch (error) {
       return {
@@ -295,19 +290,24 @@ export class ConversationManager {
     // 检查缓存
     const cached = this.sessionCache.get(sessionId);
     if (cached) {
-      console.log(`[ConversationManager] 使用缓存的会话: ${sessionId}`);
       return cached;
     }
 
     // 从数据库加载
     const session = await this.storage.loadSession(sessionId);
+    const normalized = session
+      ? {
+          ...session,
+          visibility: session.visibility ?? ConversationVisibility.PRIVATE,
+        }
+      : null;
     
     // 更新缓存
-    if (session) {
-      this.sessionCache.set(sessionId, session);
+    if (normalized) {
+      this.sessionCache.set(sessionId, normalized);
     }
     
-    return session;
+    return normalized;
   }
 
   /**
@@ -317,11 +317,38 @@ export class ConversationManager {
     this.sessionCache.delete(sessionId);
   }
 
-  /**
-   * 获取所有会话列表
-   */
-  async listSessions(): Promise<ConversationSession[]> {
-    return await this.storage.listSessions();
+   /**
+     * 获取所有会话列表（支持用户过滤）
+     * - 返回公开对话
+     * - 加上该用户创建的所有对话（包括私密的）
+     */
+  async listSessions(userId?: string): Promise<ConversationSession[]> {
+    const rawAll = await this.storage.listSessions();
+    const all = rawAll.map((s: any) => ({
+      ...s,
+      visibility: s.visibility ?? 'private',
+    }));
+    
+    if (!userId) {
+      // 未登录用户只能看到公开对话
+      const filtered = all.filter((s: any) => s.visibility === ConversationVisibility.PUBLIC);
+      return filtered as ConversationSession[];
+    }
+    
+    // 登录用户：公开对话 + 自己创建的对话
+    const filtered = all.filter((s: any) => 
+      s.visibility === ConversationVisibility.PUBLIC || s.userId === userId
+    );
+
+    // 根据 environment 过滤
+    const currentEnv = process.env.APP_ENV || 'local';
+    const envFiltered = filtered.filter((s: any) => {
+      const vars = s.context?.variables || {};
+      const sessionEnv = vars.environment;
+      return sessionEnv === currentEnv;
+    });
+
+    return envFiltered as ConversationSession[];
   }
 
   /**
@@ -365,8 +392,8 @@ export class ConversationManager {
       }
 
       const context = session.context;
-      const messageId = uuidv4();
-      const now = new Date();
+      const messageId = newId();
+      const now = dayjs().toDate();
 
       // 创建消息
       const message: ConversationMessage = {
@@ -429,41 +456,32 @@ export class ConversationManager {
   }
 
   /**
-   * 验证状态转换是否合法
+   * 验证状态转换是否合法（简化版）
    */
   private isValidStatusTransition(
     currentStatus: ConversationStatus,
     newStatus: ConversationStatus
   ): boolean {
+    // 简化状态转换规则：单向流转，ACTIVE -> ARCHIVED，不可恢复
     const validTransitions: Record<ConversationStatus, ConversationStatus[]> = {
-      [ConversationStatus.PLANNING]: [
-        ConversationStatus.EXECUTING,
-        ConversationStatus.PAUSED,
-        ConversationStatus.FAILED,
+      [ConversationStatus.ACTIVE]: [
+        ConversationStatus.ARCHIVED,  // 活跃 -> 归档
       ],
-      [ConversationStatus.EXECUTING]: [
-        ConversationStatus.PAUSED,
-        ConversationStatus.COMPLETED,
-        ConversationStatus.FAILED,
+      [ConversationStatus.ARCHIVED]: [
+        // 已归档状态不可变
       ],
-      [ConversationStatus.PAUSED]: [
-        ConversationStatus.EXECUTING,
-        ConversationStatus.FAILED,
-      ],
-      [ConversationStatus.COMPLETED]: [],
-      [ConversationStatus.FAILED]: [],
     };
 
     return validTransitions[currentStatus]?.includes(newStatus) || false;
   }
 
   /**
-   * 更新会话状态
+   * 更新会话状态（简化版）
    */
   async updateSessionStatus(
     sessionId: string,
     newStatus: ConversationStatus,
-    error?: string
+    reason?: string  // 归档原因或错误信息
   ): Promise<void> {
     await this.acquireLock(sessionId);
 
@@ -480,24 +498,41 @@ export class ConversationManager {
 
       // 更新状态
       session.status = newStatus;
-      session.updatedAt = new Date();
+      session.updatedAt = dayjs().toDate();
 
-      // 如果是终态,设置完成时间
-      if (
-        newStatus === ConversationStatus.COMPLETED ||
-        newStatus === ConversationStatus.FAILED
-      ) {
-        session.completedAt = new Date();
-      }
-
-      // 如果是失败状态,记录错误信息
-      if (newStatus === ConversationStatus.FAILED && error) {
-        session.error = error;
+      // 如果归档，设置完成时间和原因
+      if (newStatus === ConversationStatus.ARCHIVED) {
+        session.completedAt = dayjs().toDate();
+        if (reason) {
+          session.error = reason;  // 复用 error 字段存储归档原因
+        }
       }
 
       await this.storage.saveSession(session);
       
       // 清除缓存
+      this.clearSessionCache(sessionId);
+    } finally {
+      this.releaseLock(sessionId);
+    }
+  }
+
+  /**
+   * 更新会话可见性
+   */
+  async updateVisibility(sessionId: string, visibility: ConversationVisibility): Promise<void> {
+    await this.acquireLock(sessionId);
+
+    try {
+      const session = await this.getSession(sessionId);
+      if (!session) {
+        throw new Error(`会话不存在: ${sessionId}`);
+      }
+
+      session.visibility = visibility;
+      session.updatedAt = dayjs().toDate();
+
+      await this.storage.saveSession(session);
       this.clearSessionCache(sessionId);
     } finally {
       this.releaseLock(sessionId);
@@ -545,7 +580,7 @@ export class ConversationManager {
       }
 
       session.context.variables[key] = value;
-      session.updatedAt = new Date();
+      session.updatedAt = dayjs().toDate();
       await this.storage.saveSession(session);
     } finally {
       this.releaseLock(sessionId);
@@ -594,25 +629,28 @@ export class ConversationManager {
    * 编辑模式下，由用户手动触发
    */
   async createMergeRequest(
-    sessionId: string,
-    targetBranch?: string
+    sessionId: string
   ): Promise<{ success: boolean; mrUrl?: string; error?: string }> {
     if (!this.gitlabService) {
+      console.warn(`[ConversationManager] MR 创建失败: GitLab 服务未初始化`);
       return { success: false, error: "GitLab 服务未初始化" };
     }
 
     const session = await this.getSession(sessionId);
     if (!session) {
+      console.warn(`[ConversationManager] MR 创建失败: 会话不存在 ${sessionId}`);
       return { success: false, error: "会话不存在" };
     }
 
     // 验证是编辑模式
     if (session.context.mode !== ConversationMode.EDIT) {
+      console.warn(`[ConversationManager] MR 创建失败: 非编辑模式 session=${sessionId} mode=${session.context.mode}`);
       return { success: false, error: "只有编辑模式才能创建 MR" };
     }
 
     // 验证是否有分支
     if (!session.context.gitBranch) {
+      console.warn(`[ConversationManager] MR 创建失败: 缺少源分支 session=${sessionId}`);
       return { success: false, error: "会话没有关联的 Git 分支" };
     }
 
@@ -626,61 +664,37 @@ export class ConversationManager {
 
     try {
       console.log(`[ConversationManager] 为会话 ${sessionId} 创建 MR`);
-      const finalTargetBranch = targetBranch || process.env.GIT_DEFAULT_BRANCH || "main";
+      const finalTargetBranch = session.context.projectInfo.gitBranch;
+      if (!finalTargetBranch) {
+        console.warn(`[ConversationManager] MR 创建失败: 目标分支为空 session=${sessionId}`);
+        return { success: false, error: "会话未设置目标分支" };
+      }
+      console.log(`[ConversationManager] MR 目标分支: ${finalTargetBranch}`);
 
-      // 获取项目详细信息 (不仅为了 GitLab ID，也为了 Worktree 管理)
-      let dbProjectId = session.context.projectInfo.projectId;
-      console.log(`[ConversationManager] 获取项目详情: ${dbProjectId}, 用户: ${session.userId}`);
-      
-      let gitlabProjectId: string | undefined;
+      const projectId = (session as any).projectId || session.context.projectInfo.projectId;
+      if (!projectId) {
+        console.warn(`[ConversationManager] ⚠️ 无法创建 MR：缺少项目 ID session=${sessionId}`);
+        return { success: false, error: "会话未关联项目" };
+      }
+
+      console.log(`[ConversationManager] 获取项目详情: ${projectId}, 用户: ${session.userId}`);
+
+      const projectResult = await this.projectService.getProject(projectId, session.userId!);
+      if (!projectResult.success || !projectResult.project) {
+        console.warn(`[ConversationManager] ⚠️ 无法找到关联项目 projectId=${projectId}`);
+        return { success: false, error: projectResult.error || "无法获取项目信息" };
+      }
+
+      const project = projectResult.project;
+      let gitlabProjectId: string | undefined = project.gitlabProjectId || undefined;
+      console.log(`[ConversationManager] 关联的 GitLab Project ID: ${gitlabProjectId}`);
+
       let projectWorktreeManager: WorktreeManager | undefined;
-      let project = null;
-
-      // 尝试获取项目信息
-      if (dbProjectId) {
-         const projectResult = await this.projectService.getProject(dbProjectId, session.userId!);
-         if (projectResult.success && projectResult.project) {
-           project = projectResult.project;
-         }
-      } 
-      
-      // 如果没有 ID 或未找到，尝试从 workDir 路径解析 Project ID (这是唯一保留的重试逻辑)
-      // workDir 格式通常为 .../worktrees/project-<UUID>/user-<UUID>
-      if (!project && session.context.projectInfo.workDir) {
-         const workDir = session.context.projectInfo.workDir;
-         const match = workDir.match(/project-([a-f0-9-]{36})/);
-         if (match && match[1]) {
-            const extractedId = match[1];
-            console.log(`[ConversationManager] ⚠️ 从 workDir 路径解析到 Project ID: ${extractedId}`);
-            
-            const projectResult = await this.projectService.getProject(extractedId, session.userId!);
-            if (projectResult.success && projectResult.project) {
-                project = projectResult.project;
-                dbProjectId = extractedId;
-                // 修复 session
-                session.context.projectInfo.projectId = extractedId;
-                await this.storage.saveContext(sessionId, session.context);
-                console.log(`[ConversationManager] ✅ 已通过路径恢复项目关联`);
-            }
-         }
-      }
-      
-      if (!project) {
-         console.warn(`[ConversationManager] ⚠️ 无法找到关联项目。ProjectInfo:`, JSON.stringify(session.context.projectInfo));
-      }
-
-      if (project) {
-        gitlabProjectId = project.gitlabProjectId || undefined;
-        console.log(`[ConversationManager] 关联的 GitLab Project ID: ${gitlabProjectId}`);
-
-        // 初始化特定于项目的 WorktreeManager
-        if (this.projectService && (this.projectService as any).executor) {
-          const executor = (this.projectService as any).executor;
-          const repoDir = project.workDirectory || project.repoDir;
-          const worktreeDir = `${repoDir}/../worktrees`;
-          
-          projectWorktreeManager = new WorktreeManager(executor, repoDir, worktreeDir);
-        }
+      if (this.projectService && (this.projectService as any).executor) {
+        const executor = (this.projectService as any).executor;
+        const repoDir = project.workDirectory || project.repoDir;
+        const worktreeDir = `${repoDir}/../worktrees`;
+        projectWorktreeManager = new WorktreeManager(executor, repoDir, worktreeDir);
       }
 
       // 如果无法初始化特定的 WorktreeManager，回退到全局的
@@ -688,13 +702,17 @@ export class ConversationManager {
         console.warn(`[ConversationManager] ⚠️ 无法初始化项目特定的 WorktreeManager，回退到全局管理器`);
         projectWorktreeManager = this.worktreeManager;
       }
+      if (!projectWorktreeManager) {
+        console.warn(`[ConversationManager] ⚠️ WorktreeManager 仍未初始化 session=${sessionId}`);
+      }
 
       // 1. 同步当前实际分支 & 确保 Worktree 存在
       if (projectWorktreeManager && session.userId) {
         try {
-          // 使用 getOrCreateWorktree 确保 worktree 存在
-          const worktreeInfo = await projectWorktreeManager.getOrCreateWorktree(session.userId, dbProjectId);
-          const actualBranch = worktreeInfo.mainBranch;
+          // 使用 getWorktreeInfo 获取对话 worktree 信息
+          const worktreeInfo = await projectWorktreeManager.getWorktreeInfo(session.userId, sessionId);
+          const actualBranch = worktreeInfo.branchName;
+          console.log(`[ConversationManager] 当前 worktree 分支: ${actualBranch} session=${sessionId}`);
 
           if (actualBranch && actualBranch !== session.context.gitBranch) {
             console.log(`[ConversationManager] ⚠️ 检测到分支不一致，更新会话分支: ${session.context.gitBranch} -> ${actualBranch}`);
@@ -703,8 +721,8 @@ export class ConversationManager {
           }
         } catch (syncError) {
           // 如果 worktree 不存在，这里会捕获到错误
-          console.warn(`[ConversationManager] ⚠️ 无法同步 Worktree 分支信息:`, syncError);
-          // 如果是项目特定的 worktree 失败，且 dbProjectId 存在，说明可能路径有问题
+          console.warn(`[ConversationManager] ⚠️ 无法同步 Worktree 分支信息 session=${sessionId}:`, syncError);
+          // 如果是项目特定的 worktree 失败，说明可能路径有问题
           // 但我们不中断，尝试继续
         }
       }
@@ -712,6 +730,7 @@ export class ConversationManager {
       // 2. 自动解决 "源分支与目标分支相同" 的问题
       if (session.context.gitBranch === finalTargetBranch) {
         if (!projectWorktreeManager) {
+           console.warn(`[ConversationManager] MR 创建失败: WorktreeManager 未初始化 session=${sessionId}`);
            return { success: false, error: "Worktree 管理器未初始化，无法自动创建功能分支" };
         }
 
@@ -719,17 +738,17 @@ export class ConversationManager {
         
         try {
           const shortSessionId = sessionId.substring(0, 8);
-          const timestamp = Date.now();
+          const timestamp = dayjs().valueOf();
           const featureBranchName = `auto-feature-${shortSessionId}-${timestamp}`;
           
           // a. 提交当前更改
-          await projectWorktreeManager.commitChanges(session.userId!, "Auto-commit before creating MR", dbProjectId);
+          await projectWorktreeManager.commitChanges(session.userId!, sessionId, "Auto-commit before creating MR");
           
-          // b. 从当前位置创建新分支
-          await projectWorktreeManager.createBranchFromHead(session.userId!, featureBranchName, dbProjectId);
+          // b. 从当前位置创建新分支（注意：新架构下不需要此步骤，因为每个对话已有独立分支）
+          // 这里我们直接使用当前分支，不再创建新分支
           
-          // c. 推送新分支
-          await projectWorktreeManager.pushBranch(session.userId!, featureBranchName, dbProjectId);
+          // c. 推送当前分支
+          await projectWorktreeManager.pushBranch(session.userId!, sessionId);
           
           // d. 更新上下文
           session.context.gitBranch = featureBranchName;
@@ -738,7 +757,7 @@ export class ConversationManager {
           console.log(`[ConversationManager] ✅ 已自动切换到新功能分支: ${featureBranchName}`);
           
         } catch (err) {
-           console.error(`[ConversationManager] ❌ 自动创建分支失败:`, err);
+           console.error(`[ConversationManager] ❌ 自动创建分支失败 session=${sessionId}:`, err);
            return {
             success: false,
             error: `无法创建 MR: 当前处于主分支，且自动创建功能分支失败: ${err instanceof Error ? err.message : String(err)}`
@@ -751,12 +770,12 @@ export class ConversationManager {
         try {
           console.log(`[ConversationManager] 正在提交并推送分支: ${session.context.gitBranch}`);
           
-          await projectWorktreeManager.commitChanges(session.userId, "Auto-commit before creating Merge Request", dbProjectId);
-          await projectWorktreeManager.pushBranch(session.userId, session.context.gitBranch, dbProjectId);
+          await projectWorktreeManager.commitChanges(session.userId, sessionId, "Auto-commit before creating Merge Request");
+          await projectWorktreeManager.pushBranch(session.userId, sessionId);
           
           console.log(`[ConversationManager] ✅ 分支推送成功`);
         } catch (gitError) {
-          console.warn(`[ConversationManager] ⚠️ Git 操作 (提交/推送) 失败，尝试继续创建 MR:`, gitError);
+          console.warn(`[ConversationManager] ⚠️ Git 操作 (提交/推送) 失败 session=${sessionId}，尝试继续创建 MR:`, gitError);
         }
       }
       

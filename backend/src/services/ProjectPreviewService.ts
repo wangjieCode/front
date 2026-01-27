@@ -11,6 +11,7 @@ import {
 } from '../types';
 import * as path from 'path';
 import * as fs from 'fs';
+import dayjs from 'dayjs';
 
 /**
  * 项目预览服务
@@ -52,7 +53,7 @@ export class ProjectPreviewService {
     forceRebuild: boolean = false,
     apiTarget?: string
   ): Promise<PreviewResult> {
-    const startTime = Date.now();
+    const startTime = dayjs().valueOf();
     console.log(`[ProjectPreviewService] 开始创建预览: sessionId=${sessionId}`);
 
     try {
@@ -85,16 +86,16 @@ export class ProjectPreviewService {
 
       // 4. 准备环境变量
       const finalApiTarget = apiTarget || process.env.API_TARGET || '';
+      const dockerfilePath = path.join(this.infrastructureDir, 'Dockerfile');
       const envVars = [
         `PROJECT_DIR=${workDir}`,
         `HOST_PORT=${hostPort}`,
         `IS_PREVIEW=true`,
-        `COMPOSE_PROJECT_NAME=${projectName}`
+        `COMPOSE_PROJECT_NAME=${projectName}`,
+        `DOCKERFILE=${dockerfilePath}`
       ];
       
-      if (finalApiTarget) {
-        envVars.push(`API_TARGET=${finalApiTarget}`);
-      }
+      envVars.push(`API_TARGET=${finalApiTarget}`);
 
       // 5. 构建并启动
       // 使用 -p 指定项目名，实现多租户隔离
@@ -102,15 +103,30 @@ export class ProjectPreviewService {
       // --build 确保重新构建镜像 (如果 Dockerfile 变了)
       const command = `${envVars.join(' ')} docker-compose up -d`;
       
+      console.log(`[ProjectPreviewService] 正在启动预览模式...`);
+      console.log(`[ProjectPreviewService] 工作目录 (CWD): ${this.infrastructureDir}`);
       console.log(`[ProjectPreviewService] 执行命令: ${command}`);
-      console.log(`[ProjectPreviewService] 工作目录: ${this.infrastructureDir}`);
+
+      // 验证目录是否存在
+      if (!fs.existsSync(this.infrastructureDir)) {
+        const errorMsg = `Infrastructure 目录不存在: ${this.infrastructureDir}`;
+        console.error(`[ProjectPreviewService] ❌ ${errorMsg}`);
+        await this.updatePreviewStatus(sessionId, {
+          url: '',
+          containerId: '',
+          branchName: gitBranch,
+          deployedAt: dayjs().toDate(),
+          status: PreviewStatus.ERROR
+        });
+        return { success: false, error: errorMsg };
+      }
       
       // 更新状态: 构建中
       await this.updatePreviewStatus(sessionId, {
         url: '',
         containerId: '',
         branchName: gitBranch,
-        deployedAt: new Date(),
+        deployedAt: dayjs().toDate(),
         status: PreviewStatus.BUILDING,
         ports: [{ host: hostPort, container: 8001, service: 'web' }]
       });
@@ -126,7 +142,7 @@ export class ProjectPreviewService {
           url: '',
           containerId: '',
           branchName: gitBranch,
-          deployedAt: new Date(),
+          deployedAt: dayjs().toDate(),
           status: PreviewStatus.ERROR
         });
         return { success: false, error: errorMsg };
@@ -159,14 +175,14 @@ export class ProjectPreviewService {
         url: previewUrl,
         containerId,
         branchName: gitBranch,
-        deployedAt: new Date(),
+        deployedAt: dayjs().toDate(),
         status: PreviewStatus.RUNNING,
         isRunning: true,
         accessUrl: previewUrl,
         ports: [{ host: hostPort, container: 8001, service: 'web' }]
       });
 
-      const totalTime = Math.round((Date.now() - startTime) / 1000);
+      const totalTime = Math.round((dayjs().valueOf() - startTime) / 1000);
       return {
         success: true,
         previewUrl,
@@ -259,7 +275,7 @@ export class ProjectPreviewService {
           url: '',
           containerId: '',
           branchName: '',
-          deployedAt: new Date(),
+          deployedAt: dayjs().toDate(),
           status: PreviewStatus.STOPPED,
           isRunning: false
         });

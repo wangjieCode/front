@@ -1,26 +1,32 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Spin, Typography, Button, Input, message, Modal, Descriptions, Tag } from 'antd';
-import { ThunderboltOutlined, SendOutlined, RocketOutlined, CheckOutlined, WarningOutlined, StopOutlined, GitlabOutlined, ClockCircleOutlined, LinkOutlined } from '@ant-design/icons';
+import { Spin, Typography, Button, Input, message, Modal, Descriptions, Tag, Tooltip } from 'antd';
+import { ThunderboltOutlined, SendOutlined, RocketOutlined, CheckOutlined, WarningOutlined, StopOutlined, GitlabOutlined, ClockCircleOutlined, LinkOutlined, LockOutlined, InboxOutlined, GlobalOutlined } from '@ant-design/icons';
 import ModeSelector from './ModeSelector';
 import ProjectSelector from './ProjectSelector';
 import {
   ConversationSession,
   ConversationMessage,
   ConversationMode,
+  ConversationStatus,
+  ConversationVisibility,
   PreviewStatus,
 } from '../types/conversation';
 import MessageInput from './MessageInput';
 import MessageList from './MessageList';
 import { conversationService } from '../services/conversationService';
 import { parseNeovateChunkStructured, ParsedContent } from '../utils/neovateParser';
+import { authUtils } from '../utils/auth';
 
 interface ConversationViewProps {
   sessionId?: string;
   initialPrompt?: string;
   initialSession?: ConversationSession;
   onNewConversation?: (prompt: string, mode: ConversationMode, projectId: string) => Promise<void>;
+  onVisibilityChange?: (sessionId: string, visibility: ConversationVisibility) => void;
   mode?: ConversationMode;
   onModeChange?: (mode: ConversationMode) => void;
+  autoSend?: boolean;
+  initialContent?: string;
 }
 
 /**
@@ -35,8 +41,11 @@ const ConversationView: React.FC<ConversationViewProps> = ({
   initialPrompt,
   initialSession,
   onNewConversation,
+  onVisibilityChange,
   mode = ConversationMode.EDIT,
   onModeChange,
+  autoSend,
+  initialContent,
 }) => {
   const [session, setSession] = useState<ConversationSession | null>(initialSession || null);
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
@@ -45,7 +54,11 @@ const ConversationView: React.FC<ConversationViewProps> = ({
   const [sending, setSending] = useState(false);
   const [creatingMR, setCreatingMR] = useState(false);
   const [stoppingPreview, setStoppingPreview] = useState(false);
+  const [updatingVisibility, setUpdatingVisibility] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const chatContainerRef = useRef<HTMLDivElement>(null);
+  const hasAutoSentRef = useRef(false);
+  const currentUserId = authUtils.getUserId();
 
   // New conversation state
   const [prompt, setPrompt] = useState('');
@@ -86,10 +99,10 @@ const ConversationView: React.FC<ConversationViewProps> = ({
 
       const tasks = [loadSession()];
 
-      // Only load messages if there is NO initial prompt.
-      // If there is an initial prompt, we rely on handleSendMessage to create the first message optimistically.
+      // Only load messages if NOT in autoSend mode.
+      // In autoSend mode, we rely on handleSendMessage to create the first message optimistically.
       // Fetching messages immediately would return empty and overwrite the optimistic message.
-      if (!initialPrompt) {
+      if (!autoSend) {
         tasks.push(loadMessages());
       }
 
@@ -104,28 +117,56 @@ const ConversationView: React.FC<ConversationViewProps> = ({
       setPrompt('');
       setSending(false);
     }
-  }, [sessionId, initialSession, initialPrompt]);
+  }, [sessionId, initialSession, autoSend]);
 
-  // 自动加载消息
+
+  // 处理自动发送消息
   useEffect(() => {
-    if (sessionId && !initialPrompt) {
-      loadMessages();
+    if (autoSend && initialContent && sessionId && !hasAutoSentRef.current) {
+      hasAutoSentRef.current = true;
+      // 延迟一点点发送，避免组件挂载期的状态竞争
+      setTimeout(() => {
+        handleSendMessage(initialContent);
+      }, 50);
     }
-  }, [sessionId, initialPrompt]);
+  }, [sessionId, autoSend, initialContent]);
 
   // 自动滚动到最新消息
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
 
+  // 处理内容高度变化导致的滚动（解决打字机效果不跟随滚动的问题）
+  useEffect(() => {
+    const container = chatContainerRef.current;
+    if (!container) return;
+
+    const observer = new ResizeObserver(() => {
+      // 只有在正在发送或流式传输时才自动滚动
+      const isStreaming = messages.some(msg => (msg as any).isStreaming);
+      if (sending || isStreaming) {
+        scrollToBottom();
+      }
+    });
+
+    // 观察内部消息列表的高度变化
+    const messageListElement = container.querySelector('.message-list-inner');
+    if (messageListElement) {
+      observer.observe(messageListElement);
+    } else {
+      observer.observe(container);
+    }
+
+    return () => observer.disconnect();
+  }, [sending, messages]);
+
+  // 检查对话是否已归档
+  const isArchived = session?.status === ConversationStatus.ARCHIVED;
+
   const loadSession = async () => {
     if (!sessionId) return;
     try {
       const session = await conversationService.getSession(sessionId);
-      console.log('[ConversationView] loadSession - 返回的session:', session);
-      console.log('[ConversationView] loadSession - context.mode:', session.context?.mode);
-      console.log('[ConversationView] loadSession - context.gitBranch:', session.context?.gitBranch);
-      console.log('[ConversationView] loadSession - context.mrUrl:', session.context?.mrUrl);
       setSession(session);
     } catch (error) {
       console.error('加载会话失败:', error);
@@ -148,6 +189,13 @@ const ConversationView: React.FC<ConversationViewProps> = ({
 
   const handleSendMessage = async (content: string) => {
     if (!sessionId) return;
+    
+    // 检查是否已归档
+    if (isArchived) {
+      message.error('已归档的对话不能发送消息');
+      return;
+    }
+    
     setSending(true);
 
     // 立即添加用户消息到界面
@@ -159,8 +207,6 @@ const ConversationView: React.FC<ConversationViewProps> = ({
       content,
       timestamp: new Date().toISOString(),
     };
-    setMessages(prev => [...prev, userMessage]);
-
     // 创建临时 AI 消息用于流式更新，显示"正在思考"状态
     const aiMessageId = `ai-${Date.now()}`;
     const aiMessage: ConversationMessage = {
@@ -173,7 +219,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
       isStreaming: true,
       parsedContents: [],
     };
-    setMessages(prev => [...prev, aiMessage]);
+    setMessages(prev => [...prev, userMessage, aiMessage]);
 
     // 立即滚动到底部
     setTimeout(scrollToBottom, 100);
@@ -206,6 +252,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
 
       let buffer = '';
       let accumulatedContents: ParsedContent[] = [];
+      let fullContent = '';
 
       while (true) {
         const { done, value } = await reader.read();
@@ -226,6 +273,9 @@ const ConversationView: React.FC<ConversationViewProps> = ({
               } else if (data.type === 'thinking') {
                 // AI 开始思考，不再显示"正在思考"文本，等待实际内容
               } else if (data.type === 'chunk') {
+                // 累积完整文本内容
+                fullContent += data.content;
+                
                 // 解析 chunk 为结构化内容
                 const parsedContents = parseNeovateChunkStructured(data.content);
                 
@@ -239,7 +289,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
                       msg.id === aiMessageId
                         ? { 
                             ...msg, 
-                            content: data.content, // 保存原始内容
+                            content: fullContent, // 使用累积的完整内容
                             parsedContents: accumulatedContents,
                             isStreaming: true 
                           }
@@ -249,6 +299,19 @@ const ConversationView: React.FC<ConversationViewProps> = ({
                   
                   // 实时滚动到底部
                   setTimeout(scrollToBottom, 50);
+                } else {
+                    // 即使没有结构化内容解析出来（可能是纯空格等），也要更新 content
+                    setMessages(prev =>
+                        prev.map(msg =>
+                          msg.id === aiMessageId
+                            ? { 
+                                ...msg, 
+                                content: fullContent, // 使用累积的完整内容
+                                isStreaming: true 
+                              }
+                            : msg
+                        )
+                      );
                 }
               } else if (data.type === 'complete') {
                 // 流式传输完成
@@ -259,8 +322,15 @@ const ConversationView: React.FC<ConversationViewProps> = ({
                       : msg
                   )
                 );
-                // 重新加载消息获取完整数据（包含元数据）
-                setTimeout(() => loadMessages(), 500);
+                // 延迟加载消息以获取完整的元数据（包括 codeChanges）
+                // 使用较长的延迟（2500ms）确保后端异步保存已完成
+                console.log('[ConversationView] 流式传输完成，将在 2500ms 后加载消息以获取元数据');
+                setTimeout(() => {
+                  console.log('[ConversationView] 开始加载消息以获取元数据...');
+                  loadMessages().then(() => {
+                    console.log('[ConversationView] 消息加载完成');
+                  });
+                }, 2500);
               } else if (data.type === 'error') {
                 console.error('AI 响应错误:', data.message);
                 setMessages(prev =>
@@ -318,7 +388,14 @@ const ConversationView: React.FC<ConversationViewProps> = ({
    */
   const handlePreview = async () => {
     if (!sessionId) return;
-    if(!session?.projectName?.includes('boss')) {
+    
+    // 检查是否已归档
+    if (isArchived) {
+      message.error('已归档的对话不能预览');
+      return;
+    }
+    
+    if(!session?.context?.projectInfo?.projectName?.includes('boss')) {
       message.error('当前项目不支持预览');
       return
     }
@@ -401,6 +478,12 @@ const ConversationView: React.FC<ConversationViewProps> = ({
    */
   const handleCreateMR = async () => {
     if (!sessionId) return;
+    
+    // 检查是否已归档
+    if (isArchived) {
+      message.error('已归档的对话不能创建 MR');
+      return;
+    }
 
     setCreatingMR(true);
     try {
@@ -414,6 +497,29 @@ const ConversationView: React.FC<ConversationViewProps> = ({
     } finally {
       setCreatingMR(false);
     }
+  };
+
+  /**
+   * 归档对话
+   */
+  const handleArchive = async () => {
+    if (!sessionId) return;
+
+    Modal.confirm({
+      title: '确认归档对话？',
+      content: '归档后将无法发送消息、创建 MR 或预览项目。此操作不可逆，归档后无法恢复。',
+      okText: '确认归档',
+      cancelText: '取消',
+      onOk: async () => {
+        try {
+          await conversationService.archiveConversation(sessionId);
+          message.success('对话已归档');
+          await loadSession();
+        } catch (error) {
+          message.error('归档失败: ' + (error instanceof Error ? error.message : '未知错误'));
+        }
+      },
+    });
   };
 
   /**
@@ -456,9 +562,35 @@ const ConversationView: React.FC<ConversationViewProps> = ({
       disabled: false,
       style: { background: '#7c5cff', borderColor: '#7c5cff', color: '#fff' },
     };
-  };
+   };
 
-  const renderLandingContent = () => (
+   /**
+    * 切换对话可见性
+    */
+  const handleToggleVisibility = async () => {
+     if (!sessionId || !session) return;
+
+     setUpdatingVisibility(true);
+     try {
+       const currentVisibility = session.visibility || ConversationVisibility.PRIVATE;
+       const newVisibility = currentVisibility === ConversationVisibility.PRIVATE
+         ? ConversationVisibility.PUBLIC
+         : ConversationVisibility.PRIVATE;
+       await conversationService.updateVisibility(sessionId, newVisibility);
+
+       // 更新本地状态
+       setSession(prev => prev ? { ...prev, visibility: newVisibility } : null);
+       onVisibilityChange?.(sessionId, newVisibility);
+       message.success(newVisibility === 'public' ? '对话已设为公开' : '对话已设为私密');
+     } catch (error) {
+       console.error('更新可见性失败:', error);
+       message.error('更新可见性失败');
+     } finally {
+       setUpdatingVisibility(false);
+     }
+   };
+
+   const renderLandingContent = () => (
     <div style={{
       maxWidth: 800,
       margin: '0 auto',
@@ -616,11 +748,14 @@ const ConversationView: React.FC<ConversationViewProps> = ({
       height: '100%'
     }}>
       {/* Messages */}
-      <div style={{
-        flex: 1,
-        overflowY: 'auto',
-        padding: '20px 0'
-      }}>
+      <div 
+        ref={chatContainerRef}
+        style={{
+          flex: 1,
+          overflowY: 'auto',
+          padding: '20px 0'
+        }}
+      >
         {loadingMessages ? (
           <div style={{ textAlign: 'center', padding: '40px 0' }}>
             <Spin size="large" tip="加载消息..." />
@@ -630,29 +765,11 @@ const ConversationView: React.FC<ConversationViewProps> = ({
             暂无消息
           </div>
         ) : (
-          <>
+          <div className="message-list-inner">
             {/* 状态栏 */}
-            {sending && (
-              <div style={{
-                padding: '8px 16px',
-                background: 'rgba(124, 92, 255, 0.1)',
-                borderLeft: '3px solid #7c5cff',
-                margin: '0 16px 8px 16px',
-                borderRadius: '0 4px 4px 0',
-                fontSize: 13,
-                color: '#7c5cff',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8
-              }}>
-                <Spin size="small" />
-                <span>AI 正在处理您的消息...</span>
-              </div>
-            )}
-            
             <MessageList messages={messages} onMessageClick={handleMessageClick} />
             <div ref={messagesEndRef} />
-          </>
+          </div>
         )}
       </div>
 
@@ -671,8 +788,9 @@ const ConversationView: React.FC<ConversationViewProps> = ({
         }}>
           <MessageInput
             sessionId={sessionId}
-            disabled={sending}
+            disabled={sending || isArchived}
             onSend={handleSendMessage}
+            placeholder={isArchived ? '已归档的对话不能发送消息' : undefined}
           />
         </div>
       </div>
@@ -691,69 +809,77 @@ const ConversationView: React.FC<ConversationViewProps> = ({
         <div style={{
           padding: '16px 24px',
           borderBottom: '1px solid #e5e5e5',
-          background: (session.context?.mode || mode) === ConversationMode.EDIT ? 'linear-gradient(135deg, #f5f7fa 0%, #e8eef5 100%)' : '#fff'
+          background: '#fff'
         }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
             <div style={{ flex: 1, minWidth: 0 }}>
               <span style={{
                 fontSize: 14,
                 color: '#333',
-                fontWeight: 500,
+                fontWeight: 600,
                 display: 'block',
                 overflow: 'hidden',
                 textOverflow: 'ellipsis',
                 whiteSpace: 'nowrap',
-                marginBottom: (session.context?.mode || mode) === ConversationMode.EDIT ? 8 : 0
+                marginBottom: 8
               }}>
-                {initialPrompt || '对话会话'}
+                {session?.title || session?.context?.taskDescription || initialPrompt || '-'}
               </span>
 
-              {(session.context?.mode || mode) === ConversationMode.EDIT && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-                  {/* 项目名称 */}
-                  {session.context?.projectInfo?.workDir && (
-                    <div style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 6,
-                      padding: '4px 10px',
-                      background: 'rgba(255,255,255,0.8)',
-                      borderRadius: 6,
-                      fontSize: 12,
-                      color: '#666',
-                      border: '1px solid rgba(0,0,0,0.06)'
-                    }}>
-                      <span>📁</span>
-                      <span style={{ fontFamily: 'monospace', fontWeight: 500 }}>
-                        {session.context.projectInfo.workDir.split('/').pop() || session.context.projectInfo.workDir}
-                      </span>
-                    </div>
-                  )}
+              {/* 状态徽章 */}
+              {isArchived && (
+                <Tag icon={<LockOutlined />} color="default" style={{ marginLeft: 8 }}>
+                  已归档
+                </Tag>
+              )}
 
-                  {/* Git 分支 */}
-                  {(session.context?.gitBranch || session.context?.projectInfo?.gitBranch) && (
-                    <div style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 6,
-                      padding: '4px 10px',
-                      background: 'rgba(102, 126, 234, 0.1)',
-                      borderRadius: 6,
-                      fontSize: 12,
-                      color: '#667eea',
-                      fontWeight: 500,
-                      border: '1px solid rgba(102, 126, 234, 0.2)'
-                    }}>
-                      <span>🌿</span>
-                      <span style={{ fontFamily: 'monospace' }}>
-                        {session.context.gitBranch || session.context.projectInfo.gitBranch}
-                      </span>
-                    </div>
-                  )}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginTop: 4 }}>
+                {/* 项目名称 */}
+                {session.context?.projectInfo?.workDir && (
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    padding: '4px 10px',
+                    background: '#f8f9fa',
+                    borderRadius: 6,
+                    fontSize: 12,
+                    color: '#666',
+                    border: '1px solid #eee'
+                  }}>
+                    <span>📁</span>
+                    <span style={{ fontFamily: 'monospace', fontWeight: 500 }}>
+                      {session.context.projectInfo.workDir.split('/').pop() || session.context.projectInfo.workDir}
+                    </span>
+                  </div>
+                )}
 
-                  {/* MR 链接或创建按钮 */}
-                  {session.context?.mode === 'edit' && (
-                    session.context?.mrUrl ? (
+                {/* Git 分支 */}
+                {(session.context?.gitBranch || session.context?.projectInfo?.gitBranch) && (
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    padding: '4px 10px',
+                    background: 'rgba(102, 126, 234, 0.08)',
+                    borderRadius: 6,
+                    fontSize: 12,
+                    color: '#667eea',
+                    fontWeight: 500,
+                    border: '1px solid rgba(102, 126, 234, 0.15)'
+                  }}>
+                    <span>🌿</span>
+                    <span style={{ fontFamily: 'monospace' }}>
+                      {session.context.gitBranch || session.context.projectInfo.gitBranch}
+                    </span>
+                  </div>
+                )}
+
+                {/* 开发工具组（仅在编辑模式显示） */}
+                {session.context?.mode === 'edit' && (
+                  <>
+                    {/* MR 链接或创建按钮 */}
+                    {session.context.mrUrl ? (
                       <a
                         href={session.context.mrUrl}
                         target="_blank"
@@ -763,22 +889,13 @@ const ConversationView: React.FC<ConversationViewProps> = ({
                           alignItems: 'center',
                           gap: 6,
                           padding: '4px 10px',
-                          background: 'rgba(82, 196, 26, 0.1)',
+                          background: 'rgba(52, 191, 103, 0.08)',
                           borderRadius: 6,
                           fontSize: 12,
-                          color: '#52c41a',
+                          color: '#34bf67',
                           fontWeight: 500,
-                          border: '1px solid rgba(82, 196, 26, 0.2)',
-                          textDecoration: 'none',
-                          transition: 'all 0.2s'
-                        }}
-                        onMouseEnter={(e) => {
-                          e.currentTarget.style.background = 'rgba(82, 196, 26, 0.15)';
-                          e.currentTarget.style.transform = 'translateY(-1px)';
-                        }}
-                        onMouseLeave={(e) => {
-                          e.currentTarget.style.background = 'rgba(82, 196, 26, 0.1)';
-                          e.currentTarget.style.transform = 'translateY(0)';
+                          border: '1px solid rgba(52, 191, 103, 0.15)',
+                          textDecoration: 'none'
                         }}
                       >
                         <span>🔗</span>
@@ -790,84 +907,120 @@ const ConversationView: React.FC<ConversationViewProps> = ({
                         icon={<GitlabOutlined />}
                         onClick={handleCreateMR}
                         loading={creatingMR}
+                        disabled={isArchived}
                         style={{
                           fontSize: 12,
                           height: 26,
-                          padding: '0 10px',
                           borderRadius: 6,
                           fontWeight: 500,
                           color: '#fc6d26',
                           borderColor: '#fc6d26',
+                          background: 'transparent'
                         }}
                       >
                         创建 MR
                       </Button>
-                    )
-                  )}
+                    )}
 
-            {/* 预览按钮 */}
-            {session.context?.gitBranch && (() => {
-                    const buttonProps = getPreviewButtonProps();
-                    return (
-                      <Button
-                        size="small"
-                        icon={buttonProps.icon}
-                        onClick={buttonProps.onClick || handlePreview}
-                        disabled={buttonProps.disabled}
-                        style={{
-                          fontSize: 12,
-                          height: 26,
-                          padding: '0 10px',
-                          borderRadius: 6,
-                          fontWeight: 500,
-                          ...buttonProps.style,
-                        }}
-                      >
-                        {buttonProps.text}
-                      </Button>
-                    );
-                  })()}
+                    {/* 预览按钮 */}
+                    {session.context?.gitBranch && (() => {
+                      const buttonProps = getPreviewButtonProps();
+                      return (
+                        <Button
+                          size="small"
+                          icon={buttonProps.icon}
+                          onClick={buttonProps.onClick || handlePreview}
+                          disabled={buttonProps.disabled || isArchived}
+                          style={{
+                            fontSize: 12,
+                            height: 26,
+                            borderRadius: 6,
+                            fontWeight: 500,
+                            ...buttonProps.style,
+                            marginLeft: 12
+                          }}
+                        >
+                          {buttonProps.text}
+                        </Button>
+                      );
+                    })()}
 
-                  {/* 停止预览按钮 */}
-                  {session.context?.previewInfo?.status === PreviewStatus.RUNNING && (
-                    <>
-                      <Button
-                        size="small"
-                        icon={<ClockCircleOutlined />}
-                        onClick={() => setShowDeploymentModal(true)}
-                        style={{
-                          fontSize: 12,
-                          height: 26,
-                          padding: '0 10px',
-                          borderRadius: 6,
-                          fontWeight: 500,
-                          color: '#7c5cff',
-                          borderColor: '#7c5cff',
-                        }}
-                      >
-                        部署详情
-                      </Button>
-                      <Button
-                        size="small"
-                        icon={<StopOutlined />}
-                        onClick={handleStopPreview}
-                        loading={stoppingPreview}
-                        style={{
-                          fontSize: 12,
-                          height: 26,
-                          padding: '0 10px',
-                          borderRadius: 6,
-                          fontWeight: 500,
-                          color: '#ff4d4f',
-                          borderColor: '#ff4d4f',
-                        }}
-                      >
-                        停止
-                      </Button>
-                    </>
-                  )}
-                </div>
-              )}
+                    {/* 停止预览/详情 */}
+                    {session.context?.previewInfo?.status === PreviewStatus.RUNNING && (
+                      <div style={{ display: 'flex', gap: 12, marginLeft: 12 }}>
+                        <Button
+                          size="small"
+                          icon={<ClockCircleOutlined />}
+                          onClick={() => setShowDeploymentModal(true)}
+                          style={{
+                            fontSize: 12,
+                            height: 26,
+                            borderRadius: 6,
+                            color: '#7c5cff',
+                            borderColor: '#7c5cff'
+                          }}
+                        >
+                          部署详情
+                        </Button>
+                        <Button
+                          size="small"
+                          icon={<StopOutlined />}
+                          onClick={handleStopPreview}
+                          loading={stoppingPreview}
+                          danger
+                          style={{
+                            fontSize: 12,
+                            height: 26,
+                            borderRadius: 6
+                          }}
+                        >
+                          停止
+                        </Button>
+                      </div>
+                    )}
+                  </>
+                )}
+
+                {/* 可见性 */}
+                {session?.userId === currentUserId && (
+                  <Tooltip title={(session?.visibility || ConversationVisibility.PRIVATE) === ConversationVisibility.PRIVATE ? '设为公开' : '设为私密'}>
+                    <Button
+                      size="small"
+                      icon={(session?.visibility || ConversationVisibility.PRIVATE) === ConversationVisibility.PRIVATE ? <GlobalOutlined /> : <LockOutlined />}
+                      onClick={handleToggleVisibility}
+                      loading={updatingVisibility}
+                      style={{
+                        fontSize: 12,
+                        height: 26,
+                        borderRadius: 6,
+                        color: (session?.visibility || ConversationVisibility.PRIVATE) === ConversationVisibility.PRIVATE ? '#52c41a' : '#fa8c16',
+                        borderColor: (session?.visibility || ConversationVisibility.PRIVATE) === ConversationVisibility.PRIVATE ? '#52c41a' : '#fa8c16',
+                        opacity: 0.8
+                      }}
+                    >
+                      {(session?.visibility || ConversationVisibility.PRIVATE) === ConversationVisibility.PRIVATE ? '私密' : '公开'}
+                    </Button>
+                  </Tooltip>
+                )}
+
+                {!isArchived && (
+                  <Button
+                    size="small"
+                    icon={<InboxOutlined />}
+                    onClick={handleArchive}
+                    danger
+                    ghost
+                    style={{
+                      fontSize: 12,
+                      height: 26,
+                      borderRadius: 6,
+                      opacity: 0.8
+                    }}
+                  >
+                    归档
+                  </Button>
+                )}
+              </div>
             </div>
           </div>
         </div>

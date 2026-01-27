@@ -1,4 +1,7 @@
-FROM node:20-alpine
+# 使用国内镜像源加速下载，原镜像为 node:20-slim (换成 slim 版本解决 esbuild 在 alpine 下的崩溃问题)
+FROM docker.m.daocloud.io/library/node:20-slim
+
+
 
 # Install pnpm (using v10 as requested)
 RUN npm install -g pnpm@10

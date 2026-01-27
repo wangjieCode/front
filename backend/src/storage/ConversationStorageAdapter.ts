@@ -46,6 +46,7 @@ export class ConversationStorageAdapter implements IConversationStorage {
       userId: session.userId,
       projectId: session.context.projectInfo.projectId,
       status: session.status,
+      visibility: session.visibility,
       title,
       summary,
       projectName,
@@ -90,7 +91,31 @@ export class ConversationStorageAdapter implements IConversationStorage {
     }
 
     if ((dbSession as any).context) {
-      return dbSession as unknown as ConversationSession;
+      const existingContext = (dbSession as any).context as ConversationContext;
+      const projectInfo = {
+        projectId: dbSession.projectId || existingContext.projectInfo?.projectId,
+        projectName: dbSession.projectName || (dbSession as any).projectNameJoined || existingContext.projectInfo?.projectName || '',
+        gitRepositoryUrl: (dbSession as any).projectRepoUrl || existingContext.projectInfo?.gitRepositoryUrl || '',
+        workDir: existingContext.projectInfo?.workDir || '',
+        gitBranch: existingContext.projectInfo?.gitBranch || undefined,
+        relevantFiles: existingContext.projectInfo?.relevantFiles || [],
+      };
+
+      return {
+        id: dbSession.id,
+        userId: dbSession.userId,
+        status: dbSession.status as ConversationStatus,
+        visibility: (dbSession as any).visibility || 'private',
+        context: {
+          ...existingContext,
+          projectInfo,
+        },
+        createdAt: dbSession.createdAt,
+        updatedAt: dbSession.updatedAt,
+        completedAt: dbSession.completedAt || undefined,
+        error: dbSession.error || undefined,
+        title: dbSession.title || undefined,
+      };
     }
 
     const dbContext = await this.storage.loadContext(sessionId);
@@ -122,6 +147,7 @@ export class ConversationStorageAdapter implements IConversationStorage {
       id: dbSession.id,
       userId: dbSession.userId,
       status: dbSession.status as ConversationStatus,
+      visibility: (dbSession as any).visibility || 'private',
       context,
       createdAt: dbSession.createdAt,
       updatedAt: dbSession.updatedAt,
@@ -141,6 +167,7 @@ export class ConversationStorageAdapter implements IConversationStorage {
         id: dbSession.id,
         userId: dbSession.userId || undefined,
         status: dbSession.status as ConversationStatus,
+        visibility: (dbSession as any).visibility || 'private',
         context: {
           projectInfo: {
             projectId: dbSession.projectId || undefined,
@@ -151,7 +178,7 @@ export class ConversationStorageAdapter implements IConversationStorage {
           taskDescription: (dbSession as any).context?.taskDescription || dbSession.summary || '',
           mode: (dbSession as any).context?.mode || ConversationMode.EDIT,
           messageHistory: [],
-          variables: {},
+          variables: (dbSession as any).context?.variables || {},
         } as ConversationContext,
         createdAt: dbSession.createdAt,
         updatedAt: dbSession.updatedAt,
@@ -159,7 +186,6 @@ export class ConversationStorageAdapter implements IConversationStorage {
         error: dbSession.error || undefined,
         title: dbSession.title || '',
       }));
-
       return sessions;
     } catch (error) {
       console.error('[ConversationStorageAdapter] listSessions 错误:', error);

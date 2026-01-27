@@ -58,6 +58,14 @@ export class LocalExecutor {
         }
       };
 
+      // 验证工作目录是否存在
+      if (workDir) {
+        const fs = require('fs');
+        if (!fs.existsSync(workDir)) {
+          throw new Error(`工作目录不存在: ${workDir}`);
+        }
+      }
+
       // console.log('[LocalExecutor] IFLOW_API_KEY 已传递:', !!options.env.IFLOW_API_KEY);
 
       const { stdout, stderr } = await execAsync(command, options);
@@ -111,6 +119,18 @@ export class LocalExecutor {
           IFLOW_API_KEY: process.env.IFLOW_API_KEY,
         }
       };
+
+      // 验证工作目录是否存在
+      if (workDir) {
+        const fs = require('fs');
+        if (!fs.existsSync(workDir)) {
+          return {
+            stdout: '',
+            stderr: `工作目录不存在: ${workDir}`,
+            exitCode: 1,
+          };
+        }
+      }
 
       // console.log('[LocalExecutor] IFLOW_API_KEY 已传递:', !!options.env.IFLOW_API_KEY);
 

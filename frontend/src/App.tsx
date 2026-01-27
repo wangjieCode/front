@@ -12,6 +12,8 @@ import {
   FolderOpenOutlined,
   EditOutlined,
   ReadOutlined,
+  LockOutlined,
+  GlobalOutlined,
 } from '@ant-design/icons';
 import IntroPage from './pages/IntroPage';
 import ConversationView from './components/ConversationView';
@@ -19,7 +21,7 @@ import LoginModal from './components/LoginModal';
 import ProjectsPage from './pages/ProjectsPage';
 import { conversationService, setLoginModalCallback } from './services/conversationService';
 import { setLoginModalCallback as setProjectLoginModalCallback } from './services/projectService';
-import { ConversationMode } from './types/conversation';
+import { ConversationMode, ConversationVisibility } from './types/conversation';
 import { authUtils } from './utils/auth';
 import './App.css';
 
@@ -35,15 +37,21 @@ const ChatRoute: React.FC<{
   onNewConversation: (prompt: string, mode: ConversationMode, projectId: string) => Promise<void>;
   mode: ConversationMode;
   onModeChange: (mode: ConversationMode) => void;
-}> = ({ onNewConversation, mode, onModeChange }) => {
+  onVisibilityChange: (sessionId: string, visibility: ConversationVisibility) => void;
+}> = ({ onNewConversation, mode, onModeChange, onVisibilityChange }) => {
   const { sessionId } = useParams();
   const { state } = useLocation();
 
   return (
     <ConversationView
+      key={sessionId}
       sessionId={sessionId}
       initialSession={state?.session}
+      initialPrompt={state?.initialPrompt }
+      autoSend={state?.autoSend}
+      initialContent={state?.initialContent}
       onNewConversation={onNewConversation}
+      onVisibilityChange={onVisibilityChange}
       mode={mode}
       onModeChange={onModeChange}
     />
@@ -132,8 +140,6 @@ const AppContent: React.FC = () => {
     }
 
     try {
-      console.log('创建对话 - projectId:', projectId); // 调试日志
-
       const response = await conversationService.createConversation({
         initialPrompt: promptText,
         projectId: projectId,
@@ -143,8 +149,15 @@ const AppContent: React.FC = () => {
       if (response.success) {
         // 刷新列表
         loadConversations();
-        // 跳转到新会话，通过 state 传递初始会话数据，避免前端再次请求可能出现的竞态条件
-        navigate(`/chat/${response.data.id}`, { state: { session: response.data } });
+        // 跳转到新会话，通过 state 传递初始会话数据和自动发送标记
+        navigate(`/chat/${response.data.id}`, { 
+          state: { 
+            session: response.data,
+            autoSend: true,
+            initialContent: promptText,
+            initialPrompt: promptText
+          } 
+        });
       }
     } catch (error) {
       console.error('创建对话失败:', error);
@@ -155,7 +168,7 @@ const AppContent: React.FC = () => {
   // 点击历史对话
   const handleConversationClick = (conversation: any) => {
     setMode(conversation.mode);
-    navigate(`/chat/${conversation.id}`);
+    navigate(`/chat/${conversation.id}`, { state: { session: conversation } });
   };
 
   // 新建对话
@@ -181,6 +194,16 @@ const AppContent: React.FC = () => {
     setIsLoggedIn(false);
     setCurrentUser(null);
     message.success('已退出登录');
+  };
+
+  const handleVisibilityChange = (sessionId: string, visibility: ConversationVisibility) => {
+    setConversations(prev =>
+      prev.map(conv =>
+        conv.id === sessionId
+          ? { ...conv, visibility }
+          : conv
+      )
+    );
   };
 
   // 取消登录
@@ -280,6 +303,11 @@ const AppContent: React.FC = () => {
 
                     <div className="conversation-content">
                       <div className="conversation-title" title={conv.title || conv.overview || conv.context?.taskDescription || '新对话'}>
+                        {conv.visibility === ConversationVisibility.PUBLIC ? (
+                          <GlobalOutlined style={{ marginRight: 6, color: '#52c41a' }} />
+                        ) : (
+                          <LockOutlined style={{ marginRight: 6, color: '#999' }} />
+                        )}
                         {conv.title || conv.overview || conv.context?.taskDescription || '新对话'}
                       </div>
 
@@ -290,7 +318,9 @@ const AppContent: React.FC = () => {
                             <span>{projectName}</span>
                           </div>
                         )}
-                        <span className="date-text">{dateStr}</span>
+                        <div style={{ marginTop: 4, display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <span className="date-text">{dateStr}</span>
+                        </div>
                       </div>
                     </div>
 
@@ -341,6 +371,8 @@ const AppContent: React.FC = () => {
             />
           )}
         </div>
+
+
       </Layout.Sider>
 
       <Layout style={{ marginLeft: 300, background: '#f5f5f5', height: '100vh', overflow: 'hidden' }}>
@@ -464,6 +496,7 @@ const AppContent: React.FC = () => {
                 onNewConversation={handleSubmit}
                 mode={mode}
                 onModeChange={setMode}
+                onVisibilityChange={handleVisibilityChange}
               />
             } />
             <Route path="/" element={
@@ -471,6 +504,7 @@ const AppContent: React.FC = () => {
                 onNewConversation={handleSubmit}
                 mode={mode}
                 onModeChange={setMode}
+                onVisibilityChange={handleVisibilityChange}
               />
             } />
           </Routes>

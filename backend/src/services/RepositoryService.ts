@@ -1,5 +1,6 @@
 import { GitService } from './GitService';
 import { ICommandExecutor } from '../types';
+import dayjs from 'dayjs';
 import {
   ValidationResult,
   CloneResult,
@@ -258,7 +259,7 @@ export class RepositoryService {
           hash,
           message,
           author,
-          date: new Date(date),
+          date: dayjs(date).toDate(),
         };
       }
 

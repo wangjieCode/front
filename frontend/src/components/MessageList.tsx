@@ -9,7 +9,6 @@ import {
   ThunderboltOutlined,
   CheckCircleOutlined,
 } from '@ant-design/icons';
-import ReactMarkdown from 'react-markdown';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import {
@@ -19,6 +18,7 @@ import {
   ParsedContent,
 } from '../types/conversation';
 import { parseNeovateStreamJsonStructured, isStreamJsonFormat } from '../utils/neovateParser';
+import { TypewriterText } from './TypewriterText';
 
 const { Panel } = Collapse;
 
@@ -35,9 +35,6 @@ const MessageList: React.FC<MessageListProps> = ({
   messages,
   onMessageClick,
 }) => {
-  // 打字机效果状态：messageId -> 当前显示的字符数
-  const [typingProgress, setTypingProgress] = React.useState<Map<string, number>>(new Map());
-
   // 添加打字机光标动画样式
   React.useEffect(() => {
     const style = document.createElement('style');
@@ -53,54 +50,6 @@ const MessageList: React.FC<MessageListProps> = ({
       document.head.removeChild(style);
     };
   }, []);
-
-  // 打字机效果
-  React.useEffect(() => {
-    const intervals: ReturnType<typeof setInterval>[] = [];
-
-    messages.forEach(message => {
-      // 只对流式 AI 消息应用打字机效果
-      if (message.role === MessageRole.ASSISTANT && (message as any).isStreaming) {
-        const fullText = extractTextContent(message);
-        const currentProgress = typingProgress.get(message.id) || 0;
-
-        if (currentProgress < fullText.length) {
-          const interval = setInterval(() => {
-            setTypingProgress(prev => {
-              const newMap = new Map(prev);
-              const current = newMap.get(message.id) || 0;
-              
-              if (current < fullText.length) {
-                // 每次增加 2-5 个字符，模拟打字速度
-                newMap.set(message.id, Math.min(current + Math.floor(Math.random() * 3) + 2, fullText.length));
-              }
-              
-              return newMap;
-            });
-          }, 30); // 30ms 间隔
-
-          intervals.push(interval);
-        }
-      }
-    });
-
-    return () => {
-      intervals.forEach(interval => clearInterval(interval));
-    };
-  }, [messages, typingProgress]);
-
-  // 清理已完成消息的打字机状态
-  React.useEffect(() => {
-    setTypingProgress(prev => {
-      const newMap = new Map(prev);
-      messages.forEach(message => {
-        if (!(message as any).isStreaming) {
-          newMap.delete(message.id);
-        }
-      });
-      return newMap;
-    });
-  }, [messages]);
 
   /**
    * 获取代码变更图标
@@ -369,16 +318,13 @@ const MessageList: React.FC<MessageListProps> = ({
     const isUser = message.role === MessageRole.USER;
     const isSystem = message.role === MessageRole.SYSTEM;
 
+
     // 提取文本内容
     let displayContent = !isUser && !isSystem
       ? extractTextContent(message)
       : message.content;
 
-    // 应用打字机效果
-    if (!isUser && !isSystem && (message as any).isStreaming) {
-      const progress = typingProgress.get(message.id) || 0;
-      displayContent = displayContent.substring(0, progress);
-    }
+
 
     // 获取结构化内容（工具调用和结果）
     const structuredContents = !isUser && !isSystem
@@ -441,77 +387,14 @@ const MessageList: React.FC<MessageListProps> = ({
             {!isUser && !isSystem && !displayContent && structuredContents.length === 0 ? (
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#999' }}>
                 <Spin size="small" />
-                <span>思考中...</span>
+                <span>AI 正在处理您的消息...</span>
               </div>
             ) : displayContent ? (
-              <>
-                <ReactMarkdown
-                  components={{
-                    code({ className, children }: any) {
-                      const match = /language-(\w+)/.exec(className || '');
-                      const inline = !match;
-                      return !inline && match ? (
-                        <SyntaxHighlighter
-                          style={vscDarkPlus as any}
-                          language={match[1]}
-                          PreTag="div"
-                          customStyle={{
-                            margin: '12px 0',
-                            borderRadius: 8,
-                            fontSize: 13,
-                            border: '1px solid rgba(0,0,0,0.05)',
-                          }}
-                        >
-                          {String(children).replace(/\n$/, '')}
-                        </SyntaxHighlighter>
-                      ) : (
-                        <code
-                          className={className}
-                          style={{
-                            background: isUser ? 'rgba(255,255,255,0.2)' : '#ebebeb',
-                            color: isUser ? '#fff' : '#c7254e',
-                            padding: '2px 6px',
-                            borderRadius: 4,
-                            fontSize: 13,
-                            fontFamily: 'monospace'
-                          }}
-                        >
-                          {children}
-                        </code>
-                      );
-                    },
-                    p({ children }: any) {
-                      return <p style={{ margin: '0 0 8px 0', lineHeight: 1.6 }}>{children}</p>;
-                    },
-                    ul({ children }: any) {
-                      return <ul style={{ margin: '8px 0', paddingLeft: 24 }}>{children}</ul>;
-                    },
-                    ol({ children }: any) {
-                      return <ol style={{ margin: '8px 0', paddingLeft: 24 }}>{children}</ol>;
-                    },
-                    a({ href, children }: any) {
-                      return <a href={href} style={{ color: isUser ? '#fff' : '#7c5cff', textDecoration: 'underline' }} target="_blank" rel="noopener noreferrer">{children}</a>;
-                    },
-                  }}
-                >
-                  {displayContent}
-                </ReactMarkdown>
-                
-                {/* 流式消息的打字机效果指示器 */}
-                {(message as any).isStreaming && (
-                  <span 
-                    style={{ 
-                      display: 'inline-block',
-                      width: '8px',
-                      height: '16px',
-                      backgroundColor: '#7c5cff',
-                      marginLeft: '2px',
-                      animation: 'blink 1s infinite',
-                      verticalAlign: 'text-bottom'
-                    }}
-                  />
-                )}
-              </>
+              <TypewriterText
+                text={displayContent}
+                isStreaming={(message as any).isStreaming || false}
+                isUser={isUser}
+              />
             ) : null}
           </div>
 

@@ -1,6 +1,7 @@
 import { ConversationManager } from '../services/ConversationManager';
 import { MessageRouter } from '../services/MessageRouter';
 import { ConversationStatus } from '../types';
+import dayjs from 'dayjs';
 
 /**
  * 超时配置
@@ -239,7 +240,7 @@ export class ErrorRecoveryStrategy {
     console.error(`[${context}] 错误:`, {
       message: error.message,
       stack: error.stack,
-      timestamp: new Date().toISOString(),
+      timestamp: dayjs().toISOString(),
     });
   }
 }

@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
+import dayjs from 'dayjs';
 
 /**
  * 错误处理中间件
@@ -25,10 +26,10 @@ export function requestLogger(
   res: Response,
   next: NextFunction
 ): void {
-  const start = Date.now();
+  const start = dayjs().valueOf();
 
   res.on('finish', () => {
-    const duration = Date.now() - start;
+    const duration = dayjs().valueOf() - start;
     console.log(
       `${req.method} ${req.path} ${res.statusCode} - ${duration}ms`
     );
