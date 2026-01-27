@@ -2,11 +2,11 @@
   "name": "web-frontend-intern-assistant-backend",
   "version": "1.0.0",
   "description": "Web 前端实习生助手系统 - 后端服务",
-  "main": "dist/index.js",
+  "main": "src/index.ts",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "tsc",
-    "start": "node dist/index.js",
+    "build": "tsx src/index.ts",
+    "start": "tsx src/index.ts",
     "test": "jest",
     "test:watch": "jest --watch",
     "check-config": "tsx scripts/check-config.ts",
@@ -31,7 +31,9 @@
     "docker:clean": "tsx scripts/clean-containers.ts",
     "docker:ssh": "tsx scripts/test-ssh-docker.ts",
     "docker:tunnel": "tsx scripts/ssh-tunnel-docker.ts",
-    "docker:ssh-exec": "tsx scripts/ssh-docker-exec.ts"
+    "docker:ssh-exec": "tsx scripts/ssh-docker-exec.ts",
+    "init:projects": "tsx scripts/init-projects.ts",
+    "init:projects:dry-run": "tsx scripts/init-projects.ts --dry-run"
   },
   "keywords": [
     "frontend",
@@ -43,6 +45,7 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
+    "dayjs": "^1.11.19",
     "dockerode": "^4.0.9",
     "dotenv": "^16.3.1",
     "drizzle-orm": "^0.44.7",
@@ -51,6 +54,7 @@
     "postgres": "^3.4.7",
     "ssh2": "^1.15.0",
     "uuid": "^9.0.1",
+    "uuidv7": "^1.1.0",
     "ws": "^8.14.2"
   },
   "devDependencies": {

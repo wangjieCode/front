@@ -1,9 +1,10 @@
-import { Router, Request, Response } from 'express';
+import { Router, Response } from 'express';
 import { ConversationManager } from '../services/ConversationManager';
 import { MessageRouter } from '../services/MessageRouter';
 import { ConversationAIService } from '../services/ConversationAIService';
-import { ConversationStatus } from '../types';
+import { ConversationStatus, ConversationVisibility } from '../types';
 import { requireAuth, AuthRequest } from './authMiddleware';
+import dayjs from 'dayjs';
 
 /**
  * 创建对话路由
@@ -16,6 +17,14 @@ export function createConversationRoutes(
   // 获取 ConversationManager 中的 ProjectService 实例
   const projectService = (conversationManager as any).projectService;
   const router = Router();
+  const isCreator = (session: any, userId?: string) => {
+    if (!userId) return false;
+    return session.userId === userId;
+  };
+  const canReadSession = (session: any, userId?: string) => {
+    if (session.visibility === ConversationVisibility.PUBLIC) return true;
+    return isCreator(session, userId);
+  };
 
   /**
    * POST /api/conversations
@@ -48,9 +57,7 @@ export function createConversationRoutes(
       let project;
       // 验证项目是否存在
       try {
-        // console.log('[API] 验证项目:', projectId, '用户:', req.userId);
         const projectResult = await projectService.getProject(projectId, req.userId!);
-        // console.log('[API] 项目验证结果:', projectResult);
         if (!projectResult.success || !projectResult.project) {
           return res.status(404).json({
             success: false,
@@ -60,24 +67,23 @@ export function createConversationRoutes(
         project = projectResult.project;
       } catch (error) {
         console.error('[API] 验证项目失败:', error);
-        console.error('[API] 错误堆栈:', error instanceof Error ? error.stack : error);
         return res.status(500).json({
           success: false,
           error: `验证项目失败: ${error instanceof Error ? error.message : String(error)}`,
         });
       }
 
-      // 构建完整的 projectInfo，传递给 ConversationManager 以减少数据库查询
+      // 构建完整的 projectInfo
       const projectInfo = {
         projectId,
         projectName: project.name,
         gitRepositoryUrl: project.gitRepositoryUrl,
         workDir: project.workDirectory || project.repoDir,
         gitBranch: project.gitBranch || 'master',
-        relevantFiles: [], // 初始化为空数组
+        relevantFiles: [],
       };
 
-      // 验证 mode 参数（如果提供）
+      // 验证 mode 参数
       if (mode && mode !== 'edit' && mode !== 'readonly') {
         return res.status(400).json({
           success: false,
@@ -92,51 +98,12 @@ export function createConversationRoutes(
         req.userId!
       );
 
-      // 发送第一条用户消息并生成AI回复
-      try {
-        console.log('[API] 发送第一条用户消息:', initialPrompt.substring(0, 50) + '...');
-        await messageRouter.handleUserMessage(session.id, initialPrompt);
-        console.log('[API] 第一条用户消息发送成功');
+      
+      res.status(201).json({
+        success: true,
+        data: session,
+      });
 
-        // 立即生成AI回复
-        console.log('[API] 开始生成AI回复...');
-        await conversationManager.updateSessionStatus(session.id, ConversationStatus.EXECUTING);
-
-        const updatedSession = await conversationManager.getSession(session.id);
-        if (updatedSession) {
-          const aiResponse = await aiService.generateResponse(
-            updatedSession.context,
-            initialPrompt,
-            session.id
-          );
-
-          // 直接保存原始内容，不解析
-          await messageRouter.handleAIResponse(session.id, aiResponse);
-          await conversationManager.updateSessionStatus(session.id, ConversationStatus.COMPLETED);
-        }
-
-        // 获取最新的会话数据（包含刚生成的消息）
-        const finalSession = await conversationManager.getSession(session.id);
-
-        res.status(201).json({
-          success: true,
-          data: finalSession || session,
-        });
-      } catch (messageError) {
-        console.error('[API] 发送第一条消息或生成AI回复失败:', messageError);
-        await conversationManager.updateSessionStatus(
-          session.id,
-          ConversationStatus.FAILED,
-          messageError instanceof Error ? messageError.message : String(messageError)
-        );
-        // 即使失败也返回会话，但状态是 FAILED
-        // 获取最新的会话数据
-        const finalSession = await conversationManager.getSession(session.id);
-        res.status(201).json({
-          success: true,
-          data: finalSession || session,
-        });
-      }
     } catch (error) {
       res.status(500).json({
         success: false,
@@ -146,18 +113,16 @@ export function createConversationRoutes(
   });
 
   /**
-   * GET /api/conversations
-   * 获取所有对话会话列表（简化版）
-   */
+    * GET /api/conversations
+    * 获取所有对话会话列表（根据用户权限过滤）
+    */
   router.get('/', requireAuth, async (req: AuthRequest, res: Response) => {
     try {
-      const sessions = await conversationManager.listSessions();
-      // 转换为简化版响应
+      const userId = req.userId!;
+      const sessions = await conversationManager.listSessions(userId);
       const simplifiedSessions = sessions.map(session => {
-        // 使用 taskDescription 作为对话概览
         const overview = session.context.taskDescription;
 
-        // 确保项目信息正确
         const projectInfo = {
           projectId: session.context.projectInfo.projectId,
           projectName: session.context.projectInfo.projectName,
@@ -172,6 +137,7 @@ export function createConversationRoutes(
           mode: session.context.mode,
           overview: overview,
           status: session.status,
+          visibility: session.visibility,
           createdAt: session.createdAt,
           updatedAt: session.updatedAt,
         };
@@ -206,6 +172,13 @@ export function createConversationRoutes(
         });
       }
 
+      if (!canReadSession(session, req.userId)) {
+        return res.status(403).json({
+          success: false,
+          error: '无权访问该会话',
+        });
+      }
+
       res.json({
         success: true,
         data: session,
@@ -226,7 +199,6 @@ export function createConversationRoutes(
     try {
       const { sessionId } = req.params;
 
-      // 验证会话是否存在
       const session = await conversationManager.getSession(sessionId);
       if (!session) {
         return res.status(404).json({
@@ -235,7 +207,13 @@ export function createConversationRoutes(
         });
       }
 
-      // 获取消息历史
+      if (!canReadSession(session, req.userId)) {
+        return res.status(403).json({
+          success: false,
+          error: '无权访问该会话',
+        });
+      }
+
       const messages = await conversationManager.getMessageHistory(sessionId);
 
       res.json({
@@ -254,8 +232,8 @@ export function createConversationRoutes(
    * POST /api/conversations/:sessionId/messages
    * 发送用户消息（SSE 流式响应）
    */
-  router.post('/:sessionId/messages', async (req: Request, res: Response) => {
-    const startTime = Date.now();
+  router.post('/:sessionId/messages', requireAuth, async (req: AuthRequest, res: Response) => {
+    const startTime = dayjs().valueOf();
     console.log(`[conversationRoutes] ========== 开始处理消息 ==========`);
 
     try {
@@ -271,10 +249,9 @@ export function createConversationRoutes(
         });
       }
 
-      // 步骤1: 获取会话
-      const step1Start = Date.now();
+      const step1Start = dayjs().valueOf();
       const session = await conversationManager.getSession(sessionId);
-      const step1Time = Date.now() - step1Start;
+      const step1Time = dayjs().valueOf() - step1Start;
       console.log(`[conversationRoutes] 步骤1: 获取会话完成，耗时 ${step1Time}ms`);
 
       if (!session) {
@@ -284,8 +261,22 @@ export function createConversationRoutes(
         });
       }
 
-      // 步骤2: 设置 SSE 响应头
-      const step2Start = Date.now();
+      if (!isCreator(session, req.userId)) {
+        return res.status(403).json({
+          success: false,
+          error: '只有创建者可以发送消息',
+        });
+      }
+
+      // 检查会话是否已归档
+      if (session.status === ConversationStatus.ARCHIVED) {
+        return res.status(403).json({
+          success: false,
+          error: '已归档的对话不能发送消息',
+        });
+      }
+
+      const step2Start = dayjs().valueOf();
       res.setHeader('Content-Type', 'text/event-stream');
       res.setHeader('Cache-Control', 'no-cache');
       res.setHeader('Connection', 'keep-alive');
@@ -293,26 +284,22 @@ export function createConversationRoutes(
 
       res.write(`data: ${JSON.stringify({ type: 'user_message', content })}\n\n`);
       res.write(`data: ${JSON.stringify({ type: 'thinking', message: 'AI 正在思考中...' })}\n\n`);
-      const step2Time = Date.now() - step2Start;
+      const step2Time = dayjs().valueOf() - step2Start;
       console.log(`[conversationRoutes] 步骤2: SSE 响应头设置完成，耗时 ${step2Time}ms`);
 
-      // 步骤3: 异步处理用户消息和AI响应
-      const step3Start = Date.now();
+      const step3Start = dayjs().valueOf();
       console.log(`[conversationRoutes] 步骤3: 开始异步处理...`);
 
-      // 异步处理
       (async () => {
         try {
-          // 3a: 异步保存用户消息（不阻塞）
-          const step3aStart = Date.now();
+          const step3aStart = dayjs().valueOf();
           messageRouter.handleUserMessage(sessionId, content, session, true).catch(error => {
             console.error(`[conversationRoutes] 异步保存用户消息失败:`, error);
           });
-          const step3aTime = Date.now() - step3aStart;
+          const step3aTime = dayjs().valueOf() - step3aStart;
           console.log(`[conversationRoutes] 步骤3a: 用户消息异步保存启动，耗时 ${step3aTime}ms`);
 
-          // 3b: 流式生成 AI 响应
-          const step3bStart = Date.now();
+          const step3bStart = dayjs().valueOf();
           console.log(`[conversationRoutes] 步骤3b: 开始流式生成 AI 响应...`);
 
           let fullContent = '';
@@ -322,16 +309,14 @@ export function createConversationRoutes(
             content,
             sessionId,
             (chunk: string) => {
-              // 实时发送数据块到前端
               fullContent += chunk;
               res.write(`data: ${JSON.stringify({ type: 'chunk', content: chunk })}\n\n`);
             }
           );
 
-          const step3bTime = Date.now() - step3bStart;
+          const step3bTime = dayjs().valueOf() - step3bStart;
           console.log(`[conversationRoutes] 步骤3b: AI 响应生成完成，耗时 ${step3bTime}ms`);
 
-          // 3c: 异步保存 AI 响应
           const parsedAiResponse = {
             ...aiResponse,
             content: fullContent || aiResponse.content
@@ -347,16 +332,16 @@ export function createConversationRoutes(
           res.write(`data: ${JSON.stringify({ type: 'error', message: '处理失败' })}\n\n`);
         } finally {
           res.end();
-          const totalTime = Date.now() - startTime;
+          const totalTime = dayjs().valueOf() - startTime;
           console.log(`[conversationRoutes] ========== 消息处理完成，总耗时: ${totalTime}ms ==========`);
         }
       })();
 
-      const step3Time = Date.now() - step3Start;
+      const step3Time = dayjs().valueOf() - step3Start;
       console.log(`[conversationRoutes] 步骤3: 异步处理启动完成，耗时 ${step3Time}ms`);
 
     } catch (error) {
-      const totalTime = Date.now() - startTime;
+      const totalTime = dayjs().valueOf() - startTime;
       console.error(`[conversationRoutes] 消息处理失败，总耗时: ${totalTime}ms:`, error);
       res.status(500).json({
         success: false,
@@ -373,7 +358,6 @@ export function createConversationRoutes(
     try {
       const { sessionId } = req.params;
 
-      // 验证会话是否存在
       const session = await conversationManager.getSession(sessionId);
       if (!session) {
         return res.status(404).json({
@@ -382,15 +366,13 @@ export function createConversationRoutes(
         });
       }
 
-      // 验证用户权限（只有会话创建者可以删除）
-      if (session.userId !== req.userId) {
+      if (!isCreator(session, req.userId)) {
         return res.status(403).json({
           success: false,
-          error: '无权限删除该会话',
+          error: '只有创建者可以删除对话',
         });
       }
 
-      // 删除会话
       await conversationManager.deleteSession(sessionId);
 
       res.json({
@@ -412,9 +394,22 @@ export function createConversationRoutes(
   router.post('/:sessionId/merge-request', requireAuth, async (req: AuthRequest, res: Response) => {
     try {
       const { sessionId } = req.params;
-      const { targetBranch } = req.body;
+      const session = await conversationManager.getSession(sessionId);
+      if (!session) {
+        return res.status(404).json({
+          success: false,
+          error: '会话不存在',
+        });
+      }
 
-      const result = await conversationManager.createMergeRequest(sessionId, targetBranch);
+      if (!isCreator(session, req.userId)) {
+        return res.status(403).json({
+          success: false,
+          error: '只有创建者可以创建 Merge Request',
+        });
+      }
+
+      const result = await conversationManager.createMergeRequest(sessionId);
 
       if (result.success) {
         res.json({
@@ -436,6 +431,97 @@ export function createConversationRoutes(
       });
     }
   });
+
+   /**
+    * POST /api/conversations/:sessionId/archive
+    * 归档对话（禁用所有编辑功能，便于清理 worktree）
+    */
+  router.post('/:sessionId/archive', requireAuth, async (req: AuthRequest, res: Response) => {
+    try {
+      const { sessionId } = req.params;
+      const { reason } = req.body;
+
+      const session = await conversationManager.getSession(sessionId);
+      if (!session) {
+        return res.status(404).json({
+          success: false,
+          error: '会话不存在',
+        });
+      }
+
+      if (!isCreator(session, req.userId)) {
+        return res.status(403).json({
+          success: false,
+          error: '只有创建者可以归档对话',
+        });
+      }
+
+      await conversationManager.updateSessionStatus(
+        sessionId,
+        ConversationStatus.ARCHIVED,
+        reason || '用户手动归档'
+      );
+
+      res.json({
+        success: true,
+        message: '对话已归档',
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : '归档对话失败',
+      });
+    }
+  });
+
+  /**
+   * PATCH /api/conversations/:sessionId/visibility
+   * 更新对话可见性（仅创建者可操作）
+   */
+  router.patch('/:sessionId/visibility', requireAuth, async (req: AuthRequest, res: Response) => {
+    try {
+      const { sessionId } = req.params;
+      const { visibility } = req.body;
+
+      if (!visibility || (visibility !== 'private' && visibility !== 'public')) {
+        return res.status(400).json({
+          success: false,
+          error: '无效的可见性值，必须是 "private" 或 "public"',
+        });
+      }
+
+      const session = await conversationManager.getSession(sessionId);
+      if (!session) {
+        return res.status(404).json({
+          success: false,
+          error: '会话不存在',
+        });
+      }
+
+      // 验证是否是创建者
+      if (!isCreator(session, req.userId)) {
+        return res.status(403).json({
+          success: false,
+          error: '只有对话创建者才能修改可见性',
+        });
+      }
+
+      // 更新存储中的可见性
+      await conversationManager.updateVisibility(sessionId, visibility);
+
+      res.json({
+        success: true,
+        message: '可见性已更新',
+        data: { visibility },
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : '更新可见性失败',
+      });
+    }
+  });
+
 
   return router;
 }

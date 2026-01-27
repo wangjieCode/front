@@ -1,0 +1,18 @@
+{
+  "name": "front-intern-deploy",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "deploy:server": "zx ./deploy.mjs",
+    "logs": "sshpass -p admin ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null admin@192.168.66.30 \"bash -l -c 'export PATH=\\\"/Users/admin/Library/pnpm:\\$PATH\\\" && pm2 logs front-intern-backend'\"",
+    "logs:view": "sshpass -p admin ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null admin@192.168.66.30 \"bash -l -c 'export PATH=\\\"/Users/admin/Library/pnpm:\\$PATH\\\" && pm2 logs front-intern-backend --lines 100 --nostream'\"",
+    "logs:error": "sshpass -p admin ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null admin@192.168.66.30 \"bash -l -c 'export PATH=\\\"/Users/admin/Library/pnpm:\\$PATH\\\" && pm2 logs front-intern-backend --err --lines 50 --nostream'\"",
+    "status": "sshpass -p admin ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null admin@192.168.66.30 \"bash -l -c 'export PATH=\\\"/Users/admin/Library/pnpm:\\$PATH\\\" && pm2 list'\"",
+    "restart": "sshpass -p admin ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null admin@192.168.66.30 \"bash -l -c 'export PATH=\\\"/Users/admin/Library/pnpm:\\$PATH\\\" && pm2 restart front-intern-backend'\"",
+    "remote:init": "sshpass -p admin ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null admin@192.168.66.30 \"bash -l -c 'cd /Users/admin/Desktop/front-workspace/backend && export PATH=\\\"/Users/admin/.local/share/fnm/node-versions/v20.19.6/installation/bin:\\$PATH\\\" && pnpm init:projects'\"",
+    "remote:init:dry-run": "sshpass -p admin ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null admin@192.168.66.30 \"bash -l -c 'cd /Users/admin/Desktop/front-workspace/backend && export PATH=\\\"/Users/admin/.local/share/fnm/node-versions/v20.19.6/installation/bin:\\$PATH\\\" && pnpm init:projects:dry-run'\""
+  },
+  "devDependencies": {
+    "zx": "^8.1.0"
+  }
+}

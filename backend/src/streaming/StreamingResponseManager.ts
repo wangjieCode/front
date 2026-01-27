@@ -1,5 +1,6 @@
 import { Response } from 'express';
 import { SSEEvent, SSEEventType, StreamingMessageState, SSEConnectionConfig } from './types';
+import dayjs from 'dayjs';
 
 /**
  * 流式响应管理器（基于 SSE）
@@ -40,7 +41,7 @@ export class StreamingResponseManager {
       sessionId,
       content: '',
       isComplete: false,
-      lastUpdateAt: new Date(),
+      lastUpdateAt: dayjs().toDate(),
     });
 
     // 启动心跳
@@ -60,14 +61,14 @@ export class StreamingResponseManager {
 
     // 更新状态
     state.content += chunk;
-    state.lastUpdateAt = new Date();
+    state.lastUpdateAt = dayjs().toDate();
 
     // 发送内容片段事件
     this.sendSSEEvent(messageId, {
       type: SSEEventType.CHUNK,
       messageId,
       data: chunk,
-      timestamp: Date.now(),
+      timestamp: dayjs().valueOf(),
     });
   }
 
@@ -83,13 +84,13 @@ export class StreamingResponseManager {
 
     // 更新状态
     state.isComplete = true;
-    state.lastUpdateAt = new Date();
+    state.lastUpdateAt = dayjs().toDate();
 
     // 发送完成事件
     this.sendSSEEvent(messageId, {
       type: SSEEventType.COMPLETE,
       messageId,
-      timestamp: Date.now(),
+      timestamp: dayjs().valueOf(),
     });
 
     // 清理资源
@@ -112,7 +113,7 @@ export class StreamingResponseManager {
       type: SSEEventType.ERROR,
       messageId,
       data: reason || 'Stream aborted',
-      timestamp: Date.now(),
+      timestamp: dayjs().valueOf(),
     });
 
     // 清理资源
@@ -163,7 +164,7 @@ export class StreamingResponseManager {
     this.sendSSEEvent(messageId, {
       type: SSEEventType.HEARTBEAT,
       messageId,
-      timestamp: Date.now(),
+      timestamp: dayjs().valueOf(),
     });
   }
 
@@ -179,8 +180,8 @@ export class StreamingResponseManager {
       }
 
       // 检查是否超时
-      const now = Date.now();
-      const lastUpdate = state.lastUpdateAt.getTime();
+      const now = dayjs().valueOf();
+      const lastUpdate = dayjs(state.lastUpdateAt).valueOf();
       if (now - lastUpdate > this.config.connectionTimeout) {
         console.warn(`Stream timeout for message ${messageId}`);
         this.abortStream(messageId, 'Connection timeout');

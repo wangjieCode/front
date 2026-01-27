@@ -11,6 +11,10 @@ import {
   type Message,
   type NewMessage,
 } from '../db/schema';
+import { newId } from '../utils/id';
+import dayjs from 'dayjs';
+import { convertToProjectRelativePath, resolveProjectRelativePath } from '../utils/PathUtils';
+import path from 'path';
 
 /**
  * 分页选项
@@ -80,15 +84,13 @@ export class DrizzleConversationStorage {
     // 1. 构建对话数据
     const conversationData = {
       id: session.id,
-      sessionId: session.sessionId || session.id, // 确保有 sessionId
-      taskId: session.taskId,
       userId: session.userId,
       projectId: session.projectId || session.context?.projectInfo?.projectId,
       status: session.status,
+      visibility: session.visibility || 'private',
       title: session.title,
       summary: session.summary,
       projectName: session.projectName || session.context?.projectInfo?.projectName,
-      createdAt: session.createdAt,
       updatedAt: session.updatedAt,
       completedAt: session.completedAt,
       error: session.error,
@@ -103,18 +105,19 @@ export class DrizzleConversationStorage {
 
     if (existing.length > 0) {
       // 更新现有会话
-      await db
-        .update(conversations)
+       await db
+       .update(conversations)
         .set({
           status: conversationData.status,
+          visibility: conversationData.visibility,
           title: conversationData.title,
           summary: conversationData.summary,
-          projectId: conversationData.projectId,
-          projectName: conversationData.projectName,
-          updatedAt: conversationData.updatedAt,
-          completedAt: conversationData.completedAt,
-          error: conversationData.error,
-        })
+           projectId: conversationData.projectId,
+           projectName: conversationData.projectName,
+           updatedAt: conversationData.updatedAt,
+           completedAt: conversationData.completedAt,
+           error: conversationData.error,
+         })
         .where(eq(conversations.id, session.id));
     } else {
       // 插入新会话
@@ -199,7 +202,7 @@ export class DrizzleConversationStorage {
     const result = await db
       .select()
       .from(conversations)
-      .where(eq(conversations.sessionId, agentSessionId))
+      .where(eq(conversations.id, agentSessionId))
       .limit(1);
 
     const session = result[0] || null;
@@ -213,49 +216,57 @@ export class DrizzleConversationStorage {
     return session;
   }
 
-  /**
-   * 列出所有会话（优化版，包含项目名称和第一条消息）
-   */
-  async listSessions(): Promise<Conversation[]> {
-    // 检查缓存
-    const cached = this.getCached<Conversation[]>('sessions:list');
-    if (cached) {
-      return cached;
-    }
-
+   /**
+    * 列出所有会话
+    */
+  async listSessions(): Promise<any[]> {
     const db = this.getDb();
 
-    // 直接查询 conversations 表，并关联 projects 表获取最新的项目名称，以及 conversationContexts 获取 mode 和其他必要信息
     const results = await db
       .select({
-        conversation: conversations,
+        id: conversations.id,
+        userId: conversations.userId,
+        visibility: conversations.visibility,
+        status: conversations.status,
+        title: conversations.title,
+        projectId: conversations.projectId,
+        projectName: conversations.projectName,
+        createdAt: conversations.createdAt,
+        updatedAt: conversations.updatedAt,
         projectNameJoined: projects.name,
         mode: conversationContexts.mode,
         taskDescription: conversationContexts.taskDescription,
         workDir: conversationContexts.workDir,
+        variables: conversationContexts.variables,
       })
       .from(conversations)
       .leftJoin(projects, eq(conversations.projectId, projects.id))
       .leftJoin(conversationContexts, eq(conversations.id, conversationContexts.conversationId))
       .orderBy(desc(conversations.createdAt));
 
-    // 使用关联查询的项目名称作为备选，并构造 context 对象包含 mode
-    const sessions = results.map(row => ({
-      ...row.conversation,
-      projectName: row.conversation.projectName || row.projectNameJoined || null,
+    return results.map(row => ({
+      id: row.id,
+      userId: row.userId,
+      visibility: row.visibility || 'private',
+      status: row.status,
+      title: row.title,
+      projectName: row.projectName || row.projectNameJoined || null,
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
       context: {
-        mode: row.mode || 'edit', // Default to edit if missing
-        taskDescription: row.taskDescription,
+        mode: row.mode || 'edit',
+        taskDescription: row.taskDescription || '',
+        variables: row.variables || {}, // 确保变量始终是一个对象
         projectInfo: {
-          workDir: row.workDir
+          workDir: row.workDir || '',
+          projectId: row.projectId || null,
+          projectName: row.projectName || row.projectNameJoined || null,
+          gitRepositoryUrl: '',
+          gitBranch: null,
+          relevantFiles: [],
         }
       }
     }));
-
-    // 缓存结果
-    this.setCache('sessions:list', sessions);
-
-    return sessions;
   }
 
   /**
@@ -268,7 +279,7 @@ export class DrizzleConversationStorage {
       .update(conversations)
       .set({
         ...updates,
-        updatedAt: new Date(),
+        updatedAt: dayjs().toDate(),
       })
       .where(eq(conversations.id, sessionId));
 
@@ -319,9 +330,7 @@ export class DrizzleConversationStorage {
 
     await db.insert(messages).values(message);
 
-    // 清除相关缓存
     this.deleteCache(`messages:${message.conversationId}`);
-    this.deleteCache(`messages:${message.conversationId}:${message.branchId}`);
   }
 
   /**
@@ -430,8 +439,8 @@ export class DrizzleConversationStorage {
 
     // 提取上下文字段
     const contextData = {
-      workDir: context.projectInfo?.workDir || context.workDir,
-      worktreePath: context.projectInfo?.worktreePath || context.worktreePath,
+      workDir: convertToProjectRelativePath(context.projectInfo?.workDir || context.workDir) || '',
+      worktreePath: convertToProjectRelativePath(context.projectInfo?.worktreePath || context.worktreePath),
       gitBranch: context.gitBranch || context.projectInfo?.gitBranch,
       relevantFiles: context.projectInfo?.relevantFiles || context.relevantFiles,
       taskDescription: context.taskDescription,
@@ -455,12 +464,13 @@ export class DrizzleConversationStorage {
         .update(conversationContexts)
         .set({
           ...contextData,
-          updatedAt: new Date(),
+          updatedAt: dayjs().toDate(),
         })
         .where(eq(conversationContexts.conversationId, conversationId));
     } else {
       // 插入新上下文
       await db.insert(conversationContexts).values({
+        id: newId(),
         conversationId,
         ...contextData,
       });
@@ -497,8 +507,8 @@ export class DrizzleConversationStorage {
     // 转换为应用层期望的 ConversationContext 格式
     const context = {
       projectInfo: {
-        workDir: rawContext.workDir,
-        worktreePath: rawContext.worktreePath,
+        workDir: resolveProjectRelativePath(rawContext.workDir),
+        worktreePath: rawContext.worktreePath ? resolveProjectRelativePath(rawContext.worktreePath) : null,
         gitBranch: rawContext.gitBranch,
         relevantFiles: rawContext.relevantFiles || [],
       },
@@ -541,6 +551,7 @@ export class DrizzleConversationStorage {
     } else {
       // 插入新元数据
       await db.insert(messageMetadata).values({
+        id: newId(),
         messageId,
         ...metadata,
       });
