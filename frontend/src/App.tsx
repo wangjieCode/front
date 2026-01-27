@@ -173,7 +173,7 @@ const AppContent: React.FC = () => {
 
   // 新建对话
   const handleNewConversation = () => {
-    setMode(ConversationMode.EDIT); // 重置为默认模式
+    setMode(ConversationMode.READONLY); // 重置为默认模式
     navigate('/');
   };
 

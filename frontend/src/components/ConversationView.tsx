@@ -42,7 +42,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
   initialSession,
   onNewConversation,
   onVisibilityChange,
-  mode = ConversationMode.EDIT,
+  mode = ConversationMode.READONLY,
   onModeChange,
   autoSend,
   initialContent,
@@ -937,7 +937,6 @@ const ConversationView: React.FC<ConversationViewProps> = ({
                             borderRadius: 6,
                             fontWeight: 500,
                             ...buttonProps.style,
-                            marginLeft: 12
                           }}
                         >
                           {buttonProps.text}
