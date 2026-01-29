@@ -95,7 +95,7 @@ export function getGitWorkDir(): string {
     );
   }
   
-  return workDir;
+  return path.resolve(workDir);
 }
 
 /**
@@ -161,5 +161,5 @@ export function getWorktreeBaseDir(workDir: string): string {
   }
   
   // 最终回退到 workDir 的同级目录
-  return worktreeBaseDir || path.resolve(workDir, '..', 'worktrees');
+  return path.resolve(worktreeBaseDir || path.resolve(workDir, '..', 'worktrees'));
 }

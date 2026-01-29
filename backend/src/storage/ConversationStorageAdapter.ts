@@ -228,12 +228,9 @@ export class ConversationStorageAdapter implements IConversationStorage {
    * 加载消息列表
    */
   async loadMessages(sessionId: string): Promise<ConversationMessage[]> {
-    const dbMessages = await this.storage.loadMessages(sessionId);
-    const messages: ConversationMessage[] = [];
-
-    for (const dbMsg of dbMessages) {
-      const dbMetadata = await this.storage.loadMessageMetadata(dbMsg.id);
-
+    const dbMessagesWithMetadata = await this.storage.loadMessagesWithMetadata(sessionId);
+    
+    return dbMessagesWithMetadata.map(dbMsg => {
       const message: ConversationMessage = {
         id: dbMsg.id,
         sessionId: dbMsg.conversationId,
@@ -243,7 +240,8 @@ export class ConversationStorageAdapter implements IConversationStorage {
         parentMessageId: dbMsg.parentMessageId || undefined,
       };
 
-      if (dbMetadata) {
+      if (dbMsg.metadata) {
+        const dbMetadata = dbMsg.metadata;
         message.metadata = {
           toolCalls: dbMetadata.toolCalls || undefined,
           codeChanges: dbMetadata.codeChanges || undefined,
@@ -259,10 +257,8 @@ export class ConversationStorageAdapter implements IConversationStorage {
         };
       }
 
-      messages.push(message);
-    }
-
-    return messages;
+      return message;
+    });
   }
 
   /**

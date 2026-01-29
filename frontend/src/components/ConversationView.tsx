@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { Spin, Typography, Button, Input, message, Modal, Descriptions, Tag, Tooltip } from 'antd';
 import { ThunderboltOutlined, SendOutlined, RocketOutlined, CheckOutlined, WarningOutlined, StopOutlined, GitlabOutlined, ClockCircleOutlined, LinkOutlined, LockOutlined, InboxOutlined, GlobalOutlined } from '@ant-design/icons';
 import ModeSelector from './ModeSelector';
@@ -42,7 +43,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
   initialSession,
   onNewConversation,
   onVisibilityChange,
-  mode = ConversationMode.EDIT,
+  mode = ConversationMode.READONLY,
   onModeChange,
   autoSend,
   initialContent,
@@ -58,6 +59,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const hasAutoSentRef = useRef(false);
+  const suppressInitialLoadRef = useRef(false);
   const currentUserId = authUtils.getUserId();
 
   // New conversation state
@@ -69,6 +71,8 @@ const ConversationView: React.FC<ConversationViewProps> = ({
   const [previewStatus, setPreviewStatus] = useState<PreviewStatus | null>(null);
   const [deploymentInfo, setDeploymentInfo] = useState<any>(null);
   const [showDeploymentModal, setShowDeploymentModal] = useState(false);
+  const navigate = useNavigate();
+  const location = useLocation();
 
   const examplePrompts = [
     '修改一下文案',
@@ -102,7 +106,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
       // Only load messages if NOT in autoSend mode.
       // In autoSend mode, we rely on handleSendMessage to create the first message optimistically.
       // Fetching messages immediately would return empty and overwrite the optimistic message.
-      if (!autoSend) {
+      if (!autoSend && !suppressInitialLoadRef.current) {
         tasks.push(loadMessages());
       }
 
@@ -124,12 +128,19 @@ const ConversationView: React.FC<ConversationViewProps> = ({
   useEffect(() => {
     if (autoSend && initialContent && sessionId && !hasAutoSentRef.current) {
       hasAutoSentRef.current = true;
+      suppressInitialLoadRef.current = true;
+      if (location.state?.autoSend || location.state?.initialContent) {
+        navigate(location.pathname, {
+          replace: true,
+          state: { ...location.state, autoSend: false, initialContent: undefined },
+        });
+      }
       // 延迟一点点发送，避免组件挂载期的状态竞争
       setTimeout(() => {
         handleSendMessage(initialContent);
       }, 50);
     }
-  }, [sessionId, autoSend, initialContent]);
+  }, [sessionId, autoSend, initialContent, location.pathname, location.state, navigate]);
 
   // 自动滚动到最新消息
   useEffect(() => {
@@ -372,6 +383,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
       );
       message.error('发送消息失败，请重试');
     } finally {
+      suppressInitialLoadRef.current = false;
       setSending(false);
     }
   };
@@ -937,7 +949,6 @@ const ConversationView: React.FC<ConversationViewProps> = ({
                             borderRadius: 6,
                             fontWeight: 500,
                             ...buttonProps.style,
-                            marginLeft: 12
                           }}
                         >
                           {buttonProps.text}
@@ -947,7 +958,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
 
                     {/* 停止预览/详情 */}
                     {session.context?.previewInfo?.status === PreviewStatus.RUNNING && (
-                      <div style={{ display: 'flex', gap: 12, marginLeft: 12 }}>
+                      <div style={{ display: 'flex', gap: 12,}}>
                         <Button
                           size="small"
                           icon={<ClockCircleOutlined />}
@@ -1108,7 +1119,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
               </a>
             </Descriptions.Item>
 
-            <Descriptions.Item label="容器 ID" span={2}>
+            <Descriptions.Item label="实例 ID" span={2}>
               <code style={{
                 fontSize: 11,
                 background: '#f5f5f5',
@@ -1116,14 +1127,14 @@ const ConversationView: React.FC<ConversationViewProps> = ({
                 borderRadius: 3,
                 wordBreak: 'break-all'
               }}>
-                {session?.context?.previewInfo?.containerId?.substring(0, 12)}
+                {session?.context?.previewInfo?.containerId}
               </code>
             </Descriptions.Item>
 
             {(session?.context?.previewInfo?.imageId || session?.context?.previewInfo?.imageName) && (
               <>
                 {session?.context?.previewInfo?.imageName && (
-                  <Descriptions.Item label="镇像名称" span={2}>
+                  <Descriptions.Item label="镜像名称" span={2}>
                     <Tag color="geekblue" icon={<CheckOutlined />}>
                       {session.context.previewInfo.imageName}
                     </Tag>
@@ -1131,7 +1142,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
                 )}
 
                 {session?.context?.previewInfo?.imageId && (
-                  <Descriptions.Item label="镇像 ID" span={2}>
+                  <Descriptions.Item label="镜像 ID" span={2}>
                     <code style={{
                       fontSize: 11,
                       background: '#f5f5f5',
@@ -1147,7 +1158,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
             )}
 
             {(deploymentInfo?.ports || session?.context?.previewInfo?.ports) && (
-              <Descriptions.Item label="端口映射" span={2}>
+              <Descriptions.Item label="访问端口" span={2}>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                   {(deploymentInfo?.ports || session?.context?.previewInfo?.ports)?.map((port: any, index: number) => (
                     <div
@@ -1166,7 +1177,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
                         {port.service}
                       </Tag>
                       <span style={{ fontFamily: 'monospace', fontSize: 13 }}>
-                        {port.host} → {port.container}
+                        端口: {port.host}
                       </span>
                       <a
                         href={`http://${session?.context?.previewInfo?.url?.split('//')[1]?.split(':')[0]}:${port.host}`}
