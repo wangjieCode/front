@@ -33,118 +33,19 @@ import { DrizzleConversationStorage } from './storage/DrizzleConversationStorage
 let conversationManager: any;
 let messageRouter: any;
 let conversationAIService: any;
-let conversationStorage: DrizzleConversationStorage | null = null;
 let executor: any;
 
-const runMode = process.env.RUN_MODE || 'local';
-console.log(`🔧 运行模式: ${runMode === 'local' ? '本机模式' : '远程模式'}`);
+import { initializeAllServices } from './services/init';
 
 // 初始化服务的异步函数
 async function initializeServices() {
   try {
-    // 1. 先初始化数据库
-    await initializeDatabase();
-    conversationStorage = new DrizzleConversationStorage();
-    console.log('✅ 数据库已初始化，使用 Drizzle/Supabase 存储');
-  } catch (error) {
-    console.error('❌ 数据库初始化失败:', error instanceof Error ? error.message : error);
-    console.error('   请检查 DATABASE_URL 环境变量配置');
-    process.exit(1);
-  }
-
-  // 2. 然后初始化其他服务
-  try {
-    const appEnv = process.env.APP_ENV || 'local';
-    const workDir = getGitWorkDir();
-    const defaultBranch = getGitDefaultBranch();
+    const services = await initializeAllServices();
+    conversationManager = services.conversationManager;
+    messageRouter = services.messageRouter;
+    conversationAIService = services.conversationAIService;
+    executor = services.executor;
     
-    console.log(`🌍 当前应用环境 (APP_ENV): ${appEnv}`);
-    console.log(`🔧 运行模式 (RUN_MODE): ${runMode}`);
-    console.log(`📂 工作目录: ${workDir}`);
-
-    if (runMode === 'local') {
-      const { LocalExecutor } = require('./services');
-      executor = new LocalExecutor();
-      console.log('✅ 本机执行器已初始化');
-
-      // 确保工作目录存在
-      const { existsSync, mkdirSync } = require('fs');
-      if (!existsSync(workDir)) {
-        try {
-          mkdirSync(workDir, { recursive: true });
-          console.log(`📁 已自动创建本地工作目录: ${workDir}`);
-        } catch (e: any) {
-          console.warn(`⚠️ 无法创建工作目录 ${workDir}: ${e.message}`);
-        }
-      }
-    } else {
-      // 远程模式：使用 SSHExecutor
-      console.log('🔌 运行在远程模式，正在尝试加载 SSH 配置...');
-      try {
-        const sshConfig = loadSSHConfig();
-        const { SSHExecutor } = require('./services');
-        executor = new SSHExecutor();
-        
-        console.log('🔌 正在连接 SSH...');
-        await executor.connect(sshConfig);
-        console.log('✅ SSH 连接已建立');
-      } catch (error) {
-        console.error('❌ SSH 初始化/连接失败:', error instanceof Error ? error.message : error);
-        console.warn('⚠️ SSH 连接失败，系统将尝试以只读/本地受限模式运行');
-        const { LocalExecutor } = require('./services');
-        executor = new LocalExecutor();
-      }
-    }
-
-    const codeToolService = new CodeToolService(executor);
-
-    // 获取工具信息并记录
-    try {
-      const info = await codeToolService.getToolInfo(workDir);
-      console.log(`🔧 代码工具: ${info.name} (${info.version})`);
-      console.log(`✅ 工具可用性: ${info.available ? '可用' : '不可用'}`);
-    } catch (e) {
-      console.warn('⚠️ 无法获取代码工具信息');
-    }
-
-    // 创建对话服务实例
-    const { ConversationManager } = require('./services/ConversationManager');
-    const { MessageRouter } = require('./services/MessageRouter');
-    const { ConversationAIService } = require('./services/ConversationAIService');
-    const { NeovateAIService } = require('./services/NeovateAIService');
-    const { ConversationStorageAdapter } = require('./storage/ConversationStorageAdapter');
-    const { GitService } = require('./services/GitService');
-    const { GitLabMCPService } = require('./services/GitLabMCPService');
-    const { ProjectService } = require('./services/ProjectService');
-
-    // 使用 Drizzle 存储
-    if (!conversationStorage) {
-      throw new Error('数据库存储未初始化');
-    }
-    
-    // 使用适配器包装存储
-    const storageAdapter = new ConversationStorageAdapter(conversationStorage);
-    const gitService = new GitService(executor, workDir);
-    const gitlabService = new GitLabMCPService({
-      url: process.env.GITLAB_URL || '',
-      token: process.env.GITLAB_TOKEN || '',
-      projectId: process.env.GITLAB_PROJECT_ID || '',
-    });
-    
-    // 创建 WorktreeManager
-    const worktreeBaseDir = getWorktreeBaseDir(workDir);
-    const worktreeManager = new WorktreeManager(executor, workDir, worktreeBaseDir);
-    console.log(`📁 Worktree 基础目录: ${worktreeBaseDir}`);
-    
-    // 创建 ProjectService
-    const projectService = new ProjectService(executor);
-    
-    conversationManager = new ConversationManager(storageAdapter, projectService, gitlabService, worktreeManager);
-    const databaseUrl = process.env.DATABASE_URL || '';
-    const neovateAIService = new NeovateAIService(executor, workDir, databaseUrl);
-    conversationAIService = new ConversationAIService(neovateAIService, databaseUrl, gitService, gitlabService);
-    messageRouter = new MessageRouter(conversationManager, conversationAIService);
-
     console.log('✅ 对话服务已初始化 (存储: Drizzle/Supabase)');
   } catch (error) {
     console.error('❌ 服务初始化过程中发生严重错误:', error);

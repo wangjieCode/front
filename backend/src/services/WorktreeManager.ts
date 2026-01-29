@@ -546,7 +546,14 @@ export class WorktreeManager {
       );
 
       if (result.exitCode !== 0) {
-        throw new Error(`删除 worktree 失败: ${result.stderr}`);
+        // 这里的关键：如果 git 认为它不是一个 worktree，但目录确实存在，
+        // 说明 git 记录已丢失或损坏，我们需要强行物理删除该目录以释放空间。
+        if (result.stderr.includes('is not a working tree')) {
+          console.warn(`[WorktreeManager] Git 记录丢失，尝试物理删除目录: ${worktreePath}`);
+          await this.executor.executeCommand(`rm -rf "${worktreePath}"`, this.baseRepoPath);
+        } else {
+          throw new Error(`删除 worktree 失败: ${result.stderr}`);
+        }
       }
 
       // 删除分支
@@ -690,5 +697,58 @@ export class WorktreeManager {
       failed,
       errors,
     };
+  }
+
+  /**
+   * 全局清理所有非活跃会话的 worktree
+   * 该方法会扫描 worktreeBaseDir 下的所有目录，并根据外部提供的活跃会话 ID 列表进行清理
+   */
+  async globalCleanupWorktrees(activeSessionIds: string[]): Promise<{
+    cleaned: number;
+    failed: number;
+  }> {
+    let cleaned = 0;
+    let failed = 0;
+    const activeSet = new Set(activeSessionIds);
+
+    try {
+      // 1. 获取所有用户目录
+      const userDirsResult = await this.executor.executeCommand(
+        `ls -d ${path.join(this.worktreeBaseDir, 'user-*')} 2>/dev/null || true`,
+        this.baseRepoPath
+      );
+      const userDirs = userDirsResult.stdout.split('\n').filter(d => d.trim());
+
+      for (const userDir of userDirs) {
+        const userId = path.basename(userDir).replace('user-', '');
+        
+        // 2. 获取该用户下的所有对话目录
+        const convDirsResult = await this.executor.executeCommand(
+          `ls -d ${path.join(userDir, 'conversation-*')} 2>/dev/null || true`,
+          this.baseRepoPath
+        );
+        const convDirs = convDirsResult.stdout.split('\n').filter(d => d.trim());
+
+        for (const convDir of convDirs) {
+          const sessionId = path.basename(convDir).replace('conversation-', '');
+          
+          // 3. 如果会话不在活跃列表中，则删除
+          if (!activeSet.has(sessionId)) {
+            try {
+              console.log(`[WorktreeManager] 发现非活跃 worktree，准备清理: ${sessionId}`);
+              await this.removeConversationWorktree(userId, sessionId);
+              cleaned++;
+            } catch (error) {
+              failed++;
+              console.error(`[WorktreeManager] 清理非活跃 worktree ${sessionId} 失败:`, error);
+            }
+          }
+        }
+      }
+    } catch (error) {
+      console.error(`[WorktreeManager] 全局清理失败:`, error);
+    }
+
+    return { cleaned, failed };
   }
 }

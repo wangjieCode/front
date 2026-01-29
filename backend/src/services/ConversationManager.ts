@@ -603,6 +603,38 @@ export class ConversationManager {
   }
 
   /**
+   * 自动归档不活跃的会话
+   * @param olderThanXDays 超过多少天未更新的会话将被归档
+   * @returns 归档的数量
+   */
+  async archiveInactiveSessions(olderThanXDays: number): Promise<number> {
+    console.log(`[ConversationManager] 开始归档超过 ${olderThanXDays} 天未更新的会话...`);
+    
+    // 1. 获取所有不活跃的 ACTIVE 会话 ID
+    const inactiveSessions = await this.storage.getInactiveSessions(olderThanXDays, ConversationStatus.ACTIVE);
+    
+    if (inactiveSessions.length === 0) {
+      console.log('[ConversationManager] 没有发现需要归档的会话');
+      return 0;
+    }
+
+    console.log(`[ConversationManager] 发现 ${inactiveSessions.length} 个不活跃会话，准备归档...`);
+    
+    let archivedCount = 0;
+    for (const { id } of inactiveSessions) {
+      try {
+        await this.updateSessionStatus(id, ConversationStatus.ARCHIVED, `Auto-archived due to inactivity (> ${olderThanXDays} days)`);
+        archivedCount++;
+      } catch (error) {
+        console.error(`[ConversationManager] 归档会话 ${id} 失败:`, error);
+      }
+    }
+
+    console.log(`[ConversationManager] 归档完成，成功归档 ${archivedCount}/${inactiveSessions.length} 个会话`);
+    return archivedCount;
+  }
+
+  /**
    * 获取会话统计信息
    */
   async getSessionStats(sessionId: string): Promise<{
