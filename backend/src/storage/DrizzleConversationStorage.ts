@@ -91,38 +91,28 @@ export class DrizzleConversationStorage {
       title: session.title,
       summary: session.summary,
       projectName: session.projectName || session.context?.projectInfo?.projectName,
-      updatedAt: session.updatedAt,
-      completedAt: session.completedAt,
-      error: session.error,
+      updatedAt: session.updatedAt || dayjs().toDate(),
+      completedAt: session.completedAt || null,
+      error: session.error || null,
     };
 
-    // 检查会话是否已存在
-    const existing = await db
-      .select()
-      .from(conversations)
-      .where(eq(conversations.id, session.id))
-      .limit(1);
-
-    if (existing.length > 0) {
-      // 更新现有会话
-       await db
-       .update(conversations)
-        .set({
+    // 使用 onConflictDoUpdate 实现原子级 Upsert
+    await db.insert(conversations)
+      .values(conversationData)
+      .onConflictDoUpdate({
+        target: conversations.id,
+        set: {
           status: conversationData.status,
           visibility: conversationData.visibility,
           title: conversationData.title,
           summary: conversationData.summary,
-           projectId: conversationData.projectId,
-           projectName: conversationData.projectName,
-           updatedAt: conversationData.updatedAt,
-           completedAt: conversationData.completedAt,
-           error: conversationData.error,
-         })
-        .where(eq(conversations.id, session.id));
-    } else {
-      // 插入新会话
-      await db.insert(conversations).values(conversationData);
-    }
+          projectId: conversationData.projectId,
+          projectName: conversationData.projectName,
+          updatedAt: conversationData.updatedAt,
+          completedAt: conversationData.completedAt,
+          error: conversationData.error,
+        }
+      });
 
     // 2. 保存上下文（如果存在）
     if (session.context) {
