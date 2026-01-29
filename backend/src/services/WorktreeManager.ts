@@ -530,50 +530,51 @@ export class WorktreeManager {
     try {
       console.log(`[WorktreeManager] 删除对话 worktree: ${sessionId}`);
 
-      // 获取分支名（用于后续删除分支）
-      let branchName: string | undefined;
+      // 检查当前是否在 Git 仓库中
+      let isGitRepo = false;
       try {
-        const worktreeInfo = await this.getWorktreeInfo(userId, sessionId);
-        branchName = worktreeInfo.branchName;
+        const gitCheck = await this.executor.executeCommand('git rev-parse --is-inside-work-tree', this.baseRepoPath);
+        isGitRepo = gitCheck.exitCode === 0 && gitCheck.stdout.trim() === 'true';
       } catch (e) {
-        // 如果获取失败，继续删除 worktree
+        isGitRepo = false;
       }
 
-      // 删除 worktree
-      const result = await this.executor.executeCommand(
-        `git worktree remove "${worktreePath}" --force`,
-        this.baseRepoPath
-      );
-
-      if (result.exitCode !== 0) {
-        // 这里的关键：如果 git 认为它不是一个 worktree，但目录确实存在，
-        // 说明 git 记录已丢失或损坏，我们需要强行物理删除该目录以释放空间。
-        if (result.stderr.includes('is not a working tree')) {
-          console.warn(`[WorktreeManager] Git 记录丢失，尝试物理删除目录: ${worktreePath}`);
-          await this.executor.executeCommand(`rm -rf "${worktreePath}"`, this.baseRepoPath);
-        } else {
-          throw new Error(`删除 worktree 失败: ${result.stderr}`);
-        }
-      }
-
-      // 删除分支
-      if (branchName) {
+      if (isGitRepo) {
+        // 获取分支名
+        let branchName: string | undefined;
         try {
-          await this.executor.executeCommand(
-            `git branch -D ${branchName}`,
-            this.baseRepoPath
-          );
-          console.log(`[WorktreeManager] 已删除分支: ${branchName}`);
-        } catch (e) {
-          console.warn(`[WorktreeManager] 删除分支失败: ${branchName}`, e);
+          const worktreeInfo = await this.getWorktreeInfo(userId, sessionId);
+          branchName = worktreeInfo.branchName;
+        } catch (e) {}
+
+        // 尝试使用 git 删除
+        const result = await this.executor.executeCommand(
+          `git worktree remove "${worktreePath}" --force`,
+          this.baseRepoPath
+        );
+
+        if (result.exitCode === 0) {
+          // 删除分支
+          if (branchName) {
+            await this.executor.executeCommand(`git branch -D ${branchName}`, this.baseRepoPath).catch(() => {});
+          }
+          console.log(`[WorktreeManager] ✅ Git Worktree 删除成功`);
+        } else {
+          // 如果 git 删除失败（例如记录丢失），则回退到物理删除
+          console.warn(`[WorktreeManager] Git 删除失败 (${result.stderr.trim()})，回退到物理删除`);
+          await this.executor.executeCommand(`rm -rf "${worktreePath}"`, this.baseRepoPath);
+          console.log(`[WorktreeManager] ✅ 物理删除目录成功`);
         }
+      } else {
+        // 非 Git 仓库环境，直接物理删除
+        console.log(`[WorktreeManager] 当前环境非 Git 仓库，直接物理删除目录: ${worktreePath}`);
+        await this.executor.executeCommand(`rm -rf "${worktreePath}"`, this.baseRepoPath);
+        console.log(`[WorktreeManager] ✅ 物理删除成功`);
       }
 
       // 从缓存移除
       const cacheKey = `${userId}-${sessionId}`;
       this.worktreeCache.delete(cacheKey);
-
-      console.log(`[WorktreeManager] ✅ Worktree 删除成功`);
     } catch (error) {
       throw new Error(
         `删除对话 worktree 失败: ${error instanceof Error ? error.message : String(error)}`
