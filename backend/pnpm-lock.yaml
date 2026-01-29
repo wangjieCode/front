@@ -14,9 +14,6 @@ importers:
       '@bull-board/express':
         specifier: ^6.16.4
         version: 6.16.4
-      bullMQAdapter:
-        specifier: link:@bull-board/api/bullMQAdapter
-        version: link:@bull-board/api/bullMQAdapter
       bullmq:
         specifier: ^5.67.2
         version: 5.67.2
