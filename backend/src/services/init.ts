@@ -69,7 +69,7 @@ export async function initializeAllServices() {
   });
   
   const worktreeBaseDir = getWorktreeBaseDir(workDir);
-  const worktreeManager = new WorktreeManager(executor, workDir, worktreeBaseDir);
+  const worktreeManager = new WorktreeManager(executor, workDir, worktreeBaseDir, 'global-or-default');
   const projectService = new ProjectService(executor);
   
   const conversationManager = new ConversationManager(storageAdapter, projectService, gitlabService, worktreeManager);

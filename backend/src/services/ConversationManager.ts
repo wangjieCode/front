@@ -253,7 +253,8 @@ export class ConversationManager {
       const projectWorktreeManager = new WorktreeManager(
         (this.projectService as any).executor,
         workDir,
-        worktreeBaseDir
+        worktreeBaseDir,
+        projectResult.project.id
       );
 
       // 直接为对话创建独立的 worktree 和分支
@@ -728,7 +729,7 @@ export class ConversationManager {
         const executor = (this.projectService as any).executor;
         const repoDir = project.workDirectory || project.repoDir;
         const worktreeDir = `${repoDir}/../worktrees`;
-        projectWorktreeManager = new WorktreeManager(executor, repoDir, worktreeDir);
+        projectWorktreeManager = new WorktreeManager(executor, repoDir, worktreeDir, project.id);
       }
 
       // 如果无法初始化特定的 WorktreeManager，回退到全局的
