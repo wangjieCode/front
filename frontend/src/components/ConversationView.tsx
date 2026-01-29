@@ -846,7 +846,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
 
               <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginTop: 4 }}>
                 {/* 项目名称 */}
-                {session.context?.projectInfo?.workDir && (
+                {session.context?.projectInfo?.projectName && (
                   <div style={{
                     display: 'flex',
                     alignItems: 'center',
@@ -859,31 +859,69 @@ const ConversationView: React.FC<ConversationViewProps> = ({
                     border: '1px solid #eee'
                   }}>
                     <span>📁</span>
-                    <span style={{ fontFamily: 'monospace', fontWeight: 500 }}>
-                      {session.context.projectInfo.workDir.split('/').pop() || session.context.projectInfo.workDir}
+                    <span style={{ fontWeight: 500 }}>
+                      {session.context.projectInfo.projectName}
                     </span>
                   </div>
                 )}
 
-                {/* Git 分支 */}
-                {(session.context?.gitBranch || session.context?.projectInfo?.gitBranch) && (
-                  <div style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 6,
-                    padding: '4px 10px',
-                    background: 'rgba(102, 126, 234, 0.08)',
-                    borderRadius: 6,
-                    fontSize: 12,
-                    color: '#667eea',
-                    fontWeight: 500,
-                    border: '1px solid rgba(102, 126, 234, 0.15)'
-                  }}>
-                    <span>🌿</span>
-                    <span style={{ fontFamily: 'monospace' }}>
-                      {session.context.gitBranch || session.context.projectInfo.gitBranch}
-                    </span>
-                  </div>
+                {/* 当前分支（仅编辑模式展示） */}
+                {session.context?.mode === 'edit' && session.context?.projectInfo?.workDir && (
+                  <Tooltip title={`当前分支: ${session.context.projectInfo.workDir.split('/').pop() || session.context.projectInfo.workDir}`}>
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      padding: '4px 10px',
+                      background: 'rgba(124, 92, 255, 0.08)',
+                      borderRadius: 6,
+                      fontSize: 12,
+                      color: '#7c5cff',
+                      fontWeight: 500,
+                      border: '1px solid rgba(124, 92, 255, 0.15)',
+                      cursor: 'default'
+                    }}>
+                      <span>🌿</span>
+                      <span style={{ 
+                        fontFamily: 'monospace',
+                        maxWidth: 150,
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap'
+                      }}>
+                        当前: {session.context.projectInfo.workDir.split('/').pop() || session.context.projectInfo.workDir}
+                      </span>
+                    </div>
+                  </Tooltip>
+                )}
+
+                {/* 基线分支 */}
+                {session.context?.projectInfo?.gitBranch && (
+                  <Tooltip title={`基线分支: ${session.context.projectInfo.gitBranch}`}>
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      padding: '4px 10px',
+                      background: '#f8f9fa',
+                      borderRadius: 6,
+                      fontSize: 12,
+                      color: '#666',
+                      border: '1px solid #eee',
+                      cursor: 'default'
+                    }}>
+                      <span>🎯</span>
+                      <span style={{ 
+                        fontFamily: 'monospace',
+                        maxWidth: 150,
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap'
+                      }}>
+                        基线: {session.context.projectInfo.gitBranch}
+                      </span>
+                    </div>
+                  </Tooltip>
                 )}
 
                 {/* 开发工具组（仅在编辑模式显示） */}
