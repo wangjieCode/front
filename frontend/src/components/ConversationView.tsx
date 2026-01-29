@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { Spin, Typography, Button, Input, message, Modal, Descriptions, Tag, Tooltip } from 'antd';
 import { ThunderboltOutlined, SendOutlined, RocketOutlined, CheckOutlined, WarningOutlined, StopOutlined, GitlabOutlined, ClockCircleOutlined, LinkOutlined, LockOutlined, InboxOutlined, GlobalOutlined } from '@ant-design/icons';
 import ModeSelector from './ModeSelector';
@@ -58,6 +59,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const hasAutoSentRef = useRef(false);
+  const suppressInitialLoadRef = useRef(false);
   const currentUserId = authUtils.getUserId();
 
   // New conversation state
@@ -69,6 +71,8 @@ const ConversationView: React.FC<ConversationViewProps> = ({
   const [previewStatus, setPreviewStatus] = useState<PreviewStatus | null>(null);
   const [deploymentInfo, setDeploymentInfo] = useState<any>(null);
   const [showDeploymentModal, setShowDeploymentModal] = useState(false);
+  const navigate = useNavigate();
+  const location = useLocation();
 
   const examplePrompts = [
     '修改一下文案',
@@ -102,7 +106,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
       // Only load messages if NOT in autoSend mode.
       // In autoSend mode, we rely on handleSendMessage to create the first message optimistically.
       // Fetching messages immediately would return empty and overwrite the optimistic message.
-      if (!autoSend) {
+      if (!autoSend && !suppressInitialLoadRef.current) {
         tasks.push(loadMessages());
       }
 
@@ -124,12 +128,19 @@ const ConversationView: React.FC<ConversationViewProps> = ({
   useEffect(() => {
     if (autoSend && initialContent && sessionId && !hasAutoSentRef.current) {
       hasAutoSentRef.current = true;
+      suppressInitialLoadRef.current = true;
+      if (location.state?.autoSend || location.state?.initialContent) {
+        navigate(location.pathname, {
+          replace: true,
+          state: { ...location.state, autoSend: false, initialContent: undefined },
+        });
+      }
       // 延迟一点点发送，避免组件挂载期的状态竞争
       setTimeout(() => {
         handleSendMessage(initialContent);
       }, 50);
     }
-  }, [sessionId, autoSend, initialContent]);
+  }, [sessionId, autoSend, initialContent, location.pathname, location.state, navigate]);
 
   // 自动滚动到最新消息
   useEffect(() => {
@@ -372,6 +383,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
       );
       message.error('发送消息失败，请重试');
     } finally {
+      suppressInitialLoadRef.current = false;
       setSending(false);
     }
   };
