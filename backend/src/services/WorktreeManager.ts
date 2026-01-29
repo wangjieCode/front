@@ -35,9 +35,11 @@ export class WorktreeManager {
   constructor(
     private executor: ICommandExecutor,
     private baseRepoPath: string,
-    private worktreeBaseDir: string
+    private worktreeBaseDir: string,
+    private projectId: string
   ) {
-    console.log(`[WorktreeManager] 初始化（优化版 - 每对话一个 worktree）`);
+    console.log(`[WorktreeManager] 初始化（优化版 - 增加项目层级隔离）`);
+    console.log(`[WorktreeManager] 项目 ID: ${projectId}`);
     console.log(`[WorktreeManager] 基础仓库: ${baseRepoPath}`);
     console.log(`[WorktreeManager] Worktree 目录: ${worktreeBaseDir}`);
   }
@@ -47,7 +49,7 @@ export class WorktreeManager {
    * 新路径格式: /worktrees/user-{userId}/conversation-{sessionId}
    */
   private getConversationWorktreePath(userId: string, sessionId: string): string {
-    return path.join(this.worktreeBaseDir, `user-${userId}`, `conversation-${sessionId}`);
+    return path.join(this.worktreeBaseDir, `project-${this.projectId}`, `user-${userId}`, `conversation-${sessionId}`);
   }
 
   /**
@@ -587,7 +589,7 @@ export class WorktreeManager {
    */
   async listUserWorktrees(userId: string): Promise<string[]> {
     try {
-      const userWorktreeDir = path.join(this.worktreeBaseDir, `user-${userId}`);
+      const userWorktreeDir = path.join(this.worktreeBaseDir, `project-${this.projectId}`, `user-${userId}`);
       
       const result = await this.executor.executeCommand(
         `find "${userWorktreeDir}" -maxdepth 1 -type d -name "conversation-*" 2>/dev/null || true`,
@@ -713,9 +715,12 @@ export class WorktreeManager {
     const activeSet = new Set(activeSessionIds);
 
     try {
-      // 1. 获取所有用户目录
+      // 1. 获取当前项目的目录
+      const projectDir = path.join(this.worktreeBaseDir, `project-${this.projectId}`);
+      
+      // 2. 获取该项目下的所有用户目录
       const userDirsResult = await this.executor.executeCommand(
-        `ls -d ${path.join(this.worktreeBaseDir, 'user-*')} 2>/dev/null || true`,
+        `ls -d ${path.join(projectDir, 'user-*')} 2>/dev/null || true`,
         this.baseRepoPath
       );
       const userDirs = userDirsResult.stdout.split('\n').filter(d => d.trim());
@@ -723,7 +728,7 @@ export class WorktreeManager {
       for (const userDir of userDirs) {
         const userId = path.basename(userDir).replace('user-', '');
         
-        // 2. 获取该用户下的所有对话目录
+        // 3. 获取该用户下的所有对话目录
         const convDirsResult = await this.executor.executeCommand(
           `ls -d ${path.join(userDir, 'conversation-*')} 2>/dev/null || true`,
           this.baseRepoPath
