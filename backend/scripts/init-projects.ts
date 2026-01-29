@@ -12,6 +12,7 @@ import { sql } from 'drizzle-orm';
 import { existsSync, mkdirSync } from 'fs';
 import { execSync } from 'child_process';
 import path from 'path';
+import { convertToProjectRelativePath } from '../src/utils/PathUtils';
 
 // 解析命令行参数
 const args = process.argv.slice(2);
@@ -247,11 +248,13 @@ async function main() {
         if (needsUpdate) {
           console.log(`   💾 更新数据库路径...`);
           
+          const relativeRepoDir = convertToProjectRelativePath(result.mappedDir) || result.mappedDir;
+          
           await db
             .update(projects)
             .set({
-              repoDir: result.mappedDir,
-              workDirectory: result.mappedDir,
+              repoDir: relativeRepoDir,
+              workDirectory: relativeRepoDir,
             })
             .where(sql`${projects.id} = ${project.id}`);
           

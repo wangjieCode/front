@@ -13,7 +13,7 @@ import {
 } from '../db/schema';
 import { newId } from '../utils/id';
 import dayjs from 'dayjs';
-import { convertToProjectRelativePath, resolveProjectRelativePath } from '../utils/PathUtils';
+import { convertToProjectRelativePath, resolveProjectRelativePath, smartResolvePath, BasePathType } from '../utils/PathUtils';
 import path from 'path';
 
 /**
@@ -248,7 +248,7 @@ export class DrizzleConversationStorage {
         taskDescription: row.taskDescription || '',
         variables: row.variables || {}, // 确保变量始终是一个对象
         projectInfo: {
-          workDir: row.workDir || '',
+          workDir: smartResolvePath(row.workDir),
           projectId: row.projectId || null,
           projectName: row.projectName || row.projectNameJoined || null,
           gitRepositoryUrl: '',
@@ -476,9 +476,12 @@ export class DrizzleConversationStorage {
     const db = this.getDb();
 
     // 提取上下文字段
+    const rawWorkDir = context.projectInfo?.workDir || context.workDir;
+    const rawWorktreePath = context.projectInfo?.worktreePath || context.worktreePath;
+    
     const contextData = {
-      workDir: convertToProjectRelativePath(context.projectInfo?.workDir || context.workDir) || '',
-      worktreePath: convertToProjectRelativePath(context.projectInfo?.worktreePath || context.worktreePath),
+      workDir: convertToProjectRelativePath(rawWorkDir) || '',
+      worktreePath: convertToProjectRelativePath(rawWorktreePath),
       gitBranch: context.gitBranch || context.projectInfo?.gitBranch,
       relevantFiles: context.projectInfo?.relevantFiles || context.relevantFiles,
       taskDescription: context.taskDescription,
@@ -545,8 +548,8 @@ export class DrizzleConversationStorage {
     // 转换为应用层期望的 ConversationContext 格式
     const context = {
       projectInfo: {
-        workDir: resolveProjectRelativePath(rawContext.workDir),
-        worktreePath: rawContext.worktreePath ? resolveProjectRelativePath(rawContext.worktreePath) : null,
+        workDir: smartResolvePath(rawContext.workDir),
+        worktreePath: rawContext.worktreePath ? resolveProjectRelativePath(rawContext.worktreePath, BasePathType.WORKTREE_BASE_DIR) : null,
         gitBranch: rawContext.gitBranch,
         relevantFiles: rawContext.relevantFiles || [],
       },
