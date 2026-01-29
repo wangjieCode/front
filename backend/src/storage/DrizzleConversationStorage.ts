@@ -13,7 +13,7 @@ import {
 } from '../db/schema';
 import { newId } from '../utils/id';
 import dayjs from 'dayjs';
-import { convertToProjectRelativePath, resolveProjectRelativePath } from '../utils/PathUtils';
+import { convertToProjectRelativePath, resolveProjectRelativePath, smartResolvePath, BasePathType } from '../utils/PathUtils';
 import path from 'path';
 
 /**
@@ -91,38 +91,28 @@ export class DrizzleConversationStorage {
       title: session.title,
       summary: session.summary,
       projectName: session.projectName || session.context?.projectInfo?.projectName,
-      updatedAt: session.updatedAt,
-      completedAt: session.completedAt,
-      error: session.error,
+      updatedAt: session.updatedAt || dayjs().toDate(),
+      completedAt: session.completedAt || null,
+      error: session.error || null,
     };
 
-    // 检查会话是否已存在
-    const existing = await db
-      .select()
-      .from(conversations)
-      .where(eq(conversations.id, session.id))
-      .limit(1);
-
-    if (existing.length > 0) {
-      // 更新现有会话
-       await db
-       .update(conversations)
-        .set({
+    // 使用 onConflictDoUpdate 实现原子级 Upsert
+    await db.insert(conversations)
+      .values(conversationData)
+      .onConflictDoUpdate({
+        target: conversations.id,
+        set: {
           status: conversationData.status,
           visibility: conversationData.visibility,
           title: conversationData.title,
           summary: conversationData.summary,
-           projectId: conversationData.projectId,
-           projectName: conversationData.projectName,
-           updatedAt: conversationData.updatedAt,
-           completedAt: conversationData.completedAt,
-           error: conversationData.error,
-         })
-        .where(eq(conversations.id, session.id));
-    } else {
-      // 插入新会话
-      await db.insert(conversations).values(conversationData);
-    }
+          projectId: conversationData.projectId,
+          projectName: conversationData.projectName,
+          updatedAt: conversationData.updatedAt,
+          completedAt: conversationData.completedAt,
+          error: conversationData.error,
+        }
+      });
 
     // 2. 保存上下文（如果存在）
     if (session.context) {
@@ -258,7 +248,7 @@ export class DrizzleConversationStorage {
         taskDescription: row.taskDescription || '',
         variables: row.variables || {}, // 确保变量始终是一个对象
         projectInfo: {
-          workDir: row.workDir || '',
+          workDir: smartResolvePath(row.workDir),
           projectId: row.projectId || null,
           projectName: row.projectName || row.projectNameJoined || null,
           gitRepositoryUrl: '',
@@ -331,6 +321,7 @@ export class DrizzleConversationStorage {
     await db.insert(messages).values(message);
 
     this.deleteCache(`messages:${message.conversationId}`);
+    this.deleteCache(`messages_with_metadata:${message.conversationId}`);
   }
 
   /**
@@ -377,6 +368,41 @@ export class DrizzleConversationStorage {
   }
 
   /**
+   * 加载带元数据的消息列表（高性能版，单次查询）
+   */
+  async loadMessagesWithMetadata(
+    conversationId: string
+  ): Promise<any[]> {
+    const cacheKey = `messages_with_metadata:${conversationId}`;
+
+    const cached = this.getCached<any[]>(cacheKey);
+    if (cached) {
+      return cached;
+    }
+
+    const db = this.getDb();
+
+    // 使用 LEFT JOIN 一次性查出消息和元数据
+    const results = await db
+      .select({
+        message: messages,
+        metadata: messageMetadata,
+      })
+      .from(messages)
+      .leftJoin(messageMetadata, eq(messages.id, messageMetadata.messageId))
+      .where(eq(messages.conversationId, conversationId))
+      .orderBy(asc(messages.timestamp));
+
+    const combined = results.map(row => ({
+      ...row.message,
+      metadata: row.metadata,
+    }));
+
+    this.setCache(cacheKey, combined);
+    return combined;
+  }
+
+  /**
    * 加载单条消息
    */
   async loadMessage(conversationId: string, messageId: string): Promise<Message | null> {
@@ -406,13 +432,25 @@ export class DrizzleConversationStorage {
   ): Promise<void> {
     const db = this.getDb();
 
+    // 为了精确清除缓存，我们需要 conversationId
+    const msgResult = await db
+      .select({ conversationId: messages.conversationId })
+      .from(messages)
+      .where(eq(messages.id, messageId))
+      .limit(1);
+    
+    const conversationId = msgResult[0]?.conversationId;
+
     await db
       .update(messages)
       .set({ content, isComplete })
       .where(eq(messages.id, messageId));
 
-    // 清除相关缓存
-    this.clearCache();
+    // 清除精确缓存而不是 clearCache()
+    if (conversationId) {
+      this.deleteCache(`messages:${conversationId}`);
+      this.deleteCache(`messages_with_metadata:${conversationId}`);
+    }
   }
 
   /**
@@ -438,9 +476,12 @@ export class DrizzleConversationStorage {
     const db = this.getDb();
 
     // 提取上下文字段
+    const rawWorkDir = context.projectInfo?.workDir || context.workDir;
+    const rawWorktreePath = context.projectInfo?.worktreePath || context.worktreePath;
+    
     const contextData = {
-      workDir: convertToProjectRelativePath(context.projectInfo?.workDir || context.workDir) || '',
-      worktreePath: convertToProjectRelativePath(context.projectInfo?.worktreePath || context.worktreePath),
+      workDir: convertToProjectRelativePath(rawWorkDir) || '',
+      worktreePath: convertToProjectRelativePath(rawWorktreePath),
       gitBranch: context.gitBranch || context.projectInfo?.gitBranch,
       relevantFiles: context.projectInfo?.relevantFiles || context.relevantFiles,
       taskDescription: context.taskDescription,
@@ -507,8 +548,8 @@ export class DrizzleConversationStorage {
     // 转换为应用层期望的 ConversationContext 格式
     const context = {
       projectInfo: {
-        workDir: resolveProjectRelativePath(rawContext.workDir),
-        worktreePath: rawContext.worktreePath ? resolveProjectRelativePath(rawContext.worktreePath) : null,
+        workDir: smartResolvePath(rawContext.workDir),
+        worktreePath: rawContext.worktreePath ? resolveProjectRelativePath(rawContext.worktreePath, BasePathType.WORKTREE_BASE_DIR) : null,
         gitBranch: rawContext.gitBranch,
         relevantFiles: rawContext.relevantFiles || [],
       },
@@ -535,6 +576,15 @@ export class DrizzleConversationStorage {
   async saveMessageMetadata(messageId: string, metadata: any): Promise<void> {
     const db = this.getDb();
 
+    // 为了精确清除缓存，我们需要 conversationId
+    const msgResult = await db
+      .select({ conversationId: messages.conversationId })
+      .from(messages)
+      .where(eq(messages.id, messageId))
+      .limit(1);
+    
+    const conversationId = msgResult[0]?.conversationId;
+
     // 检查是否已存在
     const existing = await db
       .select()
@@ -557,8 +607,11 @@ export class DrizzleConversationStorage {
       });
     }
 
-    // 清除缓存
+    // 清除精确缓存
     this.deleteCache(`metadata:${messageId}`);
+    if (conversationId) {
+      this.deleteCache(`messages_with_metadata:${conversationId}`);
+    }
   }
 
   /**

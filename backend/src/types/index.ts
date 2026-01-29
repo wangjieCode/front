@@ -286,7 +286,8 @@ export interface ProjectInfo {
   projectId: string;          // 项目ID（必填）
   projectName: string;        // 项目名称（必填）
   gitRepositoryUrl: string;   // Git仓库URL（必填）
-  workDir: string;            // 工作目录（使用项目的workDirectory）
+  workDir: string;            // 当前活跃的工作目录（可能是 worktree）
+  mainRepoDir?: string;       // 项目主仓库目录（用于共享 node_modules）
   gitBranch?: string;         // Git 分支
   relevantFiles?: string[];   // 相关文件
 }
