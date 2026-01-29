@@ -21,6 +21,7 @@ export interface IConversationStorage {
   saveContext(sessionId: string, context: ConversationContext): Promise<void>;
   loadContext(sessionId: string): Promise<ConversationContext | null>;
   deleteSession(sessionId: string): Promise<void>;
+  getInactiveSessions(olderThanXDays: number, status?: string): Promise<{ id: string }[]>;
 }
 
 /**
@@ -360,5 +361,12 @@ export class ConversationStorageAdapter implements IConversationStorage {
    */
   async deleteSession(sessionId: string): Promise<void> {
     await this.storage.deleteSession(sessionId);
+  }
+
+  /**
+   * 获取不活跃的会话 ID 列表
+   */
+  async getInactiveSessions(olderThanXDays: number, status: string = 'active'): Promise<{ id: string }[]> {
+    return await this.storage.getInactiveSessions(olderThanXDays, status);
   }
 }

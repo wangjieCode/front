@@ -1,4 +1,4 @@
-import { eq, and, desc, asc } from 'drizzle-orm';
+import { eq, and, desc, asc, lt } from 'drizzle-orm';
 import { DatabaseManager } from '../db/DatabaseManager';
 import {
   conversations,
@@ -257,6 +257,26 @@ export class DrizzleConversationStorage {
         }
       }
     }));
+  }
+
+  /**
+   * 获取不活跃的会话
+   * @param olderThanXDays 多少天前
+   * @param status 状态（默认为 ACTIVE）
+   */
+  async getInactiveSessions(olderThanXDays: number, status: string = 'active'): Promise<any[]> {
+    const db = this.getDb();
+    const thresholdDate = dayjs().subtract(olderThanXDays, 'day').toDate();
+
+    return await db
+      .select({ id: conversations.id })
+      .from(conversations)
+      .where(
+        and(
+          eq(conversations.status, status),
+          lt(conversations.updatedAt, thresholdDate)
+        )
+      );
   }
 
   /**
