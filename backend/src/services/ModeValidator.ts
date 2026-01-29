@@ -78,6 +78,7 @@ export class ModeValidator {
         [OperationType.DELETE_FILE]: '删除文件',
         [OperationType.CREATE_BRANCH]: '创建分支',
         [OperationType.CREATE_MR]: '创建 MR',
+        [OperationType.PREVIEW_PROJECT]: '预览项目',
       };
 
       const operationName = operationNames[operation] || operation;
