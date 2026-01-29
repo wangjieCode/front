@@ -829,7 +829,6 @@ const ConversationView: React.FC<ConversationViewProps> = ({
                 fontSize: 14,
                 color: '#333',
                 fontWeight: 600,
-                display: 'block',
                 overflow: 'hidden',
                 textOverflow: 'ellipsis',
                 whiteSpace: 'nowrap',
