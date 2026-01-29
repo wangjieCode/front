@@ -13,7 +13,9 @@ import { projects } from '../db/schema';
 import type { Project } from '../db/schema';
 import { ValidationError, GitOperationError } from '../errors/CustomErrors';
 import { existsSync, mkdirSync } from 'fs';
-import { resolve, dirname } from 'path';
+import { resolve, dirname, join } from 'path';
+import { resolveProjectRelativePath, convertToProjectRelativePath, BasePathType } from '../utils/PathUtils';
+import { getGitWorkDir } from '../utils/config';
 
 /**
  * 仓库克隆进度回调函数类型
@@ -48,7 +50,7 @@ export class RepositoryService {
 
   constructor(executor: ICommandExecutor, baseWorkDir?: string) {
     this.executor = executor;
-    this.baseWorkDir = baseWorkDir || process.env.GIT_WORK_DIR || '../front-workspace';
+    this.baseWorkDir = baseWorkDir || getGitWorkDir();
     // GitService 需要 SSHExecutor，但我们使用的是 ICommandExecutor
     // 所以直接使用 executor 执行 git 命令
     this.gitService = null as any;
@@ -141,7 +143,7 @@ export class RepositoryService {
               };      }
 
       // 确保工作目录存在
-      const workDir = resolve(project.workDirectory);
+      const workDir = resolveProjectRelativePath(project.workDirectory, BasePathType.GIT_WORK_DIR);
       await this.ensureDirectoryExists(workDir);
 
       progressCallback?.({
@@ -290,9 +292,8 @@ export class RepositoryService {
    */
   async checkRepositoryStatus(projectId: string): Promise<RepositoryInfo> {
     try {
-      // 这里应该从数据库获取项目信息
-      // 暂时使用简化版本
-      const workDir = `${this.baseWorkDir}/projects/${projectId}`;
+      // 通过项目 ID 的约定生成工作目录
+      const workDir = join(this.baseWorkDir, 'projects', projectId);
       return await this.getRepositoryInfo(workDir);
     } catch (error) {
       return {
@@ -321,9 +322,8 @@ export class RepositoryService {
         progress: 0,
       });
 
-      // 这里应该从数据库获取项目信息
-      // 暂时使用简化版本
-      const workDir = `${this.baseWorkDir}/projects/${projectId}`;
+      // 通过项目 ID 的约定生成工作目录
+      const workDir = join(this.baseWorkDir, 'projects', projectId);
 
       // 检查是否为Git仓库
       const repoInfo = await this.getRepositoryInfo(workDir);

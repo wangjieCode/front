@@ -102,7 +102,8 @@ export class ConversationManager {
         // 确保所有必要字段都有值
         gitBranch: projectInfo.gitBranch || "master",
         relevantFiles: projectInfo.relevantFiles,
-        workDir: projectInfo.workDir
+        workDir: projectInfo.workDir,
+        mainRepoDir: projectInfo.mainRepoDir
       };
     } else {
       // 获取完整的项目信息
@@ -124,6 +125,7 @@ export class ConversationManager {
         projectName: project.name,
         gitRepositoryUrl: project.gitRepositoryUrl,
         workDir: project.workDirectory || project.repoDir,
+        mainRepoDir: project.workDirectory || project.repoDir,
         gitBranch: project.gitBranch || "master",
         relevantFiles: projectInfo.relevantFiles,
       };

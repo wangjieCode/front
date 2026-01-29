@@ -11,7 +11,7 @@ import { ICommandExecutor } from '../types';
 import { newId } from '../utils/id';
 import dayjs from 'dayjs';
 import path from 'path';
-import { resolveProjectRelativePath, convertToProjectRelativePath } from '../utils/PathUtils';
+import { resolveProjectRelativePath, convertToProjectRelativePath, BasePathType, smartResolvePath } from '../utils/PathUtils';
 
 // 从schema导出类型
 type Project = typeof projects.$inferSelect;
@@ -89,7 +89,7 @@ export class ProjectService {
    * @returns 绝对路径
    */
   public resolvePath(targetPath: string | null): string {
-    return resolveProjectRelativePath(targetPath);
+    return resolveProjectRelativePath(targetPath, BasePathType.GIT_WORK_DIR);
   }
 
   /**
@@ -109,8 +109,8 @@ export class ProjectService {
   private resolveProjectPaths(project: Project): Project {
     return {
       ...project,
-      repoDir: this.resolvePath(project.repoDir),
-      workDirectory: this.resolvePath(project.workDirectory),
+      repoDir: smartResolvePath(project.repoDir),
+      workDirectory: smartResolvePath(project.workDirectory),
     };
   }
 
@@ -145,7 +145,7 @@ export class ProjectService {
         name: data.name.trim(),
         description: data.description?.trim() || null,
         repoDir: relativeRepoDir,
-        gitBranch: 'master', // 固定为master
+        gitBranch: data.gitBranch || 'master',
         isActive: true,
         createdBy: userId,
         gitRepositoryUrl: data.gitRepositoryUrl.trim(),
@@ -299,10 +299,13 @@ export class ProjectService {
       if (data.name !== undefined) updateData.name = data.name.trim();
       if (data.description !== undefined) updateData.description = data.description?.trim() || null;
       if (data.gitRepositoryUrl !== undefined) updateData.gitRepositoryUrl = data.gitRepositoryUrl.trim();
-      if (data.gitBranch !== undefined) updateData.gitBranch = data.gitBranch?.trim() || 'main';
+      if (data.gitBranch !== undefined) updateData.gitBranch = data.gitBranch?.trim() || 'master';
       if (data.gitlabProjectId !== undefined) updateData.gitlabProjectId = data.gitlabProjectId?.trim() || null;
       if (data.gitlabUrl !== undefined) updateData.gitlabUrl = data.gitlabUrl?.trim() || null;
-      if (data.workDirectory !== undefined) updateData.workDirectory = data.workDirectory.trim();
+      if (data.workDirectory !== undefined) {
+        updateData.workDirectory = this.convertToRelative(data.workDirectory.trim());
+        updateData.repoDir = updateData.workDirectory; // 通常保持一致
+      }
       if (data.isActive !== undefined) updateData.isActive = data.isActive;
 
       const [updatedProject] = await this.db
@@ -444,7 +447,7 @@ export class ProjectService {
     const urlParts = gitRepositoryUrl.split('/');
     const lastPart = urlParts[urlParts.length - 1]; 
     const repoName = lastPart.endsWith('.git') ? lastPart.substring(0, lastPart.length - 4) : lastPart;
-    const sanitizedName = repoName.toLowerCase().replace(/[^a-z0-9\u4e00-\u9fa5\-]/g, '').replace(/-+/g, '-').replace(/^-|-$/g, '');
+    const sanitizedName = repoName.toLowerCase().replace(/[^a-z0-9\-]/g, '').replace(/-+/g, '-').replace(/^-|-$/g, '');
     return sanitizedName;
   }
 }

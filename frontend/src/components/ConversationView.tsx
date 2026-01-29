@@ -958,7 +958,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
 
                     {/* 停止预览/详情 */}
                     {session.context?.previewInfo?.status === PreviewStatus.RUNNING && (
-                      <div style={{ display: 'flex', gap: 12, marginLeft: 12 }}>
+                      <div style={{ display: 'flex', gap: 12,}}>
                         <Button
                           size="small"
                           icon={<ClockCircleOutlined />}
@@ -1119,7 +1119,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
               </a>
             </Descriptions.Item>
 
-            <Descriptions.Item label="容器 ID" span={2}>
+            <Descriptions.Item label="实例 ID" span={2}>
               <code style={{
                 fontSize: 11,
                 background: '#f5f5f5',
@@ -1127,14 +1127,14 @@ const ConversationView: React.FC<ConversationViewProps> = ({
                 borderRadius: 3,
                 wordBreak: 'break-all'
               }}>
-                {session?.context?.previewInfo?.containerId?.substring(0, 12)}
+                {session?.context?.previewInfo?.containerId}
               </code>
             </Descriptions.Item>
 
             {(session?.context?.previewInfo?.imageId || session?.context?.previewInfo?.imageName) && (
               <>
                 {session?.context?.previewInfo?.imageName && (
-                  <Descriptions.Item label="镇像名称" span={2}>
+                  <Descriptions.Item label="镜像名称" span={2}>
                     <Tag color="geekblue" icon={<CheckOutlined />}>
                       {session.context.previewInfo.imageName}
                     </Tag>
@@ -1142,7 +1142,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
                 )}
 
                 {session?.context?.previewInfo?.imageId && (
-                  <Descriptions.Item label="镇像 ID" span={2}>
+                  <Descriptions.Item label="镜像 ID" span={2}>
                     <code style={{
                       fontSize: 11,
                       background: '#f5f5f5',
@@ -1158,7 +1158,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
             )}
 
             {(deploymentInfo?.ports || session?.context?.previewInfo?.ports) && (
-              <Descriptions.Item label="端口映射" span={2}>
+              <Descriptions.Item label="访问端口" span={2}>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                   {(deploymentInfo?.ports || session?.context?.previewInfo?.ports)?.map((port: any, index: number) => (
                     <div
@@ -1177,7 +1177,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
                         {port.service}
                       </Tag>
                       <span style={{ fontFamily: 'monospace', fontSize: 13 }}>
-                        {port.host} → {port.container}
+                        端口: {port.host}
                       </span>
                       <a
                         href={`http://${session?.context?.previewInfo?.url?.split('//')[1]?.split(':')[0]}:${port.host}`}
