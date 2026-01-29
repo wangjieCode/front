@@ -593,7 +593,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
        // 更新本地状态
        setSession(prev => prev ? { ...prev, visibility: newVisibility } : null);
        onVisibilityChange?.(sessionId, newVisibility);
-       message.success(newVisibility === 'public' ? '对话已设为公开' : '对话已设为私密');
+       message.success(newVisibility === 'public' ? '对话已开启分享' : '对话已设为私密');
      } catch (error) {
        console.error('更新可见性失败:', error);
        message.error('更新可见性失败');
@@ -991,29 +991,29 @@ const ConversationView: React.FC<ConversationViewProps> = ({
                   </>
                 )}
 
-                {/* 可见性 */}
-                {session?.userId === currentUserId && (
-                  <Tooltip title={(session?.visibility || ConversationVisibility.PRIVATE) === ConversationVisibility.PRIVATE ? '设为公开' : '设为私密'}>
+                 {session?.userId === currentUserId && (
+                  <Tooltip title={(session?.visibility || ConversationVisibility.PRIVATE) === ConversationVisibility.PRIVATE ? '开启分享后对话可被所有账户查看' : '设为私密'}>
                     <Button
                       size="small"
-                      icon={(session?.visibility || ConversationVisibility.PRIVATE) === ConversationVisibility.PRIVATE ? <GlobalOutlined /> : <LockOutlined />}
+                      icon={(session?.visibility || ConversationVisibility.PRIVATE) === ConversationVisibility.PRIVATE ? <LockOutlined /> : <GlobalOutlined />}
                       onClick={handleToggleVisibility}
                       loading={updatingVisibility}
                       style={{
                         fontSize: 12,
                         height: 26,
                         borderRadius: 6,
-                        color: (session?.visibility || ConversationVisibility.PRIVATE) === ConversationVisibility.PRIVATE ? '#52c41a' : '#fa8c16',
-                        borderColor: (session?.visibility || ConversationVisibility.PRIVATE) === ConversationVisibility.PRIVATE ? '#52c41a' : '#fa8c16',
+                        color: (session?.visibility || ConversationVisibility.PRIVATE) === ConversationVisibility.PRIVATE ? '#fa8c16' : '#52c41a',
+                        borderColor: (session?.visibility || ConversationVisibility.PRIVATE) === ConversationVisibility.PRIVATE ? '#fa8c16' : '#52c41a',
                         opacity: 0.8
                       }}
                     >
-                      {(session?.visibility || ConversationVisibility.PRIVATE) === ConversationVisibility.PRIVATE ? '私密' : '公开'}
+                      {(session?.visibility || ConversationVisibility.PRIVATE) === ConversationVisibility.PRIVATE ? '分享' : '私密'}
                     </Button>
                   </Tooltip>
                 )}
 
-                {!isArchived && (
+                {/* 这个有定时任务根据活跃度自动归档 */}
+                {/* {!isArchived && (
                   <Button
                     size="small"
                     icon={<InboxOutlined />}
@@ -1029,7 +1029,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
                   >
                     归档
                   </Button>
-                )}
+                )} */}
               </div>
             </div>
           </div>
