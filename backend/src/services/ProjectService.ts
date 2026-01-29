@@ -11,7 +11,7 @@ import { ICommandExecutor } from '../types';
 import { newId } from '../utils/id';
 import dayjs from 'dayjs';
 import path from 'path';
-import { resolveProjectRelativePath, convertToProjectRelativePath, BasePathType, smartResolvePath } from '../utils/PathUtils';
+import { resolveStoredPath, convertToStoredPath, BasePathType } from '../utils/PathUtils';
 
 // 从schema导出类型
 type Project = typeof projects.$inferSelect;
@@ -89,16 +89,16 @@ export class ProjectService {
    * @returns 绝对路径
    */
   public resolvePath(targetPath: string | null): string {
-    return resolveProjectRelativePath(targetPath, BasePathType.GIT_WORK_DIR);
+    return resolveStoredPath(targetPath, BasePathType.GIT_WORK_DIR);
   }
 
   /**
-   * 将路径转换为相对路径
+   * 将路径转换为变量占位符格式
    * @param absPath 绝对路径
-   * @returns 相对路径
+   * @returns 变量占位符格式的路径
    */
-  public convertToRelative(absPath: string | null): string | null {
-    return convertToProjectRelativePath(absPath);
+  public convertToStoredPath(absPath: string | null): string | null {
+    return convertToStoredPath(absPath);
   }
 
   /**
@@ -109,8 +109,8 @@ export class ProjectService {
   private resolveProjectPaths(project: Project): Project {
     return {
       ...project,
-      repoDir: smartResolvePath(project.repoDir),
-      workDirectory: smartResolvePath(project.workDirectory),
+      repoDir: resolveStoredPath(project.repoDir, BasePathType.GIT_WORK_DIR),
+      workDirectory: resolveStoredPath(project.workDirectory, BasePathType.GIT_WORK_DIR),
     };
   }
 
@@ -135,23 +135,23 @@ export class ProjectService {
       // 生成工作目录（如果未提供，生成的是相对路径）
       const workDirectory = data.workDirectory || this.generateWorkDirectory(data.name, data.gitRepositoryUrl);
 
-      // 格式化路径为相对路径后再存入数据库
-      const relativeRepoDir = this.convertToRelative(workDirectory) || workDirectory;
-      const relativeWorkDir = this.convertToRelative(workDirectory) || workDirectory;
+      // 格式化路径为变量占位符格式后再存入数据库
+      const storedRepoDir = this.convertToStoredPath(workDirectory) || workDirectory;
+      const storedWorkDir = this.convertToStoredPath(workDirectory) || workDirectory;
 
       // 创建项目记录
       const newProject: NewProject = {
         id: newId(),
         name: data.name.trim(),
         description: data.description?.trim() || null,
-        repoDir: relativeRepoDir,
+        repoDir: storedRepoDir,
         gitBranch: data.gitBranch || 'master',
         isActive: true,
         createdBy: userId,
         gitRepositoryUrl: data.gitRepositoryUrl.trim(),
         gitlabProjectId: data.gitlab?.projectId?.trim() || null,
         gitlabUrl: data.gitlab?.url?.trim() || 'https://gitlab.com',
-        workDirectory: relativeWorkDir,
+        workDirectory: storedWorkDir,
         ownerId: userId,
       };
 
@@ -303,7 +303,7 @@ export class ProjectService {
       if (data.gitlabProjectId !== undefined) updateData.gitlabProjectId = data.gitlabProjectId?.trim() || null;
       if (data.gitlabUrl !== undefined) updateData.gitlabUrl = data.gitlabUrl?.trim() || null;
       if (data.workDirectory !== undefined) {
-        updateData.workDirectory = this.convertToRelative(data.workDirectory.trim());
+        updateData.workDirectory = this.convertToStoredPath(data.workDirectory.trim());
         updateData.repoDir = updateData.workDirectory; // 通常保持一致
       }
       if (data.isActive !== undefined) updateData.isActive = data.isActive;

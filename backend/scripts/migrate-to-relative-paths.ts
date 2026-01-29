@@ -1,7 +1,7 @@
 import { eq } from 'drizzle-orm';
 import { DatabaseManager } from '../src/db/DatabaseManager';
 import { projects, conversationContexts, neovateSessions } from '../src/db/schema';
-import { convertToProjectRelativePath } from '../src/utils/PathUtils';
+import { convertToStoredPath } from '../src/utils/PathUtils';
 import * as dotenv from 'dotenv';
 import * as path from 'path';
 
@@ -28,8 +28,8 @@ async function migrate() {
   const allProjects = await db.select().from(projects);
   console.log(`\n[Projects] 处理 ${allProjects.length} 条记录...`);
   for (const p of allProjects) {
-    const relRepo = convertToProjectRelativePath(p.repoDir);
-    const relWork = convertToProjectRelativePath(p.workDirectory);
+    const relRepo = convertToStoredPath(p.repoDir);
+    const relWork = convertToStoredPath(p.workDirectory);
 
     if (relRepo !== p.repoDir || relWork !== p.workDirectory) {
       console.log(`  - 项目 "${p.name}":`);
@@ -47,8 +47,8 @@ async function migrate() {
   const allContexts = await db.select().from(conversationContexts);
   console.log(`\n[Contexts] 处理 ${allContexts.length} 条记录...`);
   for (const ctx of allContexts) {
-    const relDir = convertToProjectRelativePath(ctx.workDir);
-    const relPath = convertToProjectRelativePath(ctx.worktreePath);
+    const relDir = convertToStoredPath(ctx.workDir);
+    const relPath = convertToStoredPath(ctx.worktreePath);
 
     if (relDir !== ctx.workDir || (ctx.worktreePath && relPath !== ctx.worktreePath)) {
       console.log(`  - 会话 "${ctx.conversationId}":`);
@@ -66,7 +66,7 @@ async function migrate() {
   const allNeovate = await db.select().from(neovateSessions);
   console.log(`\n[Neovate] 处理 ${allNeovate.length} 条记录...`);
   for (const s of allNeovate) {
-    const relDir = convertToProjectRelativePath(s.workDir);
+    const relDir = convertToStoredPath(s.workDir);
     if (relDir !== s.workDir) {
       console.log(`  - Neovate Session "${s.neovateSessionId}": ${s.workDir} -> ${relDir}`);
       await db.update(neovateSessions).set({
