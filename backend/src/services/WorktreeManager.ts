@@ -35,9 +35,11 @@ export class WorktreeManager {
   constructor(
     private executor: ICommandExecutor,
     private baseRepoPath: string,
-    private worktreeBaseDir: string
+    private worktreeBaseDir: string,
+    private projectId: string
   ) {
-    console.log(`[WorktreeManager] 初始化（优化版 - 每对话一个 worktree）`);
+    console.log(`[WorktreeManager] 初始化（优化版 - 增加项目层级隔离）`);
+    console.log(`[WorktreeManager] 项目 ID: ${projectId}`);
     console.log(`[WorktreeManager] 基础仓库: ${baseRepoPath}`);
     console.log(`[WorktreeManager] Worktree 目录: ${worktreeBaseDir}`);
   }
@@ -47,7 +49,7 @@ export class WorktreeManager {
    * 新路径格式: /worktrees/user-{userId}/conversation-{sessionId}
    */
   private getConversationWorktreePath(userId: string, sessionId: string): string {
-    return path.join(this.worktreeBaseDir, `user-${userId}`, `conversation-${sessionId}`);
+    return path.join(this.worktreeBaseDir, `project-${this.projectId}`, `user-${userId}`, `conversation-${sessionId}`);
   }
 
   /**
@@ -530,43 +532,51 @@ export class WorktreeManager {
     try {
       console.log(`[WorktreeManager] 删除对话 worktree: ${sessionId}`);
 
-      // 获取分支名（用于后续删除分支）
-      let branchName: string | undefined;
+      // 检查当前是否在 Git 仓库中
+      let isGitRepo = false;
       try {
-        const worktreeInfo = await this.getWorktreeInfo(userId, sessionId);
-        branchName = worktreeInfo.branchName;
+        const gitCheck = await this.executor.executeCommand('git rev-parse --is-inside-work-tree', this.baseRepoPath);
+        isGitRepo = gitCheck.exitCode === 0 && gitCheck.stdout.trim() === 'true';
       } catch (e) {
-        // 如果获取失败，继续删除 worktree
+        isGitRepo = false;
       }
 
-      // 删除 worktree
-      const result = await this.executor.executeCommand(
-        `git worktree remove "${worktreePath}" --force`,
-        this.baseRepoPath
-      );
-
-      if (result.exitCode !== 0) {
-        throw new Error(`删除 worktree 失败: ${result.stderr}`);
-      }
-
-      // 删除分支
-      if (branchName) {
+      if (isGitRepo) {
+        // 获取分支名
+        let branchName: string | undefined;
         try {
-          await this.executor.executeCommand(
-            `git branch -D ${branchName}`,
-            this.baseRepoPath
-          );
-          console.log(`[WorktreeManager] 已删除分支: ${branchName}`);
-        } catch (e) {
-          console.warn(`[WorktreeManager] 删除分支失败: ${branchName}`, e);
+          const worktreeInfo = await this.getWorktreeInfo(userId, sessionId);
+          branchName = worktreeInfo.branchName;
+        } catch (e) {}
+
+        // 尝试使用 git 删除
+        const result = await this.executor.executeCommand(
+          `git worktree remove "${worktreePath}" --force`,
+          this.baseRepoPath
+        );
+
+        if (result.exitCode === 0) {
+          // 删除分支
+          if (branchName) {
+            await this.executor.executeCommand(`git branch -D ${branchName}`, this.baseRepoPath).catch(() => {});
+          }
+          console.log(`[WorktreeManager] ✅ Git Worktree 删除成功`);
+        } else {
+          // 如果 git 删除失败（例如记录丢失），则回退到物理删除
+          console.warn(`[WorktreeManager] Git 删除失败 (${result.stderr.trim()})，回退到物理删除`);
+          await this.executor.executeCommand(`rm -rf "${worktreePath}"`, this.baseRepoPath);
+          console.log(`[WorktreeManager] ✅ 物理删除目录成功`);
         }
+      } else {
+        // 非 Git 仓库环境，直接物理删除
+        console.log(`[WorktreeManager] 当前环境非 Git 仓库，直接物理删除目录: ${worktreePath}`);
+        await this.executor.executeCommand(`rm -rf "${worktreePath}"`, this.baseRepoPath);
+        console.log(`[WorktreeManager] ✅ 物理删除成功`);
       }
 
       // 从缓存移除
       const cacheKey = `${userId}-${sessionId}`;
       this.worktreeCache.delete(cacheKey);
-
-      console.log(`[WorktreeManager] ✅ Worktree 删除成功`);
     } catch (error) {
       throw new Error(
         `删除对话 worktree 失败: ${error instanceof Error ? error.message : String(error)}`
@@ -579,7 +589,7 @@ export class WorktreeManager {
    */
   async listUserWorktrees(userId: string): Promise<string[]> {
     try {
-      const userWorktreeDir = path.join(this.worktreeBaseDir, `user-${userId}`);
+      const userWorktreeDir = path.join(this.worktreeBaseDir, `project-${this.projectId}`, `user-${userId}`);
       
       const result = await this.executor.executeCommand(
         `find "${userWorktreeDir}" -maxdepth 1 -type d -name "conversation-*" 2>/dev/null || true`,
@@ -690,5 +700,61 @@ export class WorktreeManager {
       failed,
       errors,
     };
+  }
+
+  /**
+   * 全局清理所有非活跃会话的 worktree
+   * 该方法会扫描 worktreeBaseDir 下的所有目录，并根据外部提供的活跃会话 ID 列表进行清理
+   */
+  async globalCleanupWorktrees(activeSessionIds: string[]): Promise<{
+    cleaned: number;
+    failed: number;
+  }> {
+    let cleaned = 0;
+    let failed = 0;
+    const activeSet = new Set(activeSessionIds);
+
+    try {
+      // 1. 获取当前项目的目录
+      const projectDir = path.join(this.worktreeBaseDir, `project-${this.projectId}`);
+      
+      // 2. 获取该项目下的所有用户目录
+      const userDirsResult = await this.executor.executeCommand(
+        `ls -d ${path.join(projectDir, 'user-*')} 2>/dev/null || true`,
+        this.baseRepoPath
+      );
+      const userDirs = userDirsResult.stdout.split('\n').filter(d => d.trim());
+
+      for (const userDir of userDirs) {
+        const userId = path.basename(userDir).replace('user-', '');
+        
+        // 3. 获取该用户下的所有对话目录
+        const convDirsResult = await this.executor.executeCommand(
+          `ls -d ${path.join(userDir, 'conversation-*')} 2>/dev/null || true`,
+          this.baseRepoPath
+        );
+        const convDirs = convDirsResult.stdout.split('\n').filter(d => d.trim());
+
+        for (const convDir of convDirs) {
+          const sessionId = path.basename(convDir).replace('conversation-', '');
+          
+          // 3. 如果会话不在活跃列表中，则删除
+          if (!activeSet.has(sessionId)) {
+            try {
+              console.log(`[WorktreeManager] 发现非活跃 worktree，准备清理: ${sessionId}`);
+              await this.removeConversationWorktree(userId, sessionId);
+              cleaned++;
+            } catch (error) {
+              failed++;
+              console.error(`[WorktreeManager] 清理非活跃 worktree ${sessionId} 失败:`, error);
+            }
+          }
+        }
+      }
+    } catch (error) {
+      console.error(`[WorktreeManager] 全局清理失败:`, error);
+    }
+
+    return { cleaned, failed };
   }
 }

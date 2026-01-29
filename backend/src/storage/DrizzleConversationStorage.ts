@@ -1,4 +1,4 @@
-import { eq, and, desc, asc } from 'drizzle-orm';
+import { eq, and, desc, asc, lt } from 'drizzle-orm';
 import { DatabaseManager } from '../db/DatabaseManager';
 import {
   conversations,
@@ -13,7 +13,7 @@ import {
 } from '../db/schema';
 import { newId } from '../utils/id';
 import dayjs from 'dayjs';
-import { convertToProjectRelativePath, resolveProjectRelativePath, smartResolvePath, BasePathType } from '../utils/PathUtils';
+import { convertToStoredPath, resolveStoredPath, BasePathType } from '../utils/PathUtils';
 import path from 'path';
 
 /**
@@ -248,7 +248,7 @@ export class DrizzleConversationStorage {
         taskDescription: row.taskDescription || '',
         variables: row.variables || {}, // 确保变量始终是一个对象
         projectInfo: {
-          workDir: smartResolvePath(row.workDir),
+          workDir: resolveStoredPath(row.workDir),
           projectId: row.projectId || null,
           projectName: row.projectName || row.projectNameJoined || null,
           gitRepositoryUrl: '',
@@ -257,6 +257,26 @@ export class DrizzleConversationStorage {
         }
       }
     }));
+  }
+
+  /**
+   * 获取不活跃的会话
+   * @param olderThanXDays 多少天前
+   * @param status 状态（默认为 ACTIVE）
+   */
+  async getInactiveSessions(olderThanXDays: number, status: string = 'active'): Promise<any[]> {
+    const db = this.getDb();
+    const thresholdDate = dayjs().subtract(olderThanXDays, 'day').toDate();
+
+    return await db
+      .select({ id: conversations.id })
+      .from(conversations)
+      .where(
+        and(
+          eq(conversations.status, status),
+          lt(conversations.updatedAt, thresholdDate)
+        )
+      );
   }
 
   /**
@@ -480,8 +500,8 @@ export class DrizzleConversationStorage {
     const rawWorktreePath = context.projectInfo?.worktreePath || context.worktreePath;
     
     const contextData = {
-      workDir: convertToProjectRelativePath(rawWorkDir) || '',
-      worktreePath: convertToProjectRelativePath(rawWorktreePath),
+      workDir: convertToStoredPath(rawWorkDir) || '',
+      worktreePath: convertToStoredPath(rawWorktreePath),
       gitBranch: context.gitBranch || context.projectInfo?.gitBranch,
       relevantFiles: context.projectInfo?.relevantFiles || context.relevantFiles,
       taskDescription: context.taskDescription,
@@ -548,8 +568,8 @@ export class DrizzleConversationStorage {
     // 转换为应用层期望的 ConversationContext 格式
     const context = {
       projectInfo: {
-        workDir: smartResolvePath(rawContext.workDir),
-        worktreePath: rawContext.worktreePath ? resolveProjectRelativePath(rawContext.worktreePath, BasePathType.WORKTREE_BASE_DIR) : null,
+        workDir: resolveStoredPath(rawContext.workDir),
+        worktreePath: rawContext.worktreePath ? resolveStoredPath(rawContext.worktreePath, BasePathType.WORKTREE_BASE_DIR) : null,
         gitBranch: rawContext.gitBranch,
         relevantFiles: rawContext.relevantFiles || [],
       },
