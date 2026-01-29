@@ -14,7 +14,7 @@ import type { Project } from '../db/schema';
 import { ValidationError, GitOperationError } from '../errors/CustomErrors';
 import { existsSync, mkdirSync } from 'fs';
 import { resolve, dirname, join } from 'path';
-import { resolveProjectRelativePath, convertToProjectRelativePath, BasePathType } from '../utils/PathUtils';
+import { resolveStoredPath, convertToStoredPath, BasePathType } from '../utils/PathUtils';
 import { getGitWorkDir } from '../utils/config';
 
 /**
@@ -143,7 +143,7 @@ export class RepositoryService {
               };      }
 
       // 确保工作目录存在
-      const workDir = resolveProjectRelativePath(project.workDirectory, BasePathType.GIT_WORK_DIR);
+      const workDir = resolveStoredPath(project.workDirectory, BasePathType.GIT_WORK_DIR);
       await this.ensureDirectoryExists(workDir);
 
       progressCallback?.({
