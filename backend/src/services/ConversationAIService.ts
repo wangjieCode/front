@@ -225,17 +225,35 @@ export class ConversationAIService {
       const commitMessage = `AI: ${userMessage.substring(0, 50)}${userMessage.length > 50 ? '...' : ''}`;
       const commitResult = await this.gitService.commit(commitMessage, workDir);
 
-      if (commitResult.success && context.gitBranch) {
-        // 动态获取 GitLab 项目路径，确保推送到正确的仓库
-        // 推送到远程
-        await this.gitService.push(
-          context.gitBranch, 
-          'origin', 
-          false, 
+      if (!commitResult.success) {
+        console.warn(`[ConversationAIService] 提交未成功，跳过推送: ${commitResult.message}`);
+        return;
+      }
+
+      const status = await this.gitService.getStatus(workDir);
+      const branchToPush = status.currentBranch || context.gitBranch;
+      if (!branchToPush) {
+        console.warn('[ConversationAIService] 未获取到当前分支，跳过推送');
+        return;
+      }
+
+      const pushResult = await this.gitService.push(
+        branchToPush,
+        'origin',
+        false,
+        workDir
+      );
+      if (!pushResult.success) {
+        const upstreamResult = await this.gitService.pushWithUpstream(
+          branchToPush,
+          'origin',
           workDir
         );
-        // console.log(`[ConversationAIService] ✅ 变更已提交并推送`);
+        if (!upstreamResult.success) {
+          console.error('[ConversationAIService] 推送失败:', upstreamResult.error || upstreamResult.message);
+        }
       }
+      // console.log(`[ConversationAIService] ✅ 变更已提交并推送`);
     } catch (error) {
       console.error(`[ConversationAIService] ❌ 提交变更失败:`, error);
     }

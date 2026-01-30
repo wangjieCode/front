@@ -178,6 +178,7 @@ class ConversationService {
   async createConversation(params: {
     initialPrompt: string;
     projectId: string;
+    baseBranch?: string;
     mode?: string;
   }): Promise<{ success: boolean; data: ConversationSession }> {
     const response = await fetchWithAuth(`${this.baseUrl}/api/conversations`, {
@@ -192,6 +193,17 @@ class ConversationService {
 
     const result = await response.json();
     return result;
+  }
+
+  async getGitBranches(projectId: string): Promise<{ branches: string[]; defaultBranch?: string }> {
+    const response = await fetchWithAuth(
+      `${this.baseUrl}/api/conversations/gitlab/branches?projectId=${encodeURIComponent(projectId)}`
+    );
+    if (!response.ok) {
+      throw new Error('获取分支列表失败');
+    }
+    const result = await response.json();
+    return result.data;
   }
 
   /**

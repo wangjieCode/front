@@ -27,12 +27,39 @@ export function createConversationRoutes(
   };
 
   /**
+   * GET /api/conversations/gitlab/branches
+   * 获取 GitLab 分支列表与默认分支
+   */
+  router.get('/gitlab/branches', requireAuth, async (req: AuthRequest, res: Response) => {
+    try {
+      const projectId = (req.query.projectId as string) || '';
+      if (!projectId) {
+        return res.status(400).json({
+          success: false,
+          error: '缺少 projectId',
+        });
+      }
+
+      const result = await conversationManager.getGitLabBranches(projectId, req.userId!);
+      res.json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : '获取分支列表失败',
+      });
+    }
+  });
+
+  /**
    * POST /api/conversations
    * 创建新的对话会话
    */
   router.post('/', requireAuth, async (req: AuthRequest, res: Response) => {
     try {
-      const { initialPrompt, mode, projectId } = req.body;
+      const { initialPrompt, mode, projectId, baseBranch } = req.body;
 
       console.log('[API] 创建对话请求参数:', {
         initialPrompt: initialPrompt?.substring(0, 50) + '...',
@@ -79,7 +106,7 @@ export function createConversationRoutes(
         projectName: project.name,
         gitRepositoryUrl: project.gitRepositoryUrl,
         workDir: project.workDirectory || project.repoDir,
-        gitBranch: project.gitBranch || 'master',
+        gitBranch: baseBranch || project.gitBranch || 'master',
         relevantFiles: [],
       };
 
