@@ -129,17 +129,15 @@ export function getGitDefaultBranch(): string {
 export function loadGitLabConfig(): {
   url: string;
   token: string;
-  projectId: string;
 } {
   const url = process.env.GITLAB_URL;
   const token = process.env.GITLAB_TOKEN;
-  const projectId = process.env.GITLAB_PROJECT_ID;
 
-  if (!url || !token || !projectId) {
+  if (!url || !token) {
     throw new Error('GitLab 配置不完整，请检查环境变量');
   }
 
-  return { url, token, projectId };
+  return { url, token };
 }
 
 /**

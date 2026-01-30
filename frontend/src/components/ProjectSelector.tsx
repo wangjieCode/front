@@ -1,19 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Select, Spin, message, Typography } from 'antd';
+import { Select, Spin, message } from 'antd';
 import { ProjectOutlined } from '@ant-design/icons';
 import { projectService } from '../services/projectService';
+import { Project } from '../types/project';
 
 const { Option } = Select;
-const { Text } = Typography;
-
-interface Project {
-  id: string;
-  name: string;
-  description?: string;
-  gitRepositoryUrl: string;
-  workDirectory?: string;
-}
-
 interface ProjectSelectorProps {
   value?: string;
   onChange?: (projectId: string, project: Project) => void;
@@ -29,7 +20,6 @@ const ProjectSelector: React.FC<ProjectSelectorProps> = ({
 }) => {
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(false);
-  const [selectedProject, setSelectedProject] = useState<Project | null>(null);
 
   // 加载项目列表
   useEffect(() => {
@@ -40,12 +30,6 @@ const ProjectSelector: React.FC<ProjectSelectorProps> = ({
         
         if (response.success && response.data) {
           setProjects(response.data);
-          
-          // 如果有默认值，设置选中的项目
-          if (value) {
-            const project = response.data.find(p => p.id === value);
-            setSelectedProject(project || null);
-          }
         } else {
           message.error('加载项目列表失败');
         }
@@ -63,8 +47,6 @@ const ProjectSelector: React.FC<ProjectSelectorProps> = ({
   // 处理项目选择
   const handleChange = (projectId: string) => {
     const project = projects.find(p => p.id === projectId);
-    setSelectedProject(project || null);
-    
     if (onChange && project) {
       onChange(projectId, project);
     }
@@ -102,17 +84,6 @@ const ProjectSelector: React.FC<ProjectSelectorProps> = ({
         ))}
       </Select>
       
-      {selectedProject && (
-        <div style={{ marginTop: 8, padding: 8, background: '#f5f5f5', borderRadius: 4 }}>
-          <Text type="secondary" style={{ fontSize: '12px' }}>
-            仓库: {selectedProject.gitRepositoryUrl}
-          </Text>
-          <br />
-          <Text type="secondary" style={{ fontSize: '12px' }}>
-            工作目录: {selectedProject.workDirectory}
-          </Text>
-        </div>
-      )}
     </div>
   );
 };

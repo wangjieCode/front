@@ -33,14 +33,17 @@ export class DatabaseManager {
 
     this.config = config;
 
+    console.log('[DB] Creating postgres client');
     // 创建 PostgreSQL 客户端
     this.client = postgres(config.connectionString, {
       max: config.max ?? 10,
       idle_timeout: config.idleTimeout ?? 20,
       connect_timeout: config.connectionTimeout ?? 30, // 增加连接超时到 30 秒
-      onnotice: () => {}, // 忽略 PostgreSQL 通知
+      onnotice: (notice) => console.log('[DB Notice]', notice), // 忽略 PostgreSQL 通知
       prepare: false, // 禁用预处理语句，提高 Supabase 兼容性
+      ssl: 'require',
     });
+    console.log('[DB] Postgres client created');
 
     // 创建 Drizzle 实例
     this.db = drizzle(this.client, { schema });
@@ -83,7 +86,9 @@ export class DatabaseManager {
       }
 
       // 执行简单查询测试连接
-      await this.client`SELECT 1 as test`;
+      console.log('[DB] Executing test query...');
+      const result = await this.client`SELECT 1 as test`;
+      console.log('[DB] Test query result:', result);
       console.log('Database connection test successful');
       return true;
     } catch (error) {

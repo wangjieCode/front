@@ -26,7 +26,7 @@
 
 ## 业务规则
 
-- Worktree 路径固定规则。
+- Worktree 路径固定规则：`{WORKTREE_BASE_DIR}/project-{projectId}/user-{userId}/conversation-{sessionId}`。
 - 分支名按 sessionId + 时间戳生成。
 
 ## 需求

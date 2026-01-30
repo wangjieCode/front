@@ -27,12 +27,16 @@ let services: {
 export async function initializeAllServices() {
   if (services) return services;
 
+  console.log('[INIT] 开始初始化服务...');
   const runMode = process.env.RUN_MODE || 'local';
   const appEnv = process.env.APP_ENV || 'local';
   const workDir = getGitWorkDir();
+  console.log(`[INIT] RUN_MODE=${runMode}, APP_ENV=${appEnv}, GIT_WORK_DIR=${workDir}`);
   
   // 1. 初始化数据库
+  const dbInitStart = Date.now();
   await initializeDatabase();
+  console.log(`[INIT] 数据库初始化完成，耗时 ${Date.now() - dbInitStart}ms`);
   const conversationStorage = new DrizzleConversationStorage();
   
   // 2. 初始化执行器
@@ -58,6 +62,7 @@ export async function initializeAllServices() {
     }
   }
 
+  console.log('[INIT] 执行器初始化完成');
   // 3. 初始化各级服务
   const codeToolService = new CodeToolService(executor);
   const storageAdapter = new ConversationStorageAdapter(conversationStorage);
@@ -65,7 +70,6 @@ export async function initializeAllServices() {
   const gitlabService = new GitLabMCPService({
     url: process.env.GITLAB_URL || '',
     token: process.env.GITLAB_TOKEN || '',
-    projectId: process.env.GITLAB_PROJECT_ID || '',
   });
   
   const worktreeBaseDir = getWorktreeBaseDir(workDir);
@@ -78,7 +82,9 @@ export async function initializeAllServices() {
   const conversationAIService = new ConversationAIService(neovateAIService, databaseUrl, gitService, gitlabService);
   const messageRouter = new MessageRouter(conversationManager);
 
+  console.log('[INIT] 对话相关服务初始化完成，准备连接 Redis');
   const redis = RedisManager.getInstance();
+  console.log('[INIT] Redis 实例已创建');
 
   services = {
     conversationManager,
