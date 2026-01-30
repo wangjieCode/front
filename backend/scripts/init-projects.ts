@@ -12,7 +12,7 @@ import { sql } from 'drizzle-orm';
 import { existsSync, mkdirSync } from 'fs';
 import { execSync } from 'child_process';
 import path from 'path';
-import { convertToStoredPath } from '../src/utils/PathUtils';
+import { convertToStoredPath, resolveStoredPath } from '../src/utils/PathUtils';
 
 // 解析命令行参数
 const args = process.argv.slice(2);
@@ -63,8 +63,7 @@ console.log('');
  */
 function resolvePath(targetPath: string): string {
   if (!targetPath) return '';
-  if (path.isAbsolute(targetPath)) return targetPath;
-  return path.join(WORKSPACE_ROOT, targetPath);
+  return resolveStoredPath(targetPath);
 }
 
 /**
@@ -112,43 +111,16 @@ async function initializeProject(project: any): Promise<{
       // 验证是否是有效的 Git 仓库
       if (existsSync(path.join(mappedDir, '.git'))) {
         console.log(`   ✓ 有效的 Git 仓库`);
-        
-        // 如果指定了 --pull，则强制更新
-        if (shouldPull) {
-          console.log(`   🔄 正在强制更新代码 (--pull)...`);
-          const branch = project.gitBranch || 'master';
-          try {
-            executeCommand(`git fetch origin ${branch}`, mappedDir);
-            executeCommand(`git reset --hard origin/${branch}`, mappedDir);
-            console.log(`   ✅ 代码更新成功`);
-          } catch (pullError: any) {
-            console.warn(`   ⚠️  代码更新失败: ${pullError.message}`);
-          }
-        }
       } else {
-        console.log(`   ⚠️  目录存在但不是 Git 仓库，将重新克隆`);
-        if (!isDryRun) {
-          // 备份旧目录
-          const backupDir = `${mappedDir}.backup.${Date.now()}`;
-          executeCommand(`mv ${mappedDir} ${backupDir}`);
-          console.log(`   📦 已备份到: ${backupDir}`);
-        }
-        
-        await cloneRepository(
-          project.gitRepositoryUrl,
-          process.env.GITLAB_TOKEN || '',
-          mappedDir,
-          project.gitBranch || 'master'
-        );
+        console.log(`   ⚠️  目录存在但不是有效的 Git 仓库`);
       }
     } else {
-      console.log(`   ❌ 仓库目录不存在，开始克隆...`);
-      await cloneRepository(
-        project.gitRepositoryUrl,
-        process.env.GITLAB_TOKEN || '',
+      console.log(`   ❌ 仓库目录不存在`);
+      return {
+        success: false,
         mappedDir,
-        project.gitBranch || 'master'
-      );
+        error: '仓库目录不在当前工作空间内，请手动克隆或确认配置',
+      };
     }
     
     // 创建 Worktree 基础目录 (按约定是在项目目录同级的 worktrees 目录)
@@ -158,13 +130,13 @@ async function initializeProject(project: any): Promise<{
       console.log(`   📁 创建 Worktree 基础目录: ${worktreeBaseDir}`);
     }
     
-    console.log(`   ✅ 项目初始化成功`);
+    console.log(`   ✅ 项目检查成功`);
     return {
       success: true,
       mappedDir,
     };
   } catch (error: any) {
-    console.error(`   ❌ 初始化失败: ${error.message}`);
+    console.error(`   ❌ 检查失败: ${error.message}`);
     return {
       success: false,
       mappedDir,
@@ -173,47 +145,7 @@ async function initializeProject(project: any): Promise<{
   }
 }
 
-/**
- * 克隆 Git 仓库
- */
-async function cloneRepository(
-  repoUrl: string,
-  token: string,
-  targetDir: string,
-  branch: string
-): Promise<void> {
-  console.log(`   📥 克隆仓库到: ${targetDir}`);
-  
-  let cloneUrl = repoUrl;
-  
-  // 如果是 HTTPS URL 且提供了 token，则注入 token
-  if (repoUrl.startsWith('http') && token) {
-    try {
-      const urlObj = new URL(repoUrl);
-      cloneUrl = `${urlObj.protocol}//oauth2:${token}@${urlObj.host}${urlObj.pathname}`;
-    } catch (e) {
-      console.warn('   ⚠️  URL 解析失败，使用原始 URL');
-    }
-  }
-  
-  // 确保父目录存在
-  const parentDir = path.dirname(targetDir);
-  if (!existsSync(parentDir) && !isDryRun) {
-    mkdirSync(parentDir, { recursive: true });
-    console.log(`   📁 创建父目录: ${parentDir}`);
-  }
-  
-  // 克隆仓库
-  try {
-    const branchFlag = branch ? `-b ${branch}` : '';
-    executeCommand(`git clone ${branchFlag} ${cloneUrl} ${targetDir}`);
-    console.log(`   ✅ 克隆成功`);
-  } catch (error: any) {
-    console.log(`   ⚠️  克隆失败，尝试不指定分支...`);
-    executeCommand(`git clone ${cloneUrl} ${targetDir}`);
-    console.log(`   ✅ 克隆成功`);
-  }
-}
+// 已移除 cloneRepository 逻辑，现在由运维或开发人员手动管理仓库
 
 /**
  * 主函数

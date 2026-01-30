@@ -44,7 +44,7 @@ export class LocalExecutor {
    * @param workDir 工作目录（可选）
    * @returns 命令执行结果
    */
-  async executeCommand(command: string, workDir?: string): Promise<CommandResult> {
+  async executeCommand(command: string, workDir?: string, timeout: number = 60000, env?: Record<string, string>): Promise<CommandResult> {
     // console.log('[LocalExecutor] 执行命令:', command.substring(0, 100) + '...');
     // console.log('[LocalExecutor] 工作目录:', workDir || '(当前目录)');
 
@@ -52,9 +52,10 @@ export class LocalExecutor {
       const options = {
         cwd: workDir,
         maxBuffer: 100 * 1024 * 1024, // 100MB
+        timeout: timeout,
         env: {
           ...process.env,
-          IFLOW_API_KEY: process.env.IFLOW_API_KEY,
+          ...env,
         }
       };
 
@@ -104,7 +105,8 @@ export class LocalExecutor {
     command: string,
     workDir: string | undefined,
     onData: (data: string) => void,
-    onError?: (data: string) => void
+    timeout: number = 300000,
+    env?: Record<string, string>
   ): Promise<CommandResult> {
     // console.log('[LocalExecutor] 流式执行命令:', command.substring(0, 100) + '...');
     // console.log('[LocalExecutor] 工作目录:', workDir || '(当前目录)');
@@ -113,10 +115,10 @@ export class LocalExecutor {
       const { spawn } = require('child_process');
       const options = {
         cwd: workDir,
+        timeout: timeout,
         env: {
           ...process.env,
-          // 确保传递 IFLOW_API_KEY 给子进程
-          IFLOW_API_KEY: process.env.IFLOW_API_KEY,
+          ...env,
         }
       };
 
@@ -149,13 +151,12 @@ export class LocalExecutor {
           onData(output);
         });
 
-        // 捕获标准错误并实时回调
+        // 捕获标准错误
         child.stderr.on('data', (data: Buffer) => {
           const output = data.toString('utf8');
           stderr += output;
-          if (onError) {
-            onError(output);
-          }
+          // 合并到输出中或者按需处理
+          onData(output);
         });
 
         // 进程结束
