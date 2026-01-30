@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Spin, Typography, Button, Input, message, Modal, Descriptions, Tag, Tooltip } from 'antd';
+import { Spin, Typography, Button, Input, message, Modal, Descriptions, Tag, Tooltip, Select } from 'antd';
 import { ThunderboltOutlined, SendOutlined, RocketOutlined, CheckOutlined, WarningOutlined, StopOutlined, GitlabOutlined, ClockCircleOutlined, LinkOutlined, LockOutlined, InboxOutlined, GlobalOutlined } from '@ant-design/icons';
 import ModeSelector from './ModeSelector';
 import ProjectSelector from './ProjectSelector';
@@ -12,6 +12,7 @@ import {
   ConversationVisibility,
   PreviewStatus,
 } from '../types/conversation';
+import { Project } from '../types/project';
 import MessageInput from './MessageInput';
 import MessageList from './MessageList';
 import { conversationService } from '../services/conversationService';
@@ -22,7 +23,7 @@ interface ConversationViewProps {
   sessionId?: string;
   initialPrompt?: string;
   initialSession?: ConversationSession;
-  onNewConversation?: (prompt: string, mode: ConversationMode, projectId: string) => Promise<void>;
+  onNewConversation?: (prompt: string, mode: ConversationMode, projectId: string, baseBranch?: string) => Promise<void>;
   onVisibilityChange?: (sessionId: string, visibility: ConversationVisibility) => void;
   mode?: ConversationMode;
   onModeChange?: (mode: ConversationMode) => void;
@@ -65,6 +66,10 @@ const ConversationView: React.FC<ConversationViewProps> = ({
   // New conversation state
   const [prompt, setPrompt] = useState('');
   const [selectedProjectId, setSelectedProjectId] = useState<string>('');
+  const [selectedProject, setSelectedProject] = useState<Project | null>(null);
+  const [baseBranch, setBaseBranch] = useState<string>('');
+  const [branchOptions, setBranchOptions] = useState<string[]>([]);
+  const [loadingBranches, setLoadingBranches] = useState(false);
 
   // 预览相关状态
   const [isDeploying, setIsDeploying] = useState(false);
@@ -79,6 +84,43 @@ const ConversationView: React.FC<ConversationViewProps> = ({
     '看一下页面的功能',
     '看一下某接口调用使用了哪些返回值',
   ];
+
+  const loadBranches = async (projectId: string, fallbackBranch: string, canceled?: { value: boolean }) => {
+    if (loadingBranches) return;
+    setLoadingBranches(true);
+    try {
+      const result = await conversationService.getGitBranches(projectId);
+      if (canceled?.value) return;
+      const branches = result.branches || [];
+      const defaultBranch = result.defaultBranch || fallbackBranch || branches[0] || '';
+      setBranchOptions(branches);
+      setBaseBranch(defaultBranch);
+    } catch (error) {
+      if (canceled?.value) return;
+      message.error('获取基线分支失败');
+      setBranchOptions(fallbackBranch ? [fallbackBranch] : []);
+      setBaseBranch(fallbackBranch);
+    } finally {
+      if (!canceled?.value) {
+        setLoadingBranches(false);
+      }
+    }
+  };
+
+  useEffect(() => {
+    if (!selectedProjectId) {
+      setBranchOptions([]);
+      setBaseBranch('');
+      return;
+    }
+
+    const canceled = { value: false };
+    void loadBranches(selectedProjectId, selectedProject?.gitBranch || '', canceled);
+
+    return () => {
+      canceled.value = true;
+    };
+  }, [selectedProjectId, selectedProject?.gitBranch]);
 
   // 加载会话数据
   useEffect(() => {
@@ -647,10 +689,35 @@ const ConversationView: React.FC<ConversationViewProps> = ({
             </Text>
             <ProjectSelector
               value={selectedProjectId}
-              onChange={(projectId) => {
+              onChange={(projectId, project) => {
                 setSelectedProjectId(projectId);
+                setSelectedProject(project);
+                setBaseBranch(project?.gitBranch || '');
               }}
               placeholder="请选择要操作的项目"
+            />
+          </div>
+
+          {/* 基线分支选择 */}
+          <div style={{ width: 220 }}>
+            <Text type="secondary" style={{ fontSize: 14, marginBottom: 8, display: 'block' }}>
+              基线分支 <span style={{ color: '#ff4d4f' }}>*</span>
+            </Text>
+            <Select
+              value={baseBranch || undefined}
+              placeholder={selectedProjectId ? '请选择基线分支' : '请先选择项目'}
+              loading={loadingBranches}
+              disabled={!selectedProjectId}
+              showSearch
+              size="large"
+              style={{ width: '100%' }}
+              onChange={(value) => setBaseBranch(value)}
+              onDropdownVisibleChange={(open) => {
+                if (open && selectedProjectId) {
+                  void loadBranches(selectedProjectId, selectedProject?.gitBranch || '');
+                }
+              }}
+              options={branchOptions.map(branch => ({ value: branch, label: branch }))}
             />
           </div>
 
@@ -682,9 +749,13 @@ const ConversationView: React.FC<ConversationViewProps> = ({
                   message.warning('请先选择项目');
                   return;
                 }
+                if (!baseBranch) {
+                  message.warning('请先选择基线分支');
+                  return;
+                }
                 setSending(true);
                 try {
-                  await onNewConversation(prompt, mode, selectedProjectId);
+                  await onNewConversation(prompt, mode, selectedProjectId, baseBranch);
                 } finally {
                   setSending(false);
                 }
@@ -706,10 +777,14 @@ const ConversationView: React.FC<ConversationViewProps> = ({
                 message.warning('请先选择项目');
                 return;
               }
+              if (!baseBranch) {
+                message.warning('请先选择基线分支');
+                return;
+              }
               if (onNewConversation) {
                 setSending(true);
                 try {
-                  await onNewConversation(prompt, mode, selectedProjectId);
+                  await onNewConversation(prompt, mode, selectedProjectId, baseBranch);
                 } finally {
                   setSending(false);
                 }

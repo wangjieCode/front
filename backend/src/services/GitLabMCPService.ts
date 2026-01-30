@@ -12,7 +12,6 @@ declare const URLSearchParams: typeof globalThis.URLSearchParams;
 export interface GitLabConfig {
   url: string;
   token: string;
-  projectId: string;
 }
 
 /**
@@ -26,6 +25,10 @@ interface GitLabMRResponse {
   target_branch: string;
   title: string;
   state: string;
+}
+
+interface GitLabBranchResponse {
+  name: string;
 }
 
 /**
@@ -55,7 +58,11 @@ export class GitLabMCPService {
 
     try {
       // 检查 MR 是否已存在
-      const existingMR = await this.findExistingMR(params.sourceBranch, params.targetBranch);
+      const existingMR = await this.findExistingMR(
+        params.sourceBranch,
+        params.targetBranch,
+        params.projectId
+      );
       if (existingMR) {
         console.log(`[GitLabMCPService] ℹ️  MR 已存在（远程查询）: ${existingMR.webUrl}`);
         return existingMR;
@@ -120,12 +127,11 @@ export class GitLabMCPService {
     projectId?: string
   ): Promise<MergeRequest | null> {
     try {
-      const targetProjectId = projectId;
-      if (!targetProjectId) {
+      if (!projectId) {
         console.error('[GitLabMCPService] findExistingMR 失败：未提供项目 ID');
         return null;
       }
-      const url = `${this.baseUrl}/projects/${encodeURIComponent(targetProjectId)}/merge_requests`;
+      const url = `${this.baseUrl}/projects/${encodeURIComponent(projectId)}/merge_requests`;
       
       const params = new URLSearchParams({
         source_branch: sourceBranch,
@@ -177,12 +183,11 @@ export class GitLabMCPService {
    */
   async getMergeRequest(mrId: number, projectId?: string): Promise<MergeRequest | null> {
     try {
-      const targetProjectId = projectId;
-      if (!targetProjectId) {
+      if (!projectId) {
         console.error('[GitLabMCPService] getMergeRequest 失败：未提供项目 ID');
         return null;
       }
-      const url = `${this.baseUrl}/projects/${encodeURIComponent(targetProjectId)}/merge_requests/${mrId}`;
+      const url = `${this.baseUrl}/projects/${encodeURIComponent(projectId)}/merge_requests/${mrId}`;
 
       const response = await fetch(url, {
         method: 'GET',
@@ -222,20 +227,14 @@ export class GitLabMCPService {
     targetBranch: string,
     projectId?: string
   ): Promise<MergeRequest> {
+    if (!projectId) {
+      throw new Error('未提供 GitLab Project ID，无法创建 MR');
+    }
     const title = generateMRTitle(taskPrompt);
     const description = generateMRDescription(taskPrompt, taskId);
-    const targetProjectId = projectId || this.config.projectId;
-
-    if (!targetProjectId) {
-      throw new Error('未配置 GitHub/GitLab Project ID，无法创建 MR');
-    }
-    
-    if (!projectId && this.config.projectId) {
-      console.warn(`[GitLabMCPService] ⚠️ 未提供项目特定的 ID，回退到全局默认 ID: ${this.config.projectId}`);
-    }
 
     return this.createMergeRequest({
-      projectId: targetProjectId,
+      projectId,
       sourceBranch,
       targetBranch,
       title,
@@ -247,9 +246,12 @@ export class GitLabMCPService {
    * 测试 GitLab 连接
    * @returns 如果连接成功返回 true
    */
-  async testConnection(): Promise<boolean> {
+  async testConnection(projectId?: string): Promise<boolean> {
+    if (!projectId) {
+      return false;
+    }
     try {
-      const url = `${this.baseUrl}/projects/${encodeURIComponent(this.config.projectId)}`;
+      const url = `${this.baseUrl}/projects/${encodeURIComponent(projectId)}`;
 
       const response = await fetch(url, {
         method: 'GET',
@@ -273,12 +275,11 @@ export class GitLabMCPService {
     default_branch: string;
   } | null> {
     try {
-      const targetProjectId = projectId;
-      if (!targetProjectId) {
+      if (!projectId) {
         console.error('[GitLabMCPService] getProjectInfo 失败：未提供项目 ID');
         return null;
       }
-      const url = `${this.baseUrl}/projects/${encodeURIComponent(targetProjectId)}`;
+      const url = `${this.baseUrl}/projects/${encodeURIComponent(projectId)}`;
 
       const response = await fetch(url, {
         method: 'GET',
@@ -292,6 +293,45 @@ export class GitLabMCPService {
       return await response.json();
     } catch (error) {
       return null;
+    }
+  }
+
+  async listBranches(projectId?: string): Promise<string[]> {
+    try {
+      if (!projectId) {
+        console.error('[GitLabMCPService] listBranches 失败：未提供项目 ID');
+        return [];
+      }
+      const branches: string[] = [];
+      const perPage = 100;
+      let page = 1;
+      let hasNextPage = true;
+
+      while (hasNextPage) {
+        const url = `${this.baseUrl}/projects/${encodeURIComponent(projectId)}/repository/branches?per_page=${perPage}&page=${page}`;
+        const response = await fetch(url, {
+          method: 'GET',
+          headers: this.headers,
+        });
+
+        if (!response.ok) {
+          return branches;
+        }
+
+        const data: GitLabBranchResponse[] = await response.json();
+        branches.push(...data.map(branch => branch.name));
+
+        const nextPage = response.headers.get('x-next-page');
+        if (nextPage && nextPage.trim()) {
+          page = Number(nextPage);
+        } else {
+          hasNextPage = false;
+        }
+      }
+
+      return branches;
+    } catch (error) {
+      return [];
     }
   }
 }

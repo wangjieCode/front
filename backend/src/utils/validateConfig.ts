@@ -53,9 +53,6 @@ export function validateAllConfig(): ConfigValidationResult {
   if (!process.env.GITLAB_TOKEN) {
     errors.push('GITLAB_TOKEN 未设置');
   }
-  if (!process.env.GITLAB_PROJECT_ID) {
-    errors.push('GITLAB_PROJECT_ID 未设置');
-  }
 
   return {
     valid: errors.length === 0,

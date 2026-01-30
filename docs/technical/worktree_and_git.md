@@ -3,7 +3,7 @@
 ## Worktree 规则
 
 - 每个会话一个 Worktree
-- 路径：`/worktrees/user-{userId}/conversation-{sessionId}`
+- 路径：`{WORKTREE_BASE_DIR}/project-{projectId}/user-{userId}/conversation-{sessionId}`
 - 分支：`conversation-{sessionId前8位}-{时间戳}`
 
 ## 创建流程
@@ -15,6 +15,7 @@
 ## 提交与推送
 
 - 编辑模式下 AI 修改后自动提交
+- 推送使用当前 worktree 分支（以 `git branch --show-current` 为准）
 - 推送失败时尝试 `git push --set-upstream`
 
 ## 清理
