@@ -33,7 +33,7 @@
 
 - 主工作区：由 `GIT_WORK_DIR` 或 `LOCAL_GIT_WORK_DIR/REMOTE_GIT_WORK_DIR` 决定
 - Worktree 基础目录：`WORKTREE_BASE_DIR` 或 `REMOTE_WORKTREE_BASE_DIR`
-- Worktree 路径规则：`/worktrees/user-{userId}/conversation-{sessionId}`
+- Worktree 路径规则：`{WORKTREE_BASE_DIR}/project-{projectId}/user-{userId}/conversation-{sessionId}`
 
 ## 数据持久化
 

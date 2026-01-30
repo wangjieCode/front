@@ -107,13 +107,14 @@ export class ConversationManager {
     const project = projectResult.project;
 
     // 构建完整的 ProjectInfo
+    const selectedBranch = projectInfo.gitBranch || project.gitBranch;
     const completeProjectInfo: ProjectInfo = {
       projectId: project.id,
       projectName: project.name,
       gitRepositoryUrl: project.gitRepositoryUrl,
       workDir: project.workDirectory || project.repoDir,
       mainRepoDir: project.workDirectory || project.repoDir,
-      gitBranch: project.gitBranch,
+      gitBranch: selectedBranch,
       relevantFiles: projectInfo.relevantFiles,
     };
 
@@ -853,5 +854,34 @@ export class ConversationManager {
         error: error instanceof Error ? error.message : String(error),
       };
     }
+  }
+
+  async getGitLabBranches(
+    projectId: string,
+    userId: string
+  ): Promise<{ branches: string[]; defaultBranch?: string }> {
+    if (!this.gitlabService) {
+      throw new Error('GitLab 服务未初始化');
+    }
+
+    const projectResult = await this.projectService.getProject(projectId, userId);
+    if (!projectResult.success || !projectResult.project) {
+      throw new Error(projectResult.error || '项目不存在');
+    }
+
+    const gitlabProjectId = projectResult.project.gitlabProjectId || undefined;
+    if (!gitlabProjectId) {
+      throw new Error('项目未配置 gitlab_project_id');
+    }
+
+    const [branches, projectInfo] = await Promise.all([
+      this.gitlabService.listBranches(gitlabProjectId),
+      this.gitlabService.getProjectInfo(gitlabProjectId),
+    ]);
+
+    return {
+      branches,
+      defaultBranch: projectInfo?.default_branch || projectResult.project.gitBranch,
+    };
   }
 }

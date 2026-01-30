@@ -33,6 +33,72 @@ export class GitService {
     private workDir: string
   ) {}
 
+  createScoped(workDir: string): GitService {
+    return new GitService(this.sshExecutor, workDir);
+  }
+
+  async fetchBranch(branchName: string): Promise<GitOperationResult> {
+    try {
+      const result = await this.sshExecutor.executeCommand(
+        `git fetch origin ${branchName}:${branchName}`,
+        this.workDir
+      );
+
+      if (result.exitCode === 0) {
+        return {
+          success: true,
+          message: `成功拉取分支: ${branchName}`,
+          output: result.stdout,
+        };
+      }
+
+      return {
+        success: false,
+        message: `拉取分支失败: ${branchName}`,
+        error: result.stderr,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: '拉取分支时发生错误',
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  async createWorktree(
+    baseBranch: string,
+    worktreePath: string,
+    branchName: string
+  ): Promise<GitOperationResult> {
+    try {
+      const result = await this.sshExecutor.executeCommand(
+        `mkdir -p "$(dirname "${worktreePath}")" && git worktree add -b ${branchName} ${worktreePath} ${baseBranch}`,
+        this.workDir
+      );
+
+      if (result.exitCode === 0) {
+        return {
+          success: true,
+          message: `成功创建 worktree: ${worktreePath}`,
+          output: result.stdout,
+        };
+      }
+
+      return {
+        success: false,
+        message: `创建 worktree 失败: ${worktreePath}`,
+        error: result.stderr,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: '创建 worktree 时发生错误',
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
   /**
    * 创建新分支
    * @param branchName 分支名称
@@ -292,6 +358,47 @@ export class GitService {
           error: result.stderr,
         };
       }
+    } catch (error) {
+      return {
+        success: false,
+        message: '推送分支时发生错误',
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  /**
+   * 推送分支并设置 upstream
+   * @param branchName 分支名称
+   * @param remote 远程仓库名称（默认为 origin）
+   * @param cwd 工作目录
+   * @returns 操作结果
+   */
+  async pushWithUpstream(
+    branchName: string,
+    remote: string = 'origin',
+    cwd?: string
+  ): Promise<GitOperationResult> {
+    const targetDir = cwd || this.workDir;
+    try {
+      const result = await this.sshExecutor.executeCommand(
+        `git push --set-upstream ${remote} ${branchName}`,
+        targetDir
+      );
+
+      if (result.exitCode === 0) {
+        return {
+          success: true,
+          message: `成功推送分支 ${branchName} 并设置 upstream`,
+          output: result.stdout + result.stderr,
+        };
+      }
+
+      return {
+        success: false,
+        message: `推送分支失败: ${branchName}`,
+        error: result.stderr,
+      };
     } catch (error) {
       return {
         success: false,

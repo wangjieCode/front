@@ -8,6 +8,7 @@ import { loadDatabaseConfig, validateDatabaseConfig } from '../config/database';
 export async function initializeDatabase(): Promise<boolean> {
   try {
     console.log('Initializing database connection...');
+    const startTime = Date.now();
 
     // 加载配置
     const config = loadDatabaseConfig();
@@ -21,7 +22,9 @@ export async function initializeDatabase(): Promise<boolean> {
     DatabaseManager.initialize(config);
 
     // 测试连接
+    console.log('Testing database connection...');
     const isConnected = await DatabaseManager.testConnection();
+    console.log(`Database connection test finished in ${Date.now() - startTime}ms`);
 
     if (!isConnected) {
       throw new Error('Database connection test failed');
