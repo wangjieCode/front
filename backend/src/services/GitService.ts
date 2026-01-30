@@ -259,34 +259,20 @@ export class GitService {
   }
 
   /**
-   * 推送分支到远程仓库
    * @param branchName 分支名称
    * @param remote 远程仓库名称（默认为 origin）
    * @param force 是否强制推送
+   * @param cwd 工作目录
    * @returns 操作结果
    */
-  async push(branchName: string, remote: string = 'origin', force: boolean = false, cwd?: string): Promise<GitOperationResult> {
+  async push(
+    branchName: string, 
+    remote: string = 'origin', 
+    force: boolean = false, 
+    cwd?: string
+  ): Promise<GitOperationResult> {
     const targetDir = cwd || this.workDir;
     try {
-      // 在推送前配置 Git 认证（使用 GitLab Token）
-      const gitlabToken = process.env.GITLAB_TOKEN;
-      if (gitlabToken) {
-        // 配置远程 URL 使用 Token 认证
-        const gitlabUrl = process.env.GITLAB_URL || 'https://git.dtminds.cn';
-        const projectPath = process.env.GITLAB_PROJECT_PATH || 'front-end/dtmall-admin';
-        const baseUrl = gitlabUrl.replace(/https?:\/\//, '').replace(/\/$/, '');
-        
-        // 设置远程 URL：https://oauth2:<token>@domain/path.git
-        const authUrl = `https://oauth2:${gitlabToken}@${baseUrl}/${projectPath}.git`;
-        
-        await this.sshExecutor.executeCommand(
-          `git remote set-url ${remote} ${authUrl}`,
-          targetDir
-        );
-        
-        console.log(`[GitService] 已配置 Git 远程认证`);
-      }
-      
       const forceFlag = force ? '-f' : '';
       const result = await this.sshExecutor.executeCommand(
         `git push ${forceFlag} ${remote} ${branchName}`,

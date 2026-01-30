@@ -93,42 +93,32 @@ export class ConversationManager {
       throw new Error("项目ID不能为空，必须选择一个项目");
     }
 
-    // 检查 projectInfo 是否已经包含必要信息，如果是则直接使用，避免重复查询数据库
-    let completeProjectInfo: ProjectInfo;
-    
-    if (projectInfo.projectName && projectInfo.gitRepositoryUrl && projectInfo.workDir) {
-      completeProjectInfo = {
-        ...projectInfo,
-        // 确保所有必要字段都有值
-        gitBranch: projectInfo.gitBranch || "master",
-        relevantFiles: projectInfo.relevantFiles,
-        workDir: projectInfo.workDir,
-        mainRepoDir: projectInfo.mainRepoDir
-      };
-    } else {
-      // 获取完整的项目信息
-      const projectResult = await this.projectService.getProject(
-        projectInfo.projectId,
-        userId
+    // 始终以数据库项目为准，避免 projectId 与 workDir 不一致
+    const projectResult = await this.projectService.getProject(
+      projectInfo.projectId,
+      userId
+    );
+    if (!projectResult.success || !projectResult.project) {
+      throw new Error(
+        `获取项目信息失败: ${projectResult.error || "项目不存在"}`
       );
-      if (!projectResult.success || !projectResult.project) {
-        throw new Error(
-          `获取项目信息失败: ${projectResult.error || "项目不存在"}`
-        );
-      }
+    }
 
-      const project = projectResult.project;
+    const project = projectResult.project;
 
-      // 构建完整的 ProjectInfo
-      completeProjectInfo = {
-        projectId: project.id,
-        projectName: project.name,
-        gitRepositoryUrl: project.gitRepositoryUrl,
-        workDir: project.workDirectory || project.repoDir,
-        mainRepoDir: project.workDirectory || project.repoDir,
-        gitBranch: project.gitBranch || "master",
-        relevantFiles: projectInfo.relevantFiles,
-      };
+    // 构建完整的 ProjectInfo
+    const completeProjectInfo: ProjectInfo = {
+      projectId: project.id,
+      projectName: project.name,
+      gitRepositoryUrl: project.gitRepositoryUrl,
+      workDir: project.workDirectory || project.repoDir,
+      mainRepoDir: project.workDirectory || project.repoDir,
+      gitBranch: project.gitBranch,
+      relevantFiles: projectInfo.relevantFiles,
+    };
+
+    if (!completeProjectInfo.gitBranch) {
+      throw new Error(`[ConversationManager] 项目 ${project.name} 缺失默认分支配置(gitBranch)`);
     }
 
     // console.log(`[ConversationManager] 创建会话 - 项目信息:`, {
@@ -186,7 +176,8 @@ export class ConversationManager {
         // 只更新 workDir，保留其他项目信息
         context.projectInfo = {
           ...context.projectInfo,
-          workDir: gitResult.worktreePath
+          workDir: gitResult.worktreePath,
+          worktreePath: gitResult.worktreePath
         };
       }
 
@@ -198,7 +189,7 @@ export class ConversationManager {
       }
 
       console.log(`[ConversationManager] 只读模式：直接使用项目主目录 ${completeProjectInfo.workDir}`);
-      context.gitBranch = completeProjectInfo.gitBranch || "master";
+      context.gitBranch = completeProjectInfo.gitBranch;
       
       // 不进行 worktree 操作，使用 completeProjectInfo 中的默认 workDir
     }
@@ -225,7 +216,7 @@ export class ConversationManager {
     sessionId: string,
     _taskDescription: string,
     userId: string,
-    defaultBranch: string = "master"
+    defaultBranch: string
   ): Promise<{
     success: boolean;
     branchName?: string;
@@ -266,6 +257,10 @@ export class ConversationManager {
         sessionId,
         projectResult.project.gitBranch || defaultBranch
       );
+      
+      if (!worktreeInfo.branchName) {
+         throw new Error('[ConversationManager] 创建 worktree 失败：未能获取分支名称');
+      }
 
       console.log(`[ConversationManager] ✅ 对话 worktree 创建成功`);
       console.log(`[ConversationManager]    分支: ${worktreeInfo.branchName}`);

@@ -129,9 +129,6 @@ fi
 echo "==> Install deps"
 pnpm install --frozen-lockfile
 
-echo "==> Initialize projects"
-pnpm init:projects --base-dir="${DEPLOY_DIR}" --pull
-
 echo "==> Start or Restart PM2 (API)"
 if pm2 describe "${APP_NAME}" >/dev/null 2>&1; then
   echo "Stopping and restarting ${APP_NAME} to ensure code update..."

@@ -345,6 +345,7 @@ export class RepositoryService {
       const beforeCount = await this.getCommitCount(workDir);
 
       // 执行拉取操作
+      await this.ensureAuthRemote(workDir);
       const pullResult = await this.executor.executeCommand('git pull origin', workDir);
       if (pullResult.exitCode !== 0) {
         return {
@@ -411,8 +412,9 @@ export class RepositoryService {
    */
   private async testRepositoryAccess(url: string): Promise<OperationResult> {
     try {
+      const authUrl = this.withGitlabToken(url);
       // 使用 ls-remote 命令测试访问权限
-      const result = await this.executor.executeCommand(`git ls-remote ${url}`);
+      const result = await this.executor.executeCommand(`git ls-remote ${authUrl}`);
       
       if (result.exitCode === 0) {
         return {
@@ -489,8 +491,9 @@ export class RepositoryService {
     progressCallback: (progress: number, message: string) => void
   ): Promise<OperationResult> {
     try {
+      const authUrl = this.withGitlabToken(url);
       // 使用--depth 1进行浅克隆以提高速度
-      const cloneCommand = `git clone --depth 1 --branch ${branch} ${url} ${workDir}`;
+      const cloneCommand = `git clone --depth 1 --branch ${branch} ${authUrl} ${workDir}`;
       
       progressCallback(30, '正在下载仓库文件...');
       
@@ -515,6 +518,46 @@ export class RepositoryService {
         error: error instanceof Error ? error.message : '克隆操作失败',
         message: error instanceof Error ? error.message : '克隆操作失败',
       };
+    }
+  }
+
+  /**
+   * 确保远程使用带 Token 的 HTTPS URL
+   */
+  private async ensureAuthRemote(workDir: string): Promise<void> {
+    const token = process.env.GITLAB_TOKEN;
+    if (!token) return;
+    const originResult = await this.executor.executeCommand('git remote get-url origin', workDir);
+    if (originResult.exitCode !== 0) return;
+    const originUrl = originResult.stdout.trim();
+    if (!originUrl) return;
+    const authUrl = this.withGitlabToken(originUrl);
+    if (authUrl === originUrl) return;
+    await this.executor.executeCommand(`git remote set-url origin "${authUrl}"`, workDir);
+  }
+
+  /**
+   * 为 HTTPS GitLab URL 注入 Token（不影响 SSH）
+   */
+  public getAuthUrl(url: string): string {
+    return this.withGitlabToken(url);
+  }
+
+  /**
+   * 为 HTTPS GitLab URL 注入 Token（不影响 SSH）
+   */
+  private withGitlabToken(url: string): string {
+    const token = process.env.GITLAB_TOKEN;
+    if (!token) return url;
+    if (!url.startsWith('http://') && !url.startsWith('https://')) return url;
+    try {
+      const urlObj = new URL(url);
+      if (urlObj.username || urlObj.password) return url;
+      urlObj.username = 'oauth2';
+      urlObj.password = token;
+      return urlObj.toString();
+    } catch {
+      return url;
     }
   }
 

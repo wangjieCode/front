@@ -34,7 +34,8 @@
     "docker:tunnel": "tsx scripts/ssh-tunnel-docker.ts",
     "docker:ssh-exec": "tsx scripts/ssh-docker-exec.ts",
     "init:projects": "tsx scripts/init-projects.ts",
-    "init:projects:dry-run": "tsx scripts/init-projects.ts --dry-run"
+    "init:projects:dry-run": "tsx scripts/init-projects.ts --dry-run",
+    "reinit:project": "tsx scripts/reinit-project.ts"
   },
   "keywords": [
     "frontend",
