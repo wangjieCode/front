@@ -120,7 +120,11 @@ export class GitLabMCPService {
     projectId?: string
   ): Promise<MergeRequest | null> {
     try {
-      const targetProjectId = projectId || this.config.projectId;
+      const targetProjectId = projectId;
+      if (!targetProjectId) {
+        console.error('[GitLabMCPService] findExistingMR 失败：未提供项目 ID');
+        return null;
+      }
       const url = `${this.baseUrl}/projects/${encodeURIComponent(targetProjectId)}/merge_requests`;
       
       const params = new URLSearchParams({
@@ -173,7 +177,11 @@ export class GitLabMCPService {
    */
   async getMergeRequest(mrId: number, projectId?: string): Promise<MergeRequest | null> {
     try {
-      const targetProjectId = projectId || this.config.projectId;
+      const targetProjectId = projectId;
+      if (!targetProjectId) {
+        console.error('[GitLabMCPService] getMergeRequest 失败：未提供项目 ID');
+        return null;
+      }
       const url = `${this.baseUrl}/projects/${encodeURIComponent(targetProjectId)}/merge_requests/${mrId}`;
 
       const response = await fetch(url, {
@@ -219,7 +227,11 @@ export class GitLabMCPService {
     const targetProjectId = projectId || this.config.projectId;
 
     if (!targetProjectId) {
-      throw new Error('未配置 GitHub/GitLab Project ID');
+      throw new Error('未配置 GitHub/GitLab Project ID，无法创建 MR');
+    }
+    
+    if (!projectId && this.config.projectId) {
+      console.warn(`[GitLabMCPService] ⚠️ 未提供项目特定的 ID，回退到全局默认 ID: ${this.config.projectId}`);
     }
 
     return this.createMergeRequest({
@@ -261,7 +273,11 @@ export class GitLabMCPService {
     default_branch: string;
   } | null> {
     try {
-      const targetProjectId = projectId || this.config.projectId;
+      const targetProjectId = projectId;
+      if (!targetProjectId) {
+        console.error('[GitLabMCPService] getProjectInfo 失败：未提供项目 ID');
+        return null;
+      }
       const url = `${this.baseUrl}/projects/${encodeURIComponent(targetProjectId)}`;
 
       const response = await fetch(url, {

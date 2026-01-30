@@ -59,6 +59,7 @@ export class ConversationStorageAdapter implements IConversationStorage {
 
     await this.storage.saveContext(session.id, {
       workDir: session.context.projectInfo.workDir,
+      worktreePath: session.context.projectInfo.worktreePath,
       gitBranch: session.context.projectInfo.gitBranch || null,
       relevantFiles: session.context.projectInfo.relevantFiles || [],
       taskDescription: session.context.taskDescription,
@@ -93,11 +94,13 @@ export class ConversationStorageAdapter implements IConversationStorage {
 
     if ((dbSession as any).context) {
       const existingContext = (dbSession as any).context as ConversationContext;
+      const worktreePath = existingContext.projectInfo?.worktreePath;
       const projectInfo = {
         projectId: dbSession.projectId || existingContext.projectInfo?.projectId,
         projectName: dbSession.projectName || (dbSession as any).projectNameJoined || existingContext.projectInfo?.projectName || '',
         gitRepositoryUrl: (dbSession as any).projectRepoUrl || existingContext.projectInfo?.gitRepositoryUrl || '',
-        workDir: existingContext.projectInfo?.workDir || '',
+        workDir: worktreePath || existingContext.projectInfo?.workDir || '',
+        worktreePath,
         gitBranch: existingContext.projectInfo?.gitBranch || undefined,
         relevantFiles: existingContext.projectInfo?.relevantFiles || [],
       };
@@ -124,11 +127,13 @@ export class ConversationStorageAdapter implements IConversationStorage {
       return null;
     }
 
+    const worktreePath = dbContext.projectInfo?.worktreePath;
     const context: ConversationContext = {
       projectInfo: {
         projectId: dbSession.projectId || undefined,
         projectName: dbSession.projectName || '',
-        workDir: dbContext.workDir,
+        workDir: worktreePath || dbContext.projectInfo?.workDir || '',
+        worktreePath,
         gitBranch: dbContext.gitBranch || undefined,
         relevantFiles: dbContext.relevantFiles || [],
       },

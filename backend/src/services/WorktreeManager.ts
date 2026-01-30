@@ -1,6 +1,7 @@
 import path from 'path';
 import dayjs from 'dayjs';
 import { ICommandExecutor } from '../types';
+import { resolveStoredPath, BasePathType } from '../utils/PathUtils';
 
 /**
  * Worktree 信息接口
@@ -31,17 +32,21 @@ export interface WorktreeInfo {
  */
 export class WorktreeManager {
   private worktreeCache: Map<string, WorktreeInfo> = new Map();
+  private baseRepoPath: string;
+  private worktreeBaseDir: string;
   
   constructor(
     private executor: ICommandExecutor,
-    private baseRepoPath: string,
-    private worktreeBaseDir: string,
+    baseRepoPath: string,
+    worktreeBaseDir: string,
     private projectId: string
   ) {
+    this.baseRepoPath = resolveStoredPath(baseRepoPath, BasePathType.GIT_WORK_DIR);
+    this.worktreeBaseDir = resolveStoredPath(worktreeBaseDir, BasePathType.WORKTREE_BASE_DIR);
     console.log(`[WorktreeManager] 初始化（优化版 - 增加项目层级隔离）`);
     console.log(`[WorktreeManager] 项目 ID: ${projectId}`);
-    console.log(`[WorktreeManager] 基础仓库: ${baseRepoPath}`);
-    console.log(`[WorktreeManager] Worktree 目录: ${worktreeBaseDir}`);
+    console.log(`[WorktreeManager] 基础仓库: ${this.baseRepoPath}`);
+    console.log(`[WorktreeManager] Worktree 目录: ${this.worktreeBaseDir}`);
   }
 
   /**

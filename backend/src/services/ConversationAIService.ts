@@ -57,7 +57,9 @@ export class ConversationAIService {
         console.error('[ConversationAIService] 查询会话 ID 失败:', error);
       }
 
-      const projectWorkDir = context.projectInfo.workDir;
+      const projectWorkDir = context.mode === ConversationMode.EDIT && context.projectInfo.worktreePath
+        ? context.projectInfo.worktreePath
+        : context.projectInfo.workDir;
       
       // 调用流式 AI 服务
       const result = await this.neovateService.modifyCodeStream(
@@ -65,7 +67,7 @@ export class ConversationAIService {
         sessionId,
         neovateSessionId,
         projectWorkDir,
-        onChunk // 实时回调
+        onChunk
       );
 
       // 编辑模式：异步提交变更（不阻塞响应）
@@ -144,7 +146,9 @@ export class ConversationAIService {
       }
 
       // 调用 AI 服务处理消息（传递 Neovate 会话 ID 和正确的工作目录）
-      const projectWorkDir = context.projectInfo.workDir;
+      const projectWorkDir = context.mode === ConversationMode.EDIT && context.projectInfo.worktreePath
+        ? context.projectInfo.worktreePath
+        : context.projectInfo.workDir;
       // console.log(`[ConversationAIService] 调用 NeovateAIService - conversationId: ${sessionId}, neovateSessionId: ${neovateSessionId || '无'}`);
       // console.log(`[ConversationAIService] context.projectInfo:`, JSON.stringify(context.projectInfo, null, 2));
       // console.log(`[ConversationAIService] projectWorkDir: ${projectWorkDir}`);
@@ -210,7 +214,9 @@ export class ConversationAIService {
     userMessage: string
   ): Promise<void> {
     try {
-      const workDir = context.projectInfo.workDir;
+      const workDir = context.mode === ConversationMode.EDIT && context.projectInfo.worktreePath
+        ? context.projectInfo.worktreePath
+        : context.projectInfo.workDir;
 
       // 添加所有变更
       await this.gitService.addAll(workDir);
@@ -220,8 +226,14 @@ export class ConversationAIService {
       const commitResult = await this.gitService.commit(commitMessage, workDir);
 
       if (commitResult.success && context.gitBranch) {
+        // 动态获取 GitLab 项目路径，确保推送到正确的仓库
         // 推送到远程
-        await this.gitService.push(context.gitBranch, 'origin', false, workDir);
+        await this.gitService.push(
+          context.gitBranch, 
+          'origin', 
+          false, 
+          workDir
+        );
         // console.log(`[ConversationAIService] ✅ 变更已提交并推送`);
       }
     } catch (error) {
@@ -375,4 +387,5 @@ export class ConversationAIService {
 
     return -1; // 无效回答
   }
+
 }

@@ -104,12 +104,13 @@ export interface CommandResult {
  */
 export interface ICommandExecutor {
   isConnected(): boolean;
-  executeCommand(command: string, workDir?: string): Promise<CommandResult>;
+  executeCommand(command: string, workDir?: string, timeout?: number, env?: Record<string, string>): Promise<CommandResult>;
   executeCommandStream?(
     command: string,
     workDir: string | undefined,
     onData: (data: string) => void,
-    onError?: (data: string) => void
+    timeout?: number,
+    env?: Record<string, string>
   ): Promise<CommandResult>;
   testConnection(): Promise<boolean>;
 }
@@ -287,6 +288,7 @@ export interface ProjectInfo {
   projectName: string;        // 项目名称（必填）
   gitRepositoryUrl: string;   // Git仓库URL（必填）
   workDir: string;            // 当前活跃的工作目录（可能是 worktree）
+  worktreePath?: string;      // 对话 worktree 路径（编辑模式专用）
   mainRepoDir?: string;       // 项目主仓库目录（用于共享 node_modules）
   gitBranch?: string;         // Git 分支
   relevantFiles?: string[];   // 相关文件
