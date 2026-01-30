@@ -33,7 +33,7 @@ export class DatabaseManager {
 
     this.config = config;
 
-    console.log(`[DB] Creating postgres client with connection string: ${config.connectionString.substring(0, 20)}...`);
+    console.log('[DB] Creating postgres client');
     // 创建 PostgreSQL 客户端
     this.client = postgres(config.connectionString, {
       max: config.max ?? 10,
