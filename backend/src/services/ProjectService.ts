@@ -12,6 +12,8 @@ import { newId } from '../utils/id';
 import dayjs from 'dayjs';
 import path from 'path';
 import { resolveStoredPath, convertToStoredPath, BasePathType } from '../utils/PathUtils';
+import { getGitWorkDir } from '../utils/config';
+import { resolve } from 'path';
 
 // 从schema导出类型
 type Project = typeof projects.$inferSelect;
@@ -107,10 +109,17 @@ export class ProjectService {
    * @returns 解析后的项目对象
    */
   private resolveProjectPaths(project: Project): Project {
+    const storedRepoDir = project.workDirectory || project.repoDir;
+    let resolvedRepoDir = resolveStoredPath(storedRepoDir, BasePathType.GIT_WORK_DIR);
+    if (!resolvedRepoDir) {
+      const repoName = this.generateWorkDirectory(project.name, project.gitRepositoryUrl);
+      const baseDir = getGitWorkDir();
+      resolvedRepoDir = resolve(baseDir, repoName);
+    }
     return {
       ...project,
-      repoDir: resolveStoredPath(project.repoDir, BasePathType.GIT_WORK_DIR),
-      workDirectory: resolveStoredPath(project.workDirectory, BasePathType.GIT_WORK_DIR),
+      repoDir: resolvedRepoDir,
+      workDirectory: resolvedRepoDir,
     };
   }
 
@@ -416,6 +425,8 @@ export class ProjectService {
         return cloneResult.success ? { success: true, message: '重新克隆成功' } : { success: false, error: cloneResult.error, message: '重新克隆失败' };
       }
 
+      const authUrl = this.repositoryService.getAuthUrl(resolvedProject.gitRepositoryUrl);
+      await this.executor.executeCommand(`git remote set-url origin "${authUrl}"`, resolvedProject.workDirectory);
       await this.executor.executeCommand(`git fetch origin ${resolvedProject.gitBranch}`, resolvedProject.workDirectory);
       const mergeResult = await this.executor.executeCommand(`git merge origin/${resolvedProject.gitBranch} --no-edit`, resolvedProject.workDirectory);
 

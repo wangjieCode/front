@@ -135,19 +135,24 @@ export class SSHExecutor {
    * @param timeout 超时时间（毫秒，默认 30 秒）
    * @returns 命令执行结果
    */
-  async executeCommand(command: string, workDir?: string, timeout: number = 30000): Promise<CommandResult> {
+  async executeCommand(command: string, workDir?: string, timeout: number = 30000, env?: Record<string, string>): Promise<CommandResult> {
     if (!this.isConnected() || !this.client) {
       throw new Error('SSH 未连接');
     }
 
+    let envPrefix = '';
+    if (env) {
+      envPrefix = Object.entries(env)
+        .map(([k, v]) => `export ${k}='${v.replace(/'/g, "'\\''")}'`)
+        .join('; ') + '; ';
+    }
+
     // 使用登录 shell 执行命令，自动加载用户环境
-    // -l: 登录 shell，会加载 .zshrc/.bashrc 等配置
-    // -c: 执行命令
     let fullCommand: string;
     if (workDir) {
-      fullCommand = `cd ${workDir} && ${command}`;
+      fullCommand = `${envPrefix}cd ${workDir} && ${command}`;
     } else {
-      fullCommand = command;
+      fullCommand = `${envPrefix}${command}`;
     }
     
     // 包装在登录 shell 中执行，显式加载 ~/.zshrc 并初始化 fnm 环境
@@ -238,17 +243,25 @@ export class SSHExecutor {
     command: string,
     workDir: string | undefined,
     onData: (data: string) => void,
-    timeout: number = 300000
+    timeout: number = 300000,
+    env?: Record<string, string>
   ): Promise<CommandResult> {
     if (!this.isConnected() || !this.client) {
       throw new Error('SSH 未连接');
     }
 
+    let envPrefix = '';
+    if (env) {
+      envPrefix = Object.entries(env)
+        .map(([k, v]) => `export ${k}='${v.replace(/'/g, "'\\''")}'`)
+        .join('; ') + '; ';
+    }
+
     let fullCommand: string;
     if (workDir) {
-      fullCommand = `cd ${workDir} && ${command}`;
+      fullCommand = `${envPrefix}cd ${workDir} && ${command}`;
     } else {
-      fullCommand = command;
+      fullCommand = `${envPrefix}${command}`;
     }
     
     const shellCommand = `$SHELL -l -c 'source ~/.zshrc 2>/dev/null || true; eval "$(fnm env --use-on-cd)" 2>/dev/null || true; ${fullCommand.replace(/'/g, "'\\''")}'`;
