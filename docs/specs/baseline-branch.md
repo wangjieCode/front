@@ -25,5 +25,5 @@
 4. 分支列表需完整拉取（支持分页），保证新建分支可见。
 4. 编辑模式：
 - 在 `{WORKTREE_BASE_DIR}/project-{projectId}/user-{userId}/conversation-{sessionId}` 创建 worktree。
-   - 从基线分支创建对话分支并切换到 worktree。
+  - 从基线分支创建对话分支并切换到 worktree。
 5. 创建 MR 时使用基线分支作为目标分支。
