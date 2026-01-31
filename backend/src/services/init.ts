@@ -1,4 +1,4 @@
-import { SSHExecutor, GitService, CodeToolService, GitLabMCPService, ProjectService, LocalExecutor, NeovateAIService } from './index';
+import { GitService, CodeToolService, GitLabMCPService, ProjectService, LocalExecutor, NeovateAIService } from './index';
 import { WorktreeManager } from './WorktreeManager';
 import { ConversationManager } from './ConversationManager';
 import { MessageRouter } from './MessageRouter';
@@ -6,7 +6,7 @@ import { ConversationAIService } from './ConversationAIService';
 import { DrizzleConversationStorage } from '../storage/DrizzleConversationStorage';
 import { ConversationStorageAdapter } from '../storage/ConversationStorageAdapter';
 import { initializeDatabase } from '../db/init';
-import { getGitWorkDir, getGitDefaultBranch, getWorktreeBaseDir, loadSSHConfig } from '../utils/config';
+import { getGitWorkDir, getWorktreeBaseDir } from '../utils/config';
 
 import { RedisManager } from '../db/RedisManager';
 
@@ -28,10 +28,9 @@ export async function initializeAllServices() {
   if (services) return services;
 
   console.log('[INIT] 开始初始化服务...');
-  const runMode = process.env.RUN_MODE || 'local';
   const appEnv = process.env.APP_ENV || 'local';
   const workDir = getGitWorkDir();
-  console.log(`[INIT] RUN_MODE=${runMode}, APP_ENV=${appEnv}, GIT_WORK_DIR=${workDir}`);
+  console.log(`[INIT] APP_ENV=${appEnv}, LOCAL_GIT_WORK_DIR=${workDir}`);
   
   // 1. 初始化数据库
   const dbInitStart = Date.now();
@@ -40,25 +39,13 @@ export async function initializeAllServices() {
   const conversationStorage = new DrizzleConversationStorage();
   
   // 2. 初始化执行器
-  let executor: any;
-  if (runMode === 'local') {
-    executor = new LocalExecutor();
-    const { existsSync, mkdirSync } = require('fs');
-    if (!existsSync(workDir)) {
-      try {
-        mkdirSync(workDir, { recursive: true });
-      } catch (e: any) {
-        console.warn(`⚠️ 无法创建工作目录 ${workDir}: ${e.message}`);
-      }
-    }
-  } else {
+  const executor = new LocalExecutor();
+  const { existsSync, mkdirSync } = require('fs');
+  if (!existsSync(workDir)) {
     try {
-      const sshConfig = loadSSHConfig();
-      executor = new SSHExecutor();
-      await executor.connect(sshConfig);
-    } catch (error) {
-      console.error('❌ SSH 初始化/连接失败:', error instanceof Error ? error.message : error);
-      executor = new LocalExecutor();
+      mkdirSync(workDir, { recursive: true });
+    } catch (e: any) {
+      console.warn(`⚠️ 无法创建工作目录 ${workDir}: ${e.message}`);
     }
   }
 

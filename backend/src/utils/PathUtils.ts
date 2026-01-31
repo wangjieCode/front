@@ -4,7 +4,7 @@ import path from 'path';
  * 基础路径类型，对应不同的环境变量配置
  */
 export enum BasePathType {
-  GIT_WORK_DIR = 'GIT_WORK_DIR',         // 主项目空间 (env.LOCAL_GIT_WORK_DIR / env.REMOTE_GIT_WORK_DIR)
+  GIT_WORK_DIR = 'GIT_WORK_DIR',         // 主项目空间 (env.LOCAL_GIT_WORK_DIR)
   WORKTREE_BASE_DIR = 'WORKTREE_BASE_DIR' // 分身/Worktree 空间 (env.WORKTREE_BASE_DIR)
 }
 
@@ -21,12 +21,8 @@ export const PATH_VARIABLES = {
  * 根据运行模式（local/remote）和类型获取当前环境的基础物理路径
  */
 function getBaseDir(type: BasePathType): string {
-  const runMode = process.env.RUN_MODE || 'local';
-  
   if (type === BasePathType.WORKTREE_BASE_DIR) {
-    const base = runMode === 'remote' 
-      ? process.env.REMOTE_WORKTREE_BASE_DIR 
-      : process.env.WORKTREE_BASE_DIR;
+    const base = process.env.WORKTREE_BASE_DIR;
     
     if (base) return path.resolve(base);
     
@@ -36,9 +32,7 @@ function getBaseDir(type: BasePathType): string {
   }
 
   // 默认：主项目工作空间
-  let gitBase = runMode === 'remote'
-    ? process.env.REMOTE_GIT_WORK_DIR
-    : process.env.LOCAL_GIT_WORK_DIR;
+  let gitBase = process.env.LOCAL_GIT_WORK_DIR;
 
   if (!gitBase) {
     // 最终兜底：相对于 backend 目录的同级 front-workspace

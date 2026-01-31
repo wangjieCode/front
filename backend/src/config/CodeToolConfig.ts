@@ -27,10 +27,6 @@ export class CodeToolConfig {
       qodercliPath: process.env.QODERCLI_PATH,
       qodercliArgs: process.env.QODERCLI_ARGS,
       
-      // neovate 配置（与 qodercli 相同）
-      neovatePath: process.env.NEOVATE_PATH,
-      neovateArgs: process.env.NEOVATE_ARGS,
-      
       // Cursor 配置
       cursorApiKey: process.env.CURSOR_API_KEY,
       cursorModel: process.env.CURSOR_MODEL,

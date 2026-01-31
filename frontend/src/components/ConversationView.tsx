@@ -55,6 +55,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
   const [loading, setLoading] = useState(false);
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [sending, setSending] = useState(false);
+  const [draftMessage, setDraftMessage] = useState('');
   const [creatingMR, setCreatingMR] = useState(false);
   const [stoppingPreview, setStoppingPreview] = useState(false);
   const [updatingVisibility, setUpdatingVisibility] = useState(false);
@@ -79,6 +80,9 @@ const ConversationView: React.FC<ConversationViewProps> = ({
   const [previewStatus, setPreviewStatus] = useState<PreviewStatus | null>(null);
   const [deploymentInfo, setDeploymentInfo] = useState<any>(null);
   const [showDeploymentModal, setShowDeploymentModal] = useState(false);
+
+  const lastSentMessageRef = useRef('');
+  const streamAbortRef = useRef<AbortController | null>(null);
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -233,6 +237,29 @@ const ConversationView: React.FC<ConversationViewProps> = ({
 
   // 检查对话是否已归档
   const isArchived = session?.status === ConversationStatus.ARCHIVED;
+  const isStreaming = messages.some(msg => (msg as any).isStreaming);
+
+  const handleInterrupt = async () => {
+    if (!sessionId) return;
+    try {
+      const result = await conversationService.interruptConversation(sessionId);
+      if (!result.success) {
+        message.error(result.error || '中断失败');
+        return;
+      }
+      streamAbortRef.current?.abort();
+      setMessages(prev =>
+        prev.map(msg =>
+          (msg as any).isStreaming ? { ...msg, isStreaming: false } : msg
+        )
+      );
+      setDraftMessage(lastSentMessageRef.current);
+      setSending(false);
+      message.success('已中断');
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '中断失败');
+    }
+  };
 
   const loadSession = async () => {
     if (!sessionId) return;
@@ -268,6 +295,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
     }
     
     setSending(true);
+    lastSentMessageRef.current = content;
 
     // 立即添加用户消息到界面
     const userMessage: ConversationMessage = {
@@ -298,6 +326,8 @@ const ConversationView: React.FC<ConversationViewProps> = ({
     try {
       const modelToSend = modelOverride || chatModel;
       const normalizedModel = modelToSend?.toLowerCase();
+      const abortController = new AbortController();
+      streamAbortRef.current = abortController;
       const response = await fetch(`/api/conversations/${sessionId}/messages`, {
         method: 'POST',
         headers: {
@@ -305,6 +335,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
           'x-user-id': localStorage.getItem('user_id') || '',
           'x-username': localStorage.getItem('username') || '',
         },
+        signal: abortController.signal,
         body: JSON.stringify({
           content,
           ...(normalizedModel && isNeovateModelSupported(normalizedModel) ? { model: normalizedModel } : {}),
@@ -329,6 +360,26 @@ const ConversationView: React.FC<ConversationViewProps> = ({
       let buffer = '';
       let accumulatedContents: ParsedContent[] = [];
       let fullContent = '';
+      let streamCompleted = false;
+
+      const markStreamComplete = () => {
+        if (streamCompleted) return;
+        streamCompleted = true;
+        setMessages(prev =>
+          prev.map(msg =>
+            msg.id === aiMessageId
+              ? { ...msg, isStreaming: false }
+              : msg
+          )
+        );
+        console.log('[ConversationView] 流式传输完成，将在 2500ms 后加载消息以获取元数据');
+        setTimeout(() => {
+          console.log('[ConversationView] 开始加载消息以获取元数据...');
+          loadMessages().then(() => {
+            console.log('[ConversationView] 消息加载完成');
+          });
+        }, 2500);
+      };
 
       while (true) {
         const { done, value } = await reader.read();
@@ -351,6 +402,18 @@ const ConversationView: React.FC<ConversationViewProps> = ({
               } else if (data.type === 'chunk') {
                 // 累积完整文本内容
                 fullContent += data.content;
+
+                // 处理 Neovate SDK result 结束事件（兼容无 complete 场景）
+                if (typeof data.content === 'string' && data.content.trim().startsWith('{')) {
+                  try {
+                    const event = JSON.parse(data.content);
+                    if (event?.type === 'result') {
+                      markStreamComplete();
+                    }
+                  } catch (error) {
+                    // ignore JSON parse errors
+                  }
+                }
                 
                 // 解析 chunk 为结构化内容
                 const parsedContents = parseNeovateChunkStructured(data.content);
@@ -390,23 +453,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
                       );
                 }
               } else if (data.type === 'complete') {
-                // 流式传输完成
-                setMessages(prev =>
-                  prev.map(msg =>
-                    msg.id === aiMessageId
-                      ? { ...msg, isStreaming: false }
-                      : msg
-                  )
-                );
-                // 延迟加载消息以获取完整的元数据（包括 codeChanges）
-                // 使用较长的延迟（2500ms）确保后端异步保存已完成
-                console.log('[ConversationView] 流式传输完成，将在 2500ms 后加载消息以获取元数据');
-                setTimeout(() => {
-                  console.log('[ConversationView] 开始加载消息以获取元数据...');
-                  loadMessages().then(() => {
-                    console.log('[ConversationView] 消息加载完成');
-                  });
-                }, 2500);
+                markStreamComplete();
               } else if (data.type === 'error') {
                 console.error('AI 响应错误:', data.message);
                 setMessages(prev =>
@@ -429,6 +476,12 @@ const ConversationView: React.FC<ConversationViewProps> = ({
         }
       }
     } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        return;
+      }
+      if (error instanceof Error && error.message.includes('aborted')) {
+        return;
+      }
       console.error('发送消息失败:', error);
       // 更新 AI 消息显示错误
       setMessages(prev =>
@@ -448,6 +501,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
       );
       message.error('发送消息失败，请重试');
     } finally {
+      streamAbortRef.current = null;
       suppressInitialLoadRef.current = false;
       setSending(false);
     }
@@ -909,9 +963,19 @@ const ConversationView: React.FC<ConversationViewProps> = ({
             sessionId={sessionId}
             disabled={sending || isArchived}
             onSend={handleSendMessage}
+            value={draftMessage}
+            onChange={setDraftMessage}
             placeholder={isArchived ? '已归档的对话不能发送消息' : undefined}
             actions={
               <>
+                {isStreaming && (
+                  <Button
+                    type="text"
+                    className="chat-more-button"
+                    icon={<StopOutlined />}
+                    onClick={handleInterrupt}
+                  />
+                )}
                 <Dropdown
                   trigger={['click']}
                   placement="topRight"

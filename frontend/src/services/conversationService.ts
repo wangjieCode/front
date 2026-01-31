@@ -507,6 +507,26 @@ class ConversationService {
     }
   }
 
+  /**
+   * 中断对话流式响应
+   */
+  async interruptConversation(sessionId: string): Promise<{ success: boolean; message?: string; error?: string }> {
+    try {
+      const response = await fetchWithAuth(`${this.baseUrl}/api/conversations/${sessionId}/interrupt`, {
+        method: 'POST',
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        return { success: false, error: data.error || '中断失败' };
+      }
+
+      return await response.json();
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : '中断失败' };
+    }
+  }
+
    /**
     * 归档对话
     */

@@ -8,7 +8,7 @@
 ## AI 与 Git
 
 - ConversationAIService：调用 Neovate，构建元数据，自动提交
-- NeovateAIService：执行 CLI，解析输出与 diff
+- NeovateAIService：执行 SDK，解析输出与 diff
 - GitService：git add/commit/push
 - GitLabMCPService：创建与查询 MR
 

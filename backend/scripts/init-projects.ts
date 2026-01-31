@@ -36,24 +36,13 @@ if (!DATABASE_URL) {
 }
 
 // 获取运行环境的工作空间根目录
-const RUN_MODE = process.env.RUN_MODE || 'local';
-const rawRemoteDir = process.env.REMOTE_GIT_WORK_DIR;
-const rawLocalDir = process.env.LOCAL_GIT_WORK_DIR || '../front-workspace';
-
-if (RUN_MODE === 'remote' && !rawRemoteDir) {
-  console.error('❌ 远程模式下必须配置 REMOTE_GIT_WORK_DIR');
-  process.exit(1);
-}
-
-const DEFAULT_WORKSPACE = RUN_MODE === 'remote' 
-  ? (path.isAbsolute(rawRemoteDir!) ? rawRemoteDir! : path.resolve(process.cwd(), rawRemoteDir!))
-  : (path.isAbsolute(rawLocalDir) ? rawLocalDir : path.resolve(process.cwd(), rawLocalDir));
+const rawWorkDir = process.env.LOCAL_GIT_WORK_DIR || '../front-workspace';
+const DEFAULT_WORKSPACE = path.isAbsolute(rawWorkDir) ? rawWorkDir : path.resolve(process.cwd(), rawWorkDir);
 
 const WORKSPACE_ROOT = baseDir || DEFAULT_WORKSPACE;
 
 console.log('🔧 配置信息:');
 console.log(`   工作空间根目录: ${WORKSPACE_ROOT}`);
-console.log(`   运行模式: ${RUN_MODE}`);
 console.log(`   Dry Run: ${isDryRun ? '是' : '否'}`);
 console.log(`   更新数据库: ${shouldUpdateDb ? '是' : '否'}`);
 console.log('');

@@ -1,11 +1,11 @@
-import { SSHExecutor } from './SSHExecutor';
-import { CodeChange, ChangeType } from '../types';
+import { ICommandExecutor, CodeChange, ChangeType } from '../types';
 import { createCodeChange, detectChangeType, parseFilePathFromDiff } from '../models/CodeChange';
 import { NeovateSessionManagerDB } from './NeovateSessionManagerDB';
 import { convertToStoredPath } from '../utils/PathUtils';
+import { runNeovateSdk } from '../utils/NeovateSdkRunner';
 
 /**
- * qodercli 执行结果接口
+ * Neovate 执行结果接口
  */
 export interface NeovateAIResult {
   success: boolean;
@@ -13,38 +13,28 @@ export interface NeovateAIResult {
   changes: CodeChange[];
   rawOutput?: string;
   error?: string;
-  neovateSessionId?: string;  // 新增：Neovate 会话 ID
-  gitBranch?: string;  // Git 分支名称
-  mrUrl?: string;  // MR URL
+  neovateSessionId?: string;
+  gitBranch?: string;
+  mrUrl?: string;
 }
 
 /**
- * qodercli 服务类
- * 负责调用 qodercli 修改代码并解析结果
+ * Neovate SDK 服务类
+ * 负责调用 SDK 修改代码并解析结果
  */
 export class NeovateAIService {
-  private absoluteWorkDir: string;
   private sessionManager: NeovateSessionManagerDB;
 
   constructor(
-    private sshExecutor: SSHExecutor,
+    private executor: ICommandExecutor,
     private workDir: string,
     databaseUrl: string
   ) {
-    // 将工作目录转换为绝对路径
-    const path = require('path');
-    this.absoluteWorkDir = path.resolve(workDir);
     this.sessionManager = new NeovateSessionManagerDB(databaseUrl);
   }
 
   /**
    * 使用 AI 修改代码（流式版本）
-   * @param prompt 用户提示词
-   * @param conversationId 对话 ID
-   * @param existingSessionId 现有的 Neovate 会话 ID
-   * @param customWorkDir 自定义工作目录
-   * @param onData 实时数据回调
-   * @returns AI 执行结果
    */
   async modifyCodeStream(
     prompt: string,
@@ -52,109 +42,64 @@ export class NeovateAIService {
     existingSessionId: string | undefined,
     customWorkDir: string | undefined,
     onData: (data: string) => void,
-    model?: string
+    model?: string,
+    abortSignal?: AbortSignal
   ): Promise<NeovateAIResult> {
+    const workDir = customWorkDir || this.workDir;
+    const displayWorkDir = require('path').resolve(workDir);
+    console.log(`[AI-EXEC] 开始流式执行 Neovate SDK (dir: ${displayWorkDir})`);
+
+    let neovateSessionId: string | undefined = existingSessionId;
+
     try {
-      const workDir = customWorkDir || this.workDir;
-      const command = this.buildCommand(prompt, existingSessionId, workDir, model);
-
-      const displayWorkDir = require('path').resolve(workDir);
-      console.log(`[AI-EXEC] 开始流式执行 Neovate 指令 (dir: ${displayWorkDir}): ${command}`);
-
-      const env: Record<string, string> = {
-        IFLOW_API_KEY: process.env.IFLOW_API_KEY || ''
-      };
-      console.log(`[AI-EXEC] 注入环境变量: ${JSON.stringify(env)}`);
-
-      let neovateSessionId: string | undefined = existingSessionId;
-      let allOutput = '';
-      let lineBuffer = '';
-      const startTime = Date.now();
-
-      // 流式执行命令
-      const result = await this.sshExecutor.executeCommandStream(
-        command,
+      const { output, durationMs, error, sessionId } = await runNeovateSdk({
+        prompt,
         workDir,
-        (chunk: string) => {
-          allOutput += chunk;
-          
-          // 记录原始输出日志（使用行缓冲确保日志整洁）
-          lineBuffer += chunk;
-          if (lineBuffer.includes('\n')) {
-            const lines = lineBuffer.split('\n');
-            lineBuffer = lines.pop() || '';
-            lines.forEach(l => {
-              if (l.trim()) process.stdout.write(`[AI-LOG] ${l}\n`);
-            });
-          }
-          
-          // 实时回调给上层
+        sessionId: existingSessionId,
+        model,
+        abortSignal,
+        onChunk: (chunk) => {
           onData(chunk);
-          
-          // 只在首次对话时提取 sessionId
-          if (!existingSessionId && !neovateSessionId) {
-            const lines = chunk.split('\n');
-            for (const line of lines) {
-              if (line.trim().startsWith('{')) {
-                try {
-                  const parsed = JSON.parse(line);
-                  if (parsed.sessionId && typeof parsed.sessionId === 'string') {
-                    neovateSessionId = parsed.sessionId;
-                    console.log(`[NeovateAIService] 提取到新会话 ID: ${neovateSessionId}`);
-                    break;
-                  }
-                } catch (e) {
-                  // 忽略解析错误
-                }
-              }
-            }
-          }
         },
-        300000, // 5 分钟超时
-        env
-      );
-      
-      // 刷新最后的行缓冲
-      if (lineBuffer.trim()) {
-        process.stdout.write(`[AI-LOG] ${lineBuffer}\n`);
+      });
+
+      if (!neovateSessionId && sessionId) {
+        neovateSessionId = sessionId;
+        console.log(`[NeovateAIService] 提取到新会话 ID: ${neovateSessionId}`);
       }
 
-      const duration = Date.now() - startTime;
-
-      if (result.exitCode !== 0) {
-        console.error(`[AI-EXEC] 指令执行失败 (退出码: ${result.exitCode}, 耗时: ${duration}ms): ${result.stderr}`);
+      if (error) {
+        console.error(`[AI-EXEC] 执行失败 (耗时: ${durationMs}ms): ${error.message}`);
         return {
           success: false,
-          message: 'neovate 执行失败',
+          message: error.message === 'aborted' ? '执行已中断' : 'neovate 执行失败',
           changes: [],
-          error: result.stderr || result.stdout,
-          rawOutput: allOutput,
+          error: error.message,
+          rawOutput: output,
         };
       }
 
-      console.log(`[AI-EXEC] 指令执行成功 (耗时: ${duration}ms)`);
+      console.log(`[AI-EXEC] 执行成功 (耗时: ${durationMs}ms)`);
 
-      // 只在首次对话且成功提取到 sessionId 时保存
       if (conversationId && neovateSessionId && !existingSessionId) {
         await this.sessionManager.saveSessionId(
           conversationId,
           neovateSessionId,
-          workDir // 使用当前的 workDir 而不是实例的 this.workDir
+          workDir
         ).catch(err => {
           console.error('[NeovateAIService] 保存会话 ID 失败:', err);
         });
-        const displaySavedPath = require('path').resolve(workDir);
+        const displaySavedPath = convertToStoredPath(workDir) || workDir;
         console.log(`[NeovateAIService] 已保存会话 ID: ${neovateSessionId}，路径: ${displaySavedPath}`);
       }
 
-      // 解析代码变更
-      const changes = await this.parseOutput(allOutput, workDir);
+      const changes = await this.parseOutput(output, workDir);
 
       return {
         success: true,
         message: `成功修改代码，共 ${changes.length} 个文件变更`,
         changes,
-        rawOutput: allOutput,
+        rawOutput: output,
         neovateSessionId,
       };
     } catch (error) {
@@ -169,122 +114,63 @@ export class NeovateAIService {
 
   /**
    * 使用 AI 修改代码
-   * @param prompt 用户提示词
-   * @param conversationId 对话 ID（用于会话管理）
-   * @param existingSessionId 现有的 Neovate 会话 ID（可选）
-   * @returns AI 执行结果
    */
   async modifyCode(
     prompt: string,
     conversationId?: string,
     existingSessionId?: string,
     customWorkDir?: string,
-    model?: string
+    model?: string,
+    abortSignal?: AbortSignal
   ): Promise<NeovateAIResult> {
+    const workDir = customWorkDir || this.workDir;
+    const displayWorkDir = require('path').resolve(workDir);
+    console.log(`[AI-EXEC] 开始执行 Neovate SDK (dir: ${displayWorkDir})`);
+
     try {
-      // console.log('[NeovateAIService] ========== 开始执行 ==========');
-      // console.log('[NeovateAIService] conversationId:', conversationId);
-      // console.log('[NeovateAIService] existingSessionId:', existingSessionId);
+      const { output, durationMs, error, sessionId } = await runNeovateSdk({
+        prompt,
+        workDir,
+        sessionId: existingSessionId,
+        model,
+        abortSignal,
+      });
 
-      // 使用自定义工作目录或默认工作目录
-      const workDir = customWorkDir || this.workDir;
-      // console.log('[NeovateAIService] workDir:', workDir);
-
-      const env: Record<string, string> = {
-        IFLOW_API_KEY: process.env.IFLOW_API_KEY || ''
-      };
-      
-      console.log(`[AI-EXEC] 注入环境变量: ${JSON.stringify(env)}`);
-      const startTime = Date.now();
-      let allOutput = '';
-      let lineBuffer = '';
-
-      // 构造 neovate 命令（支持会话恢复和工作目录）
-      const command = this.buildCommand(prompt, existingSessionId, workDir, model);
-
-      const displayWorkDir = require('path').resolve(workDir);
-      console.log(`[AI-EXEC] 开始执行 Neovate 指令 (dir: ${displayWorkDir}): ${command}`);
-      
-      // 执行命令，设置 60 秒超时（AI 处理需要更多时间）
-      const result = await this.sshExecutor.executeCommand(command, workDir, 60000, env);
-
-      const duration = Date.now() - startTime;
-      // 检查执行是否成功
-      if (result.exitCode !== 0) {
-        console.error(`[AI-EXEC] 指令执行失败 (退出码: ${result.exitCode}, 耗时: ${duration}ms): ${result.stderr}`);
+      if (error) {
+        console.error(`[AI-EXEC] 执行失败 (耗时: ${durationMs}ms): ${error.message}`);
         return {
           success: false,
-          message: result.stderr || '指令执行失败',
+          message: error.message === 'aborted' ? '执行已中断' : 'neovate 执行失败',
           changes: [],
-          rawOutput: result.stdout,
-          error: result.stderr
+          error: error.message,
+          rawOutput: output,
         };
       }
 
-      console.log(`[AI-EXEC] 指令执行成功 (耗时: ${duration}ms)`);
-      if (result.stdout) {
-        console.log(`[AI-LOG] 最终输出:\n${result.stdout}`);
+      console.log(`[AI-EXEC] 执行成功 (耗时: ${durationMs}ms)`);
+
+      const { cleanOutput, sessionId: parsedSessionId } = this.normalizeOutput(output, existingSessionId);
+      const neovateSessionId = parsedSessionId || sessionId;
+
+      if (conversationId && neovateSessionId && !existingSessionId) {
+        await this.sessionManager.saveSessionId(
+          conversationId,
+          neovateSessionId,
+          workDir
+        ).catch(err => {
+          console.error('[NeovateAIService] 保存会话 ID 失败:', err);
+        });
+        const displaySavedPath = convertToStoredPath(workDir) || workDir;
+        console.log(`[NeovateAIService] 已保存会话 ID: ${neovateSessionId}，路径: ${displaySavedPath}`);
       }
 
-      // 提取 Neovate 会话 ID 和整理输出内容
-      let neovateSessionId: string | undefined = existingSessionId;
-      let cleanOutput = '';
-
-      try {
-        // 按行解析（Neovate 输出是 stream-json 格式，每行一个 JSON）
-        const lines = result.stdout.split('\n').filter(line => line.trim());
-        const validJsonLines = [];
-
-        for (const line of lines) {
-          try {
-            // 只尝试解析看起来像JSON的行
-            if (line.trim().startsWith('{')) {
-              const parsed = JSON.parse(line);
-              validJsonLines.push(line); // 收集有效的 JSON 行
-
-              // 只在首次对话时提取 sessionId
-              if (!existingSessionId && !neovateSessionId && parsed.sessionId && typeof parsed.sessionId === 'string') {
-                neovateSessionId = parsed.sessionId;
-                console.log(`[NeovateAIService] 提取到新会话 ID: ${neovateSessionId}`);
-              }
-            }
-          } catch (e2) {
-            // 跳过无法解析的行
-          }
-        }
-
-        // 重新组合有效的 JSON 输出，作为 rawOutput
-        if (validJsonLines.length > 0) {
-          cleanOutput = validJsonLines.join('\n');
-        } else {
-          // 如果没有有效的 JSON 行，保留原始输出（可能是纯文本错误或其他格式）
-          cleanOutput = result.stdout;
-        }
-
-        // 只在首次对话且成功提取到 sessionId 时保存
-        if (conversationId && neovateSessionId && !existingSessionId) {
-          await this.sessionManager.saveSessionId(
-            conversationId,
-            neovateSessionId,
-            workDir // 使用当前的 workDir 而不是实例的 this.workDir
-          ).catch(err => {
-            console.error('[NeovateAIService] 保存会话 ID 失败:', err);
-          });
-          const displaySavedPath = convertToStoredPath(workDir) || workDir;
-          console.log(`[NeovateAIService] 已保存会话 ID: ${neovateSessionId}，路径: ${displaySavedPath}`);
-        }
-      } catch (error) {
-        console.error('[NeovateAIService] ❌ 处理输出失败:', error);
-      }
-
-      // 解析输出，提取代码变更
       const changes = await this.parseOutput(cleanOutput, workDir);
 
       return {
         success: true,
         message: `成功修改代码，共 ${changes.length} 个文件变更`,
         changes,
-        rawOutput: cleanOutput, // 返回清理后的输出
+        rawOutput: cleanOutput,
         neovateSessionId,
       };
     } catch (error) {
@@ -297,62 +183,41 @@ export class NeovateAIService {
     }
   }
 
-  /**
-   * 构造 neovate 命令
-   * @param prompt 用户提示词
-   * @param sessionId 会话 ID（可选，用于恢复会话）
-   * @param customWorkDir 自定义工作目录（可选，用于覆盖默认工作目录）
-   * @returns 完整的命令字符串
-   */
-  private buildCommand(prompt: string, sessionId?: string, customWorkDir?: string, model?: string): string {
-    const escapedPrompt = this.escapeCliArg(prompt);
+  private normalizeOutput(rawOutput: string, existingSessionId?: string): { cleanOutput: string; sessionId?: string } {
+    let neovateSessionId = existingSessionId;
+    const lines = rawOutput.split('\n').filter(line => line.trim());
+    const validJsonLines: string[] = [];
 
-    // 使用自定义工作目录或默认绝对路径
-    const workDir = customWorkDir ? require('path').resolve(customWorkDir) : this.absoluteWorkDir;
-    // console.log(`[NeovateAIService] buildCommand 使用工作目录: ${workDir}`);
+    for (const line of lines) {
+      if (!line.trim().startsWith('{')) {
+        continue;
+      }
+      try {
+        const parsed = JSON.parse(line);
+        validJsonLines.push(line);
 
-    // 构造 neovate 命令
-    // -q: 非交互模式
-    // --cwd: 指定工作目录（使用绝对路径）
-    // --output-format stream-json: 使用流式 JSON 输出格式（每行一个 JSON 对象）
-    // --approval-mode yolo: 自动批准所有操作
-    // --resume: 恢复会话（如果提供了 sessionId）
-    let command = `neovate -q --cwd "${workDir}" --output-format stream-json --approval-mode yolo`;
-
-    // 如果提供了 sessionId，添加 --resume 参数
-    if (sessionId) {
-      command += ` --resume ${sessionId}`;
-      // console.log(`[NeovateAIService] 使用会话恢复: ${sessionId}`);
+        if (!existingSessionId && !neovateSessionId && parsed.sessionId && typeof parsed.sessionId === 'string') {
+          neovateSessionId = parsed.sessionId;
+          console.log(`[NeovateAIService] 提取到新会话 ID: ${neovateSessionId}`);
+        }
+      } catch (error) {
+        // ignore
+      }
     }
 
-    if (model) {
-      command += ` --model "${this.escapeCliArg(model)}"`;
-    }
-
-    command += ` "${escapedPrompt}"`;
-    return command;
-  }
-
-  private escapeCliArg(value: string): string {
-    return value
-      .replace(/\\/g, '\\\\')
-      .replace(/"/g, '\\"')
-      .replace(/`/g, '\\`')
-      .replace(/\$/g, '\\$');
+    return {
+      cleanOutput: validJsonLines.length > 0 ? validJsonLines.join('\n') : rawOutput,
+      sessionId: neovateSessionId,
+    };
   }
 
   /**
-   * 解析 qodercli 的输出
-   * @param rawOutput 原始输出
-   * @param workDir 工作目录
-   * @returns 代码变更数组
+   * 解析 Neovate 输出
    */
   private async parseOutput(rawOutput: string, workDir?: string): Promise<CodeChange[]> {
     const changes: CodeChange[] = [];
 
     try {
-      // 方法 1: 尝试解析 JSON 格式输出
-      // 假设 qodercli 可能输出 JSON 格式的变更信息
       if (rawOutput.trim().startsWith('{') || rawOutput.trim().startsWith('[')) {
         try {
           const parsed = JSON.parse(rawOutput);
@@ -364,12 +229,10 @@ export class NeovateAIService {
             ));
           }
         } catch (jsonError) {
-          // JSON 解析失败，继续尝试其他方法
+          // ignore
         }
       }
 
-      // 方法 2: 从输出中提取文件变更信息
-      // 查找类似 "Modified: file.ts" 或 "Created: file.ts" 的行
       const fileChangePattern = /(Modified|Created|Deleted|Added):\s*(.+)/gi;
       let match;
 
@@ -386,13 +249,10 @@ export class NeovateAIService {
           changeType = ChangeType.MODIFIED;
         }
 
-        // 尝试获取该文件的 diff
         const diff = await this.getFileDiff(filePath, workDir);
-
         changes.push(createCodeChange(filePath, changeType, diff));
       }
 
-      // 方法 3: 如果没有找到明确的文件变更标记，尝试通过 git diff 获取
       if (changes.length === 0) {
         const diffOutput = await this.getAllDiff(workDir);
         if (diffOutput) {
@@ -403,23 +263,17 @@ export class NeovateAIService {
 
       return changes;
     } catch (error) {
-      // 解析失败时记录错误（生产环境应使用日志系统）
-      // console.error('解析 qodercli 输出时出错:', error);
-      // 即使解析失败，也返回空数组而不是抛出错误
       return changes;
     }
   }
 
   /**
    * 获取指定文件的 diff
-   * @param filePath 文件路径
-   * @param workDir 工作目录（可选，默认使用 this.workDir）
-   * @returns diff 内容
    */
   private async getFileDiff(filePath: string, workDir?: string): Promise<string> {
     try {
       const targetWorkDir = workDir || this.workDir;
-      const result = await this.sshExecutor.executeCommand(
+      const result = await this.executor.executeCommand(
         `git diff HEAD -- "${filePath}"`,
         targetWorkDir
       );
@@ -431,13 +285,11 @@ export class NeovateAIService {
 
   /**
    * 获取所有文件的 diff
-   * @param workDir 工作目录（可选，默认使用 this.workDir）
-   * @returns diff 内容
    */
   private async getAllDiff(workDir?: string): Promise<string> {
     try {
       const targetWorkDir = workDir || this.workDir;
-      const result = await this.sshExecutor.executeCommand(
+      const result = await this.executor.executeCommand(
         'git diff HEAD',
         targetWorkDir
       );
@@ -449,60 +301,20 @@ export class NeovateAIService {
 
   /**
    * 解析 git diff 输出
-   * @param diffOutput git diff 输出
-   * @returns 代码变更数组
    */
   private parseDiffOutput(diffOutput: string): CodeChange[] {
     const changes: CodeChange[] = [];
-
-    // 按文件分割 diff
     const fileDiffs = diffOutput.split(/^diff --git /m).filter(Boolean);
 
     for (const fileDiff of fileDiffs) {
       const fullDiff = 'diff --git ' + fileDiff;
-
-      // 提取文件路径
       const filePath = parseFilePathFromDiff(fullDiff);
       if (!filePath) continue;
 
-      // 检测变更类型
       const changeType = detectChangeType(fullDiff);
-
       changes.push(createCodeChange(filePath, changeType, fullDiff));
     }
 
     return changes;
-  }
-
-  /**
-   * 验证 qodercli 是否可用
-   * @returns 如果可用返回 true
-   */
-  async isAvailable(): Promise<boolean> {
-    try {
-      const result = await this.sshExecutor.executeCommand(
-        'which qodercli',
-        this.workDir
-      );
-      return result.exitCode === 0 && result.stdout.trim().length > 0;
-    } catch (error) {
-      return false;
-    }
-  }
-
-  /**
-   * 获取 qodercli 版本
-   * @returns 版本字符串
-   */
-  async getVersion(): Promise<string> {
-    try {
-      const result = await this.sshExecutor.executeCommand(
-        'qodercli --version',
-        this.workDir
-      );
-      return result.stdout.trim();
-    } catch (error) {
-      return 'unknown';
-    }
   }
 }
