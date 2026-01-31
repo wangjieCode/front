@@ -1,5 +1,4 @@
-import { SSHExecutor } from './SSHExecutor';
-import { CommandResult, MergeRequestInfo } from '../types';
+import { CommandResult, MergeRequestInfo, ICommandExecutor } from '../types';
 import dayjs from 'dayjs';
 
 /**
@@ -25,21 +24,21 @@ export interface GitStatus {
 
 /**
  * Git 操作服务类
- * 负责在远程虚拟机上执行 Git 操作
+ * 负责在本地执行 Git 操作
  */
 export class GitService {
   constructor(
-    private sshExecutor: SSHExecutor,
+    private executor: ICommandExecutor,
     private workDir: string
   ) {}
 
   createScoped(workDir: string): GitService {
-    return new GitService(this.sshExecutor, workDir);
+    return new GitService(this.executor, workDir);
   }
 
   async fetchBranch(branchName: string): Promise<GitOperationResult> {
     try {
-      const result = await this.sshExecutor.executeCommand(
+      const result = await this.executor.executeCommand(
         `git fetch origin ${branchName}:${branchName}`,
         this.workDir
       );
@@ -72,7 +71,7 @@ export class GitService {
     branchName: string
   ): Promise<GitOperationResult> {
     try {
-      const result = await this.sshExecutor.executeCommand(
+      const result = await this.executor.executeCommand(
         `mkdir -p "$(dirname "${worktreePath}")" && git worktree add -b ${branchName} ${worktreePath} ${baseBranch}`,
         this.workDir
       );
@@ -110,7 +109,7 @@ export class GitService {
     try {
       // 如果指定了基础分支，先切换到基础分支
       if (baseBranch) {
-        const checkoutResult = await this.sshExecutor.executeCommand(
+        const checkoutResult = await this.executor.executeCommand(
           `git checkout ${baseBranch}`,
           targetDir
         );
@@ -125,7 +124,7 @@ export class GitService {
       }
 
       // 创建并切换到新分支
-      const result = await this.sshExecutor.executeCommand(
+      const result = await this.executor.executeCommand(
         `git checkout -b ${branchName}`,
         targetDir
       );
@@ -160,7 +159,7 @@ export class GitService {
   async checkoutBranch(branchName: string, cwd?: string): Promise<GitOperationResult> {
     const targetDir = cwd || this.workDir;
     try {
-      const result = await this.sshExecutor.executeCommand(
+      const result = await this.executor.executeCommand(
         `git checkout ${branchName}`,
         targetDir
       );
@@ -195,14 +194,14 @@ export class GitService {
     const targetDir = cwd || this.workDir;
     try {
       // 获取当前分支
-      const branchResult = await this.sshExecutor.executeCommand(
+      const branchResult = await this.executor.executeCommand(
         'git branch --show-current',
         targetDir
       );
       const currentBranch = branchResult.stdout.trim();
 
       // 获取状态
-      const statusResult = await this.sshExecutor.executeCommand(
+      const statusResult = await this.executor.executeCommand(
         'git status --porcelain',
         targetDir
       );
@@ -249,7 +248,7 @@ export class GitService {
     const targetDir = cwd || this.workDir;
     try {
       const fileArgs = files.length > 0 ? files.join(' ') : '.';
-      const result = await this.sshExecutor.executeCommand(
+      const result = await this.executor.executeCommand(
         `git add ${fileArgs}`,
         targetDir
       );
@@ -289,7 +288,7 @@ export class GitService {
       // 转义提交信息中的引号
       const escapedMessage = message.replace(/"/g, '\\"');
       
-      const result = await this.sshExecutor.executeCommand(
+      const result = await this.executor.executeCommand(
         `git commit -m "${escapedMessage}"`,
         targetDir
       );
@@ -340,7 +339,7 @@ export class GitService {
     const targetDir = cwd || this.workDir;
     try {
       const forceFlag = force ? '-f' : '';
-      const result = await this.sshExecutor.executeCommand(
+      const result = await this.executor.executeCommand(
         `git push ${forceFlag} ${remote} ${branchName}`,
         targetDir
       );
@@ -381,7 +380,7 @@ export class GitService {
   ): Promise<GitOperationResult> {
     const targetDir = cwd || this.workDir;
     try {
-      const result = await this.sshExecutor.executeCommand(
+      const result = await this.executor.executeCommand(
         `git push --set-upstream ${remote} ${branchName}`,
         targetDir
       );
@@ -417,7 +416,7 @@ export class GitService {
     const targetDir = cwd || this.workDir;
     try {
       const command = staged ? 'git diff --cached' : 'git diff';
-      const result = await this.sshExecutor.executeCommand(command, targetDir);
+      const result = await this.executor.executeCommand(command, targetDir);
       return result.stdout;
     } catch (error) {
       throw new Error(`获取 diff 失败: ${error instanceof Error ? error.message : String(error)}`);
@@ -433,7 +432,7 @@ export class GitService {
   async getDiffBetween(from: string, to: string, cwd?: string): Promise<string> {
     const targetDir = cwd || this.workDir;
     try {
-      const result = await this.sshExecutor.executeCommand(
+      const result = await this.executor.executeCommand(
         `git diff ${from}..${to}`,
         targetDir
       );
@@ -495,7 +494,7 @@ export class GitService {
       if (checkRemote) {
         // 检查远程分支
         // 使用简单的格式，然后检查输出中是否包含分支名
-        const result = await this.sshExecutor.executeCommand(
+        const result = await this.executor.executeCommand(
           `git ls-remote --heads origin`,
           targetDir
         );
@@ -503,7 +502,7 @@ export class GitService {
         return result.stdout.includes(`refs/heads/${branchName}`);
       } else {
         // 检查本地分支
-        const result = await this.sshExecutor.executeCommand(
+        const result = await this.executor.executeCommand(
           `git branch --list ${branchName}`,
           targetDir
         );
@@ -522,7 +521,7 @@ export class GitService {
   async hasUncommittedChanges(cwd?: string): Promise<boolean> {
     const targetDir = cwd || this.workDir;
     try {
-      const result = await this.sshExecutor.executeCommand(
+      const result = await this.executor.executeCommand(
         'git status --porcelain',
         targetDir
       );
@@ -600,7 +599,7 @@ export class GitService {
       const escapedTitle = title.replace(/"/g, '\\"');
       const escapedDescription = description.replace(/"/g, '\\"');
       
-      const result = await this.sshExecutor.executeCommand(
+      const result = await this.executor.executeCommand(
         `glab mr create --source-branch ${sourceBranch} --target-branch ${targetBranch} --title "${escapedTitle}" --description "${escapedDescription}" --yes`,
         targetDir
       );
@@ -641,7 +640,7 @@ export class GitService {
   async resetHard(cwd?: string): Promise<GitOperationResult> {
     const targetDir = cwd || this.workDir;
     try {
-      const result = await this.sshExecutor.executeCommand(
+      const result = await this.executor.executeCommand(
         'git reset --hard HEAD',
         targetDir
       );

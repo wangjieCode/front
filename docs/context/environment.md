@@ -6,7 +6,6 @@
 - `HOST`：监听地址（默认 0.0.0.0）
 - `NODE_ENV`：运行环境
 - `APP_ENV`：应用环境（用于会话过滤）
-- `RUN_MODE`：local / remote
 
 ## 数据库
 
@@ -17,15 +16,9 @@
 
 ## Git / Worktree
 
-- `GIT_WORK_DIR`：主工作区（兼容旧配置）
-- `LOCAL_GIT_WORK_DIR`、`REMOTE_GIT_WORK_DIR`
-- `GIT_DEFAULT_BRANCH`、`LOCAL_GIT_DEFAULT_BRANCH`、`REMOTE_GIT_DEFAULT_BRANCH`
-- `WORKTREE_BASE_DIR`、`REMOTE_WORKTREE_BASE_DIR`
-
-## SSH（远程模式）
-
-- `SSH_HOST`、`SSH_PORT`、`SSH_USERNAME`
-- `SSH_PRIVATE_KEY_PATH` 或 `SSH_PASSWORD`
+- `LOCAL_GIT_WORK_DIR`：主工作区
+- `GIT_DEFAULT_BRANCH`
+- `WORKTREE_BASE_DIR`
 
 ## GitLab
 
@@ -43,6 +36,6 @@
 
 - `CODE_TOOL_TYPE`：qodercli / neovate / cursor / copilot
 - `QODERCLI_PATH`、`QODERCLI_ARGS`
-- `NEOVATE_PATH`、`NEOVATE_ARGS`
 - `CURSOR_API_KEY`、`CURSOR_MODEL`
 - `COPILOT_API_KEY`
+- `IFLOW_API_KEY`

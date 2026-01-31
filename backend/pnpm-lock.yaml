@@ -14,6 +14,9 @@ importers:
       '@bull-board/express':
         specifier: ^6.16.4
         version: 6.16.4
+      '@neovate/code':
+        specifier: ^0.25.0
+        version: 0.25.0
       bullmq:
         specifier: ^5.67.2
         version: 5.67.2
@@ -729,6 +732,10 @@ packages:
     resolution: {integrity: sha512-x0fWaQtYp4E6sktbsdAqnehxDgEc/VwM7uLsRCYWaiGu0ykYdZPiS8zCWdnjHwyiumousxfBm4SO31eXqwEZhQ==}
     cpu: [x64]
     os: [win32]
+
+  '@neovate/code@0.25.0':
+    resolution: {integrity: sha512-ifIt8eRxkc5RIbk0sXx/YKJvkJJtiXh3ab3brTrdccuV5ooHpUZ4E1WDBfl1cB7Fq2qh8GDeXErADa21680HHg==}
+    hasBin: true
 
   '@noble/hashes@1.8.0':
     resolution: {integrity: sha512-jCs9ldd7NwzpgXDIf6P3+NrHh9/sD6CQdxHyjQI+h/6rDNo88ypBxxz45UDuZHz9r3tNz7N/VInSVoVdtXEI4A==}
@@ -3146,6 +3153,8 @@ snapshots:
 
   '@msgpackr-extract/msgpackr-extract-win32-x64@3.0.3':
     optional: true
+
+  '@neovate/code@0.25.0': {}
 
   '@noble/hashes@1.8.0': {}
 
