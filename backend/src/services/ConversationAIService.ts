@@ -11,6 +11,7 @@ import { NeovateSessionManagerDB } from './NeovateSessionManagerDB';
 import { GitService } from './GitService';
 import { GitLabMCPService } from './GitLabMCPService';
 import dayjs from 'dayjs';
+import { DEFAULT_NEOVATE_MODEL } from '../constants/neovateModels';
 
 /**
  * 对话 AI 服务类
@@ -41,7 +42,8 @@ export class ConversationAIService {
     context: ConversationContext,
     userMessage: string,
     sessionId: string,
-    onChunk: (chunk: string) => void
+    onChunk: (chunk: string) => void,
+    modelOverride?: string
   ): Promise<AIResponse> {
     try {
       console.log(`[ConversationAIService] 流式生成响应 - sessionId: ${sessionId}`);
@@ -60,6 +62,8 @@ export class ConversationAIService {
       const projectWorkDir = context.mode === ConversationMode.EDIT && context.projectInfo.worktreePath
         ? context.projectInfo.worktreePath
         : context.projectInfo.workDir;
+      const selectedModel = modelOverride
+        || (typeof context.variables?.model === 'string' ? context.variables.model : DEFAULT_NEOVATE_MODEL);
       
       // 调用流式 AI 服务
       const result = await this.neovateService.modifyCodeStream(
@@ -67,7 +71,8 @@ export class ConversationAIService {
         sessionId,
         neovateSessionId,
         projectWorkDir,
-        onChunk
+        onChunk,
+        selectedModel
       );
 
       // 编辑模式：异步提交变更（不阻塞响应）
@@ -111,7 +116,8 @@ export class ConversationAIService {
   async generateResponse(
     context: ConversationContext,
     userMessage: string,
-    sessionId: string
+    sessionId: string,
+    modelOverride?: string
   ): Promise<AIResponse> {
     try {
       console.log(`[ConversationAIService] 生成响应 - sessionId: ${sessionId}`);
@@ -149,6 +155,8 @@ export class ConversationAIService {
       const projectWorkDir = context.mode === ConversationMode.EDIT && context.projectInfo.worktreePath
         ? context.projectInfo.worktreePath
         : context.projectInfo.workDir;
+      const selectedModel = modelOverride
+        || (typeof context.variables?.model === 'string' ? context.variables.model : DEFAULT_NEOVATE_MODEL);
       // console.log(`[ConversationAIService] 调用 NeovateAIService - conversationId: ${sessionId}, neovateSessionId: ${neovateSessionId || '无'}`);
       // console.log(`[ConversationAIService] context.projectInfo:`, JSON.stringify(context.projectInfo, null, 2));
       // console.log(`[ConversationAIService] projectWorkDir: ${projectWorkDir}`);
@@ -157,7 +165,8 @@ export class ConversationAIService {
         userMessage,
         sessionId,
         neovateSessionId,
-        projectWorkDir
+        projectWorkDir,
+        selectedModel
       );
 
       // 编辑模式：异步提交变更（不阻塞响应）

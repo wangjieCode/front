@@ -9,6 +9,7 @@ interface MessageInputProps {
   disabled?: boolean;
   onSend: (content: string) => Promise<void>;
   placeholder?: string;
+  actions?: React.ReactNode;
 }
 
 /**
@@ -19,6 +20,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
   disabled = false,
   onSend,
   placeholder = '输入消息... (Ctrl+Enter 发送)',
+  actions,
 }) => {
   const [content, setContent] = useState('');
   const [sending, setSending] = useState(false);
@@ -74,8 +76,8 @@ const MessageInput: React.FC<MessageInputProps> = ({
   const canSend = content.trim().length > 0 && !isDisabled;
 
   return (
-    <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end' }}>
-      <div style={{ flex: 1 }}>
+    <div className="chat-input">
+      <div className="chat-input-textarea">
         <TextArea
           ref={textAreaRef}
           value={content}
@@ -85,33 +87,16 @@ const MessageInput: React.FC<MessageInputProps> = ({
           disabled={isDisabled}
           bordered={false}
           autoSize={{ minRows: 1, maxRows: 8 }}
-          style={{
-            resize: 'none',
-            fontSize: 15,
-            lineHeight: 1.6,
-            padding: '8px 0',
-            background: 'transparent',
-            opacity: sending ? 0.7 : 1,
-          }}
         />
       </div>
+      {actions ? <div className="chat-input-actions">{actions}</div> : null}
       <Button
         type="primary"
         icon={<SendOutlined />}
         onClick={handleSend}
         disabled={!canSend}
         loading={sending}
-        shape="circle"
-        size="large"
-        style={{
-          background: canSend ? 'linear-gradient(135deg, #7c5cff 0%, #6b4ce0 100%)' : '#e5e7eb',
-          color: canSend ? '#fff' : '#9ca3af',
-          border: 'none',
-          boxShadow: canSend ? '0 4px 12px rgba(124, 92, 255, 0.3)' : 'none',
-          marginBottom: 4,
-          flexShrink: 0,
-          transition: 'all 0.2s ease',
-        }}
+        className="chat-send-button"
         title={sending ? 'AI 正在处理中...' : canSend ? '发送消息 (Ctrl+Enter)' : '请输入消息'}
       />
     </div>
