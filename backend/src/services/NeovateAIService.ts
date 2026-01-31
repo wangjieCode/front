@@ -51,11 +51,12 @@ export class NeovateAIService {
     conversationId: string | undefined,
     existingSessionId: string | undefined,
     customWorkDir: string | undefined,
-    onData: (data: string) => void
+    onData: (data: string) => void,
+    model?: string
   ): Promise<NeovateAIResult> {
     try {
       const workDir = customWorkDir || this.workDir;
-      const command = this.buildCommand(prompt, existingSessionId, workDir);
+      const command = this.buildCommand(prompt, existingSessionId, workDir, model);
 
       const displayWorkDir = require('path').resolve(workDir);
       console.log(`[AI-EXEC] 开始流式执行 Neovate 指令 (dir: ${displayWorkDir}): ${command}`);
@@ -177,7 +178,8 @@ export class NeovateAIService {
     prompt: string,
     conversationId?: string,
     existingSessionId?: string,
-    customWorkDir?: string
+    customWorkDir?: string,
+    model?: string
   ): Promise<NeovateAIResult> {
     try {
       // console.log('[NeovateAIService] ========== 开始执行 ==========');
@@ -198,7 +200,7 @@ export class NeovateAIService {
       let lineBuffer = '';
 
       // 构造 neovate 命令（支持会话恢复和工作目录）
-      const command = this.buildCommand(prompt, existingSessionId, workDir);
+      const command = this.buildCommand(prompt, existingSessionId, workDir, model);
 
       const displayWorkDir = require('path').resolve(workDir);
       console.log(`[AI-EXEC] 开始执行 Neovate 指令 (dir: ${displayWorkDir}): ${command}`);
@@ -302,13 +304,8 @@ export class NeovateAIService {
    * @param customWorkDir 自定义工作目录（可选，用于覆盖默认工作目录）
    * @returns 完整的命令字符串
    */
-  private buildCommand(prompt: string, sessionId?: string, customWorkDir?: string): string {
-    // 转义提示词中的特殊字符
-    const escapedPrompt = prompt
-      .replace(/\\/g, '\\\\')  // 转义反斜杠
-      .replace(/"/g, '\\"')     // 转义双引号
-      .replace(/`/g, '\\`')     // 转义反引号
-      .replace(/\$/g, '\\$');   // 转义美元符号
+  private buildCommand(prompt: string, sessionId?: string, customWorkDir?: string, model?: string): string {
+    const escapedPrompt = this.escapeCliArg(prompt);
 
     // 使用自定义工作目录或默认绝对路径
     const workDir = customWorkDir ? require('path').resolve(customWorkDir) : this.absoluteWorkDir;
@@ -328,8 +325,20 @@ export class NeovateAIService {
       // console.log(`[NeovateAIService] 使用会话恢复: ${sessionId}`);
     }
 
+    if (model) {
+      command += ` --model "${this.escapeCliArg(model)}"`;
+    }
+
     command += ` "${escapedPrompt}"`;
     return command;
+  }
+
+  private escapeCliArg(value: string): string {
+    return value
+      .replace(/\\/g, '\\\\')
+      .replace(/"/g, '\\"')
+      .replace(/`/g, '\\`')
+      .replace(/\$/g, '\\$');
   }
 
   /**

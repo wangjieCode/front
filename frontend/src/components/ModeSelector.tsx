@@ -44,7 +44,8 @@ const ModeSelector: React.FC<ModeSelectorProps> = ({ value, onChange, disabled =
       value={value}
       onChange={(val) => onChange(val as ConversationMode)}
       disabled={disabled}
-      style={{ marginBottom: 16 }}
+      size="large"
+      style={{ marginBottom: 0 }}
     />
   );
 };

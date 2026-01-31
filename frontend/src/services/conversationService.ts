@@ -180,6 +180,7 @@ class ConversationService {
     projectId: string;
     baseBranch?: string;
     mode?: string;
+    model?: string;
   }): Promise<{ success: boolean; data: ConversationSession }> {
     const response = await fetchWithAuth(`${this.baseUrl}/api/conversations`, {
       method: 'POST',
@@ -524,17 +525,17 @@ class ConversationService {
    /**
     * 更新对话可见性
     */
-   async updateVisibility(sessionId: string, visibility: ConversationVisibility): Promise<void> {
-     const response = await fetchWithAuth(`${this.baseUrl}/api/conversations/${sessionId}/visibility`, {
-       method: 'PATCH',
-       body: JSON.stringify({ visibility }),
-     });
+  async updateVisibility(sessionId: string, visibility: ConversationVisibility): Promise<void> {
+    const response = await fetchWithAuth(`${this.baseUrl}/api/conversations/${sessionId}/visibility`, {
+      method: 'PATCH',
+      body: JSON.stringify({ visibility }),
+    });
 
      if (!response.ok) {
        const error = await response.json().catch(() => ({ error: '更新可见性失败' }));
        throw new Error(error.error || '更新可见性失败');
-     }
-   }
+    }
+  }
 
  }
 
