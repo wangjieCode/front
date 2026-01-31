@@ -34,7 +34,7 @@ enum PageType {
 
 // 包装 ConversationView 以获取 URL 参数
 const ChatRoute: React.FC<{
-  onNewConversation: (prompt: string, mode: ConversationMode, projectId: string, baseBranch?: string) => Promise<void>;
+  onNewConversation: (prompt: string, mode: ConversationMode, projectId: string, baseBranch?: string, model?: string) => Promise<void>;
   mode: ConversationMode;
   onModeChange: (mode: ConversationMode) => void;
   onVisibilityChange: (sessionId: string, visibility: ConversationVisibility) => void;
@@ -127,7 +127,8 @@ const AppContent: React.FC = () => {
     promptText: string,
     conversationMode: ConversationMode,
     projectId?: string,
-    baseBranch?: string
+    baseBranch?: string,
+    model?: string
   ) => {
     if (!promptText.trim()) {
       message.warning('请输入你的需求');
@@ -150,6 +151,7 @@ const AppContent: React.FC = () => {
         projectId: projectId,
         baseBranch,
         mode: conversationMode,
+        model,
       });
 
       if (response.success) {
@@ -161,7 +163,8 @@ const AppContent: React.FC = () => {
             session: response.data,
             autoSend: true,
             initialContent: promptText,
-            initialPrompt: promptText
+            initialPrompt: promptText,
+            model,
           } 
         });
       }

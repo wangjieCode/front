@@ -5,6 +5,7 @@ import { ConversationAIService } from '../services/ConversationAIService';
 import { ConversationStatus, ConversationVisibility } from '../types';
 import { requireAuth, AuthRequest } from './authMiddleware';
 import dayjs from 'dayjs';
+import { DEFAULT_NEOVATE_MODEL, isNeovateModelSupported } from '../constants/neovateModels';
 
 /**
  * 创建对话路由
@@ -59,12 +60,13 @@ export function createConversationRoutes(
    */
   router.post('/', requireAuth, async (req: AuthRequest, res: Response) => {
     try {
-      const { initialPrompt, mode, projectId, baseBranch } = req.body;
+      const { initialPrompt, mode, projectId, baseBranch, model } = req.body;
 
       console.log('[API] 创建对话请求参数:', {
         initialPrompt: initialPrompt?.substring(0, 50) + '...',
         mode,
-        projectId
+        projectId,
+        model,
       });
 
       if (!initialPrompt) {
@@ -118,11 +120,16 @@ export function createConversationRoutes(
         });
       }
 
+      const resolvedModel = model && isNeovateModelSupported(model)
+        ? model.toLowerCase()
+        : DEFAULT_NEOVATE_MODEL;
+
       const session = await conversationManager.createSession(
         initialPrompt,
         projectInfo,
         mode,
-        req.userId!
+        req.userId!,
+        resolvedModel
       );
 
       
@@ -265,7 +272,7 @@ export function createConversationRoutes(
 
     try {
       const { sessionId } = req.params;
-      const { content } = req.body;
+      const { content, model } = req.body;
 
       console.log(`[conversationRoutes] sessionId: ${sessionId}, content 长度: ${content?.length || 0}`);
 
@@ -275,6 +282,10 @@ export function createConversationRoutes(
           error: '消息内容不能为空',
         });
       }
+
+      const resolvedModel = model && isNeovateModelSupported(model)
+        ? model.toLowerCase()
+        : undefined;
 
       const step1Start = dayjs().valueOf();
       const session = await conversationManager.getSession(sessionId);
@@ -338,7 +349,8 @@ export function createConversationRoutes(
             (chunk: string) => {
               fullContent += chunk;
               res.write(`data: ${JSON.stringify({ type: 'chunk', content: chunk })}\n\n`);
-            }
+            },
+            resolvedModel
           );
 
           const step3bTime = dayjs().valueOf() - step3bStart;
@@ -548,7 +560,6 @@ export function createConversationRoutes(
       });
     }
   });
-
 
   return router;
 }
