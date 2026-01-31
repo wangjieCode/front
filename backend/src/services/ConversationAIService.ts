@@ -22,6 +22,7 @@ export class ConversationAIService {
   private sessionManager: NeovateSessionManagerDB;
   private gitService: GitService;
   private gitlabService: GitLabMCPService;
+  private activeAbortControllers: Map<string, AbortController> = new Map();
 
   constructor(
     neovateService: NeovateAIService,
@@ -64,6 +65,9 @@ export class ConversationAIService {
         : context.projectInfo.workDir;
       const selectedModel = modelOverride
         || (typeof context.variables?.model === 'string' ? context.variables.model : DEFAULT_NEOVATE_MODEL);
+
+      const abortController = new AbortController();
+      this.activeAbortControllers.set(sessionId, abortController);
       
       // 调用流式 AI 服务
       const result = await this.neovateService.modifyCodeStream(
@@ -72,8 +76,11 @@ export class ConversationAIService {
         neovateSessionId,
         projectWorkDir,
         onChunk,
-        selectedModel
+        selectedModel,
+        abortController.signal
       );
+      this.activeAbortControllers.delete(sessionId);
+
 
       // 编辑模式：异步提交变更（不阻塞响应）
       if (context.mode === ConversationMode.EDIT && result.success && result.changes.length > 0) {
@@ -102,12 +109,21 @@ export class ConversationAIService {
         shouldPause: false,
       };
     } catch (error) {
+      this.activeAbortControllers.delete(sessionId);
       return {
         content: `发生错误: ${error instanceof Error ? error.message : String(error)}`,
         shouldPause: false,
         metadata: {},
       };
     }
+  }
+
+  cancelResponse(sessionId: string): boolean {
+    const controller = this.activeAbortControllers.get(sessionId);
+    if (!controller) return false;
+    controller.abort();
+    this.activeAbortControllers.delete(sessionId);
+    return true;
   }
 
   /**

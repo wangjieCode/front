@@ -3,7 +3,6 @@ import fs from 'fs';
 import path from 'path';
 import dotenv from 'dotenv';
 import { createServer } from 'http';
-import { SSHExecutor, GitService, CodeToolService, GitLabMCPService } from './services';
 import { WorktreeManager } from './services/WorktreeManager';
 import { createConversationRoutes } from './api/conversationRoutes';
 import dayjs from 'dayjs';
@@ -14,7 +13,6 @@ import {
   validateRequest,
   notFoundHandler,
 } from './api/middleware';
-import { loadSSHConfig, loadGitLabConfig, getGitWorkDir, getGitDefaultBranch, getWorktreeBaseDir } from './utils/config';
 
 // 加载环境变量
 dotenv.config();

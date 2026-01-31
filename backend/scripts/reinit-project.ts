@@ -7,9 +7,8 @@ import { existsSync, rmSync } from 'fs';
 import path from 'path';
 import { projects } from '../src/db/schema';
 import { resolveStoredPath, BasePathType } from '../src/utils/PathUtils';
-import { getGitWorkDir, loadSSHConfig } from '../src/utils/config';
+import { getGitWorkDir } from '../src/utils/config';
 import { LocalExecutor } from '../src/services/LocalExecutor';
-import { SSHExecutor } from '../src/services/SSHExecutor';
 import { RepositoryService } from '../src/services/RepositoryService';
 
 const args = process.argv.slice(2);
@@ -61,12 +60,7 @@ async function main() {
   const db = drizzle(client);
 
   try {
-    const runMode = process.env.RUN_MODE || 'local';
-    const executor = runMode === 'remote' ? new SSHExecutor() : new LocalExecutor();
-    if (runMode === 'remote') {
-      const sshConfig = loadSSHConfig();
-      await executor.connect(sshConfig);
-    }
+    const executor = new LocalExecutor();
 
     if (listArg) {
       const all = await db.select({ id: projects.id, name: projects.name }).from(projects);
@@ -114,14 +108,9 @@ async function main() {
     console.log(`   分支: ${project.gitBranch || 'main'}`);
     console.log(`   目录: ${workDir}`);
 
-    if (runMode === 'remote') {
-      await executor.executeCommand(`rm -rf "${workDir}"`);
+    if (existsSync(workDir)) {
+      rmSync(workDir, { recursive: true, force: true });
       console.log(`✅ 已删除目录: ${workDir}`);
-    } else {
-      if (existsSync(workDir)) {
-        rmSync(workDir, { recursive: true, force: true });
-        console.log(`✅ 已删除目录: ${workDir}`);
-      }
     }
 
     const repositoryService = new RepositoryService(executor);
@@ -138,9 +127,6 @@ async function main() {
     }
 
     console.log('✅ 重新初始化完成');
-    if (runMode === 'remote') {
-      executor.disconnect();
-    }
   } finally {
     await client.end({ timeout: 2 });
   }

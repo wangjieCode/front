@@ -25,7 +25,7 @@
 
 - 创建对话时校验 `model` 是否在支持列表中
 - 未传 `model` 时使用默认值
-- AI 执行时将 `model` 透传给 Neovate CLI 的 `--model`
+- AI 执行时将 `model` 透传给 Neovate SDK 参数
 
 ## API
 

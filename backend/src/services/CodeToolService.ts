@@ -29,11 +29,11 @@ export class CodeToolService {
     switch (toolType) {
       case 'qodercli':
         console.log('[CodeToolService] ✅ 加载 QoderCliProvider');
-        return new QoderCliProvider(this.executor as any);
+        return new QoderCliProvider(this.executor);
       
       case 'neovate':
         console.log('[CodeToolService] ✅ 加载 NeovateProvider');
-        return new NeovateProvider(this.executor as any);
+        return new NeovateProvider(this.executor);
       
       case 'cursor':
         // TODO: 实现 CursorProvider
