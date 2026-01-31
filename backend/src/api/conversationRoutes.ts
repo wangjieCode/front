@@ -390,6 +390,48 @@ export function createConversationRoutes(
   });
 
   /**
+   * POST /api/conversations/:sessionId/interrupt
+   * 中断当前对话流式响应
+   */
+  router.post('/:sessionId/interrupt', requireAuth, async (req: AuthRequest, res: Response) => {
+    try {
+      const { sessionId } = req.params;
+      const session = await conversationManager.getSession(sessionId);
+      if (!session) {
+        return res.status(404).json({
+          success: false,
+          error: '会话不存在',
+        });
+      }
+
+      if (!isCreator(session, req.userId)) {
+        return res.status(403).json({
+          success: false,
+          error: '只有创建者可以中断对话',
+        });
+      }
+
+      const canceled = aiService.cancelResponse(sessionId);
+      if (!canceled) {
+        return res.status(400).json({
+          success: false,
+          error: '当前没有可中断的流式响应',
+        });
+      }
+
+      return res.json({
+        success: true,
+        message: '对话已中断',
+      });
+    } catch (error) {
+      return res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : '中断对话失败',
+      });
+    }
+  });
+
+  /**
    * DELETE /api/conversations/:sessionId
    * 删除对话会话
    */

@@ -7,7 +7,7 @@
 
 ## 执行
 
-- Neovate CLI 以 stream-json 输出
+- Neovate SDK 以 stream-json 输出
 - 解析输出并提取 code_changes
 
 ## 输出

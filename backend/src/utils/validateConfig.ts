@@ -1,5 +1,3 @@
-import { existsSync } from 'fs';
-
 /**
  * 配置验证结果接口
  */
@@ -22,25 +20,9 @@ export function validateAllConfig(): ConfigValidationResult {
     warnings.push('PORT 未设置，将使用默认值 3001');
   }
 
-  // 验证 SSH 配置
-  if (!process.env.SSH_HOST) {
-    errors.push('SSH_HOST 未设置');
-  }
-  if (!process.env.SSH_PORT) {
-    warnings.push('SSH_PORT 未设置，将使用默认值 22');
-  }
-  if (!process.env.SSH_USERNAME) {
-    errors.push('SSH_USERNAME 未设置');
-  }
-  if (!process.env.SSH_PRIVATE_KEY_PATH) {
-    errors.push('SSH_PRIVATE_KEY_PATH 未设置');
-  } else if (!existsSync(process.env.SSH_PRIVATE_KEY_PATH)) {
-    errors.push(`SSH 私钥文件不存在: ${process.env.SSH_PRIVATE_KEY_PATH}`);
-  }
-
   // 验证 Git 配置
-  if (!process.env.GIT_WORK_DIR) {
-    errors.push('GIT_WORK_DIR 未设置');
+  if (!process.env.LOCAL_GIT_WORK_DIR) {
+    errors.push('LOCAL_GIT_WORK_DIR 未设置');
   }
   if (!process.env.GIT_DEFAULT_BRANCH) {
     warnings.push('GIT_DEFAULT_BRANCH 未设置，将使用默认值 main');

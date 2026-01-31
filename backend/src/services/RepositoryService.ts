@@ -51,8 +51,7 @@ export class RepositoryService {
   constructor(executor: ICommandExecutor, baseWorkDir?: string) {
     this.executor = executor;
     this.baseWorkDir = baseWorkDir || getGitWorkDir();
-    // GitService 需要 SSHExecutor，但我们使用的是 ICommandExecutor
-    // 所以直接使用 executor 执行 git 命令
+    // GitService 需要 ICommandExecutor，这里直接复用 executor 执行 git 命令
     this.gitService = null as any;
   }
 
@@ -443,14 +442,8 @@ export class RepositoryService {
    */
   private async ensureDirectoryExists(dirPath: string): Promise<void> {
     try {
-      // 在本地模式下创建目录
-      if (process.env.RUN_MODE === 'local') {
-        if (!existsSync(dirPath)) {
-          mkdirSync(dirPath, { recursive: true });
-        }
-      } else {
-        // 在远程模式下创建目录
-        await this.executor.executeCommand(`mkdir -p ${dirPath}`);
+      if (!existsSync(dirPath)) {
+        mkdirSync(dirPath, { recursive: true });
       }
     } catch (error) {
       throw new GitOperationError('创建目录', error instanceof Error ? error.message : String(error));
