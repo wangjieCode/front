@@ -185,9 +185,10 @@ export interface CodeToolConfigData {
  */
 export interface CreateConversationRequest {
   initialPrompt: string;      // 初始提示词
-  taskId: string;              // 任务ID
   mode?: ConversationMode;     // 对话模式（可选）
   projectId: string;           // 项目ID（必填）
+  baseBranch?: string;         // 基线分支（可选）
+  model?: string;              // 模型名称（可选）
 }
 
 /**

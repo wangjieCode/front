@@ -20,6 +20,7 @@ import { ProjectService } from "./ProjectService";
 import { newId } from "../utils/id";
 import { getWorktreeBaseDir } from "../utils/config";
 import dayjs from "dayjs";
+import { DEFAULT_NEOVATE_MODEL, isNeovateModelSupported } from "../constants/neovateModels";
 
 /**
  * 对话管理器类
@@ -86,7 +87,8 @@ export class ConversationManager {
     initialPrompt: string,
     projectInfo: ProjectInfo,
     mode: ConversationMode = ConversationMode.EDIT,
-    userId: string
+    userId: string,
+    model?: string
   ): Promise<ConversationSession> {
     // 验证 projectId 必须存在
     if (!projectInfo.projectId) {
@@ -135,12 +137,14 @@ export class ConversationManager {
     (this as any).currentProjectId = projectInfo.projectId;
 
     // 初始化上下文
+    const resolvedModel = isNeovateModelSupported(model) ? model!.toLowerCase() : DEFAULT_NEOVATE_MODEL;
     const context: ConversationContext = {
       projectInfo: completeProjectInfo,
       taskDescription: initialPrompt,
       messageHistory: [],
       variables: {
         environment: process.env.APP_ENV || 'local',
+        model: resolvedModel,
       },
       mode,
     };
