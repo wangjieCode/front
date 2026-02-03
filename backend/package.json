@@ -12,6 +12,7 @@
     "test:watch": "jest --watch",
     "check-config": "tsx scripts/check-config.ts",
     "verify": "tsx scripts/verify-backend.ts",
+    "verify:neovate": "node scripts/verify-neovate-sdk.mjs",
     "test:api": "bash scripts/test-api.sh",
     "test:preview": "tsx scripts/test-preview.ts",
     "db:generate": "drizzle-kit generate",
