@@ -3,7 +3,6 @@ import fs from 'fs';
 import path from 'path';
 import dotenv from 'dotenv';
 import { createServer } from 'http';
-import { SSHExecutor, GitService, CodeToolService, GitLabMCPService } from './services';
 import { WorktreeManager } from './services/WorktreeManager';
 import { createConversationRoutes } from './api/conversationRoutes';
 import dayjs from 'dayjs';
@@ -14,13 +13,14 @@ import {
   validateRequest,
   notFoundHandler,
 } from './api/middleware';
-import { loadSSHConfig, loadGitLabConfig, getGitWorkDir, getGitDefaultBranch, getWorktreeBaseDir } from './utils/config';
+import type { Request } from 'express';
 
 // 加载环境变量
 dotenv.config();
 
 const app: Express = express();
 const PORT = process.env.PORT || 3001;
+const MOBILE_UA_REGEX = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i;
 
 // 创建 HTTP 服务器
 const server = createServer(app);
@@ -107,11 +107,43 @@ async function startServer() {
   // 静态资源服务
   const publicDir = path.resolve(__dirname, '../public');
   const indexPath = path.join(publicDir, 'index.html');
+  const mobileIndexPath = path.join(publicDir, 'mobile.html');
   if (fs.existsSync(publicDir)) {
     app.use(express.static(publicDir));
+    const isMobileRequest = (req: Request) => {
+      const userAgent = req.headers['user-agent'] || '';
+      return MOBILE_UA_REGEX.test(userAgent);
+    };
+
+    const getQuerySuffix = (req: Request) => {
+      const originalUrl = req.originalUrl || '';
+      const queryIndex = originalUrl.indexOf('?');
+      return queryIndex >= 0 ? originalUrl.slice(queryIndex) : '';
+    };
+
+    app.get(/^\/m(\/|$)/, (req, res, next) => {
+      if (req.path.startsWith('/api')) {
+        return next();
+      }
+      if (!fs.existsSync(mobileIndexPath)) {
+        return next();
+      }
+      if (!isMobileRequest(req)) {
+        const query = getQuerySuffix(req);
+        const desktopPath = req.path.replace(/^\/m/, '') || '/';
+        return res.redirect(302, `${desktopPath}${query}`);
+      }
+      return res.sendFile(mobileIndexPath);
+    });
+
     app.get('*', (req, res, next) => {
       if (req.path.startsWith('/api')) {
         return next();
+      }
+      if (isMobileRequest(req) && fs.existsSync(mobileIndexPath)) {
+        const query = getQuerySuffix(req);
+        const mobilePath = `/m${req.path === '/' ? '' : req.path}`;
+        return res.redirect(302, `${mobilePath}${query}`);
       }
       if (fs.existsSync(indexPath)) {
         return res.sendFile(indexPath);

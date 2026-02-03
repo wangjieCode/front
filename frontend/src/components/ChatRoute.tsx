@@ -4,7 +4,13 @@ import ConversationView from './ConversationView';
 import { ConversationMode, ConversationVisibility } from '../types/conversation';
 
 const ChatRoute: React.FC<{
-  onNewConversation: (prompt: string, mode: ConversationMode, projectId: string, baseBranch?: string) => Promise<void>;
+  onNewConversation: (
+    prompt: string,
+    mode: ConversationMode,
+    projectId: string,
+    baseBranch?: string,
+    model?: string
+  ) => Promise<void>;
   mode: ConversationMode;
   onModeChange: (mode: ConversationMode) => void;
   onVisibilityChange: (sessionId: string, visibility: ConversationVisibility) => void;

@@ -8,11 +8,12 @@ import {
   InfoCircleOutlined,
   LogoutOutlined,
 } from '@ant-design/icons';
-import IntroPage from './pages/IntroPage';
-import ProjectsPage from './pages/ProjectsPage';
-import LoginModal from './components/LoginModal';
-import ChatRoute from './components/ChatRoute';
-import ConversationList from './components/ConversationList';
+import MobileIntroPage from './mobile-pages/IntroPage';
+import MobileProjectsPage from './mobile-pages/ProjectsPage';
+import MobileLoginModal from './mobile-components/MobileLoginModal';
+import MobileChatRoute from './mobile-components/MobileChatRoute';
+import MobileConversationList from './mobile-components/MobileConversationList';
+import MobileCreateConversation from './mobile-components/MobileCreateConversation';
 import { useAppLogic } from './hooks/useAppLogic';
 import './AppMobile.css';
 
@@ -123,12 +124,12 @@ const MobileContent: React.FC = () => {
 
         <div className="mobile-route-container">
           <Routes>
-            <Route path="/projects" element={<ProjectsPage />} />
-            <Route path="/intro" element={<IntroPage />} />
+            <Route path="/projects" element={<MobileProjectsPage />} />
+            <Route path="/intro" element={<MobileIntroPage />} />
             <Route
               path="/chat/:sessionId"
               element={
-                <ChatRoute
+                <MobileChatRoute
                   onNewConversation={handleSubmit}
                   mode={mode}
                   onModeChange={setMode}
@@ -139,11 +140,10 @@ const MobileContent: React.FC = () => {
             <Route
               path="/"
               element={
-                <ChatRoute
+                <MobileCreateConversation
                   onNewConversation={handleSubmit}
                   mode={mode}
                   onModeChange={setMode}
-                  onVisibilityChange={handleVisibilityChange}
                 />
               }
             />
@@ -158,7 +158,7 @@ const MobileContent: React.FC = () => {
         open={isDrawerOpen}
         onClose={() => setIsDrawerOpen(false)}
       >
-        <ConversationList
+        <MobileConversationList
           conversations={conversations}
           isLoading={isConversationsLoading}
           activeSessionId={activeSessionId}
@@ -170,7 +170,7 @@ const MobileContent: React.FC = () => {
         />
       </Drawer>
 
-      <LoginModal
+      <MobileLoginModal
         visible={showLoginModal}
         onSuccess={handleLoginSuccess}
         onCancel={handleLoginCancel}
@@ -181,7 +181,7 @@ const MobileContent: React.FC = () => {
 
 const AppMobile: React.FC = () => {
   return (
-    <Router>
+    <Router basename="/m">
       <MobileContent />
     </Router>
   );

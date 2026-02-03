@@ -1,5 +1,3 @@
-import { SSHExecutor } from './SSHExecutor';
-import { LocalExecutor } from './LocalExecutor';
 import { ICommandExecutor } from '../types';
 import { readFileSync } from 'fs';
 import { resolve } from 'path';

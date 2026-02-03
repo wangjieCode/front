@@ -5,7 +5,7 @@
 - 前端：React + Vite
 - 后端：Express + TypeScript
 - 数据库：PostgreSQL（Drizzle）
-- 代码执行：本地或 SSH 远程执行器
+- 代码执行：本地执行器
 
 ## 关键子系统
 

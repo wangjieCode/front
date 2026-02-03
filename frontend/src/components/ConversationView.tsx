@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Spin, Typography, Button, Input, message, Modal, Descriptions, Tag, Tooltip, Select } from 'antd';
-import { ThunderboltOutlined, SendOutlined, RocketOutlined, CheckOutlined, WarningOutlined, StopOutlined, GitlabOutlined, ClockCircleOutlined, LinkOutlined, LockOutlined, InboxOutlined, GlobalOutlined } from '@ant-design/icons';
+import { Spin, Typography, Button, Input, message, Modal, Descriptions, Tag, Tooltip, Select, Dropdown } from 'antd';
+import { ThunderboltOutlined, SendOutlined, RocketOutlined, CheckOutlined, WarningOutlined, StopOutlined, GitlabOutlined, ClockCircleOutlined, LinkOutlined, LockOutlined, InboxOutlined, GlobalOutlined, EllipsisOutlined } from '@ant-design/icons';
 import ModeSelector from './ModeSelector';
 import ProjectSelector from './ProjectSelector';
 import {
@@ -18,12 +18,13 @@ import MessageList from './MessageList';
 import { conversationService } from '../services/conversationService';
 import { parseNeovateChunkStructured, ParsedContent } from '../utils/neovateParser';
 import { authUtils } from '../utils/auth';
+import { DEFAULT_NEOVATE_MODEL, NEOVATE_MODEL_OPTIONS, isNeovateModelSupported } from '../constants/neovateModels';
 
 interface ConversationViewProps {
   sessionId?: string;
   initialPrompt?: string;
   initialSession?: ConversationSession;
-  onNewConversation?: (prompt: string, mode: ConversationMode, projectId: string, baseBranch?: string) => Promise<void>;
+  onNewConversation?: (prompt: string, mode: ConversationMode, projectId: string, baseBranch?: string, model?: string) => Promise<void>;
   onVisibilityChange?: (sessionId: string, visibility: ConversationVisibility) => void;
   mode?: ConversationMode;
   onModeChange?: (mode: ConversationMode) => void;
@@ -54,6 +55,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
   const [loading, setLoading] = useState(false);
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [sending, setSending] = useState(false);
+  const [draftMessage, setDraftMessage] = useState('');
   const [creatingMR, setCreatingMR] = useState(false);
   const [stoppingPreview, setStoppingPreview] = useState(false);
   const [updatingVisibility, setUpdatingVisibility] = useState(false);
@@ -70,12 +72,17 @@ const ConversationView: React.FC<ConversationViewProps> = ({
   const [baseBranch, setBaseBranch] = useState<string>('');
   const [branchOptions, setBranchOptions] = useState<string[]>([]);
   const [loadingBranches, setLoadingBranches] = useState(false);
+  const [selectedModel, setSelectedModel] = useState<string>(DEFAULT_NEOVATE_MODEL);
+  const [chatModel, setChatModel] = useState<string>(DEFAULT_NEOVATE_MODEL);
 
   // 预览相关状态
   const [isDeploying, setIsDeploying] = useState(false);
   const [previewStatus, setPreviewStatus] = useState<PreviewStatus | null>(null);
   const [deploymentInfo, setDeploymentInfo] = useState<any>(null);
   const [showDeploymentModal, setShowDeploymentModal] = useState(false);
+
+  const lastSentMessageRef = useRef('');
+  const streamAbortRef = useRef<AbortController | null>(null);
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -121,6 +128,20 @@ const ConversationView: React.FC<ConversationViewProps> = ({
       canceled.value = true;
     };
   }, [selectedProjectId, selectedProject?.gitBranch]);
+
+  useEffect(() => {
+    if (!sessionId) {
+      setSelectedModel(DEFAULT_NEOVATE_MODEL);
+    }
+  }, [sessionId]);
+
+  useEffect(() => {
+    if (session?.context?.variables?.model) {
+      setChatModel(session.context.variables.model);
+    } else if (sessionId) {
+      setChatModel(DEFAULT_NEOVATE_MODEL);
+    }
+  }, [sessionId, session?.context?.variables?.model]);
 
   // 加载会话数据
   useEffect(() => {
@@ -177,12 +198,13 @@ const ConversationView: React.FC<ConversationViewProps> = ({
           state: { ...location.state, autoSend: false, initialContent: undefined },
         });
       }
+      const initialModel = location.state?.model || session?.context?.variables?.model || chatModel;
       // 延迟一点点发送，避免组件挂载期的状态竞争
       setTimeout(() => {
-        handleSendMessage(initialContent);
+        handleSendMessage(initialContent, initialModel);
       }, 50);
     }
-  }, [sessionId, autoSend, initialContent, location.pathname, location.state, navigate]);
+  }, [sessionId, autoSend, initialContent, location.pathname, location.state, navigate, session?.context?.variables?.model, chatModel]);
 
   // 自动滚动到最新消息
   useEffect(() => {
@@ -215,6 +237,29 @@ const ConversationView: React.FC<ConversationViewProps> = ({
 
   // 检查对话是否已归档
   const isArchived = session?.status === ConversationStatus.ARCHIVED;
+  const isStreaming = messages.some(msg => (msg as any).isStreaming);
+
+  const handleInterrupt = async () => {
+    if (!sessionId) return;
+    try {
+      const result = await conversationService.interruptConversation(sessionId);
+      if (!result.success) {
+        message.error(result.error || '中断失败');
+        return;
+      }
+      streamAbortRef.current?.abort();
+      setMessages(prev =>
+        prev.map(msg =>
+          (msg as any).isStreaming ? { ...msg, isStreaming: false } : msg
+        )
+      );
+      setDraftMessage(lastSentMessageRef.current);
+      setSending(false);
+      message.success('已中断');
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '中断失败');
+    }
+  };
 
   const loadSession = async () => {
     if (!sessionId) return;
@@ -240,7 +285,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
-  const handleSendMessage = async (content: string) => {
+  const handleSendMessage = async (content: string, modelOverride?: string) => {
     if (!sessionId) return;
     
     // 检查是否已归档
@@ -250,6 +295,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
     }
     
     setSending(true);
+    lastSentMessageRef.current = content;
 
     // 立即添加用户消息到界面
     const userMessage: ConversationMessage = {
@@ -278,6 +324,10 @@ const ConversationView: React.FC<ConversationViewProps> = ({
     setTimeout(scrollToBottom, 100);
 
     try {
+      const modelToSend = modelOverride || chatModel;
+      const normalizedModel = modelToSend?.toLowerCase();
+      const abortController = new AbortController();
+      streamAbortRef.current = abortController;
       const response = await fetch(`/api/conversations/${sessionId}/messages`, {
         method: 'POST',
         headers: {
@@ -285,7 +335,11 @@ const ConversationView: React.FC<ConversationViewProps> = ({
           'x-user-id': localStorage.getItem('user_id') || '',
           'x-username': localStorage.getItem('username') || '',
         },
-        body: JSON.stringify({ content }),
+        signal: abortController.signal,
+        body: JSON.stringify({
+          content,
+          ...(normalizedModel && isNeovateModelSupported(normalizedModel) ? { model: normalizedModel } : {}),
+        }),
       });
 
       if (!response.ok) {
@@ -306,6 +360,26 @@ const ConversationView: React.FC<ConversationViewProps> = ({
       let buffer = '';
       let accumulatedContents: ParsedContent[] = [];
       let fullContent = '';
+      let streamCompleted = false;
+
+      const markStreamComplete = () => {
+        if (streamCompleted) return;
+        streamCompleted = true;
+        setMessages(prev =>
+          prev.map(msg =>
+            msg.id === aiMessageId
+              ? { ...msg, isStreaming: false }
+              : msg
+          )
+        );
+        console.log('[ConversationView] 流式传输完成，将在 2500ms 后加载消息以获取元数据');
+        setTimeout(() => {
+          console.log('[ConversationView] 开始加载消息以获取元数据...');
+          loadMessages().then(() => {
+            console.log('[ConversationView] 消息加载完成');
+          });
+        }, 2500);
+      };
 
       while (true) {
         const { done, value } = await reader.read();
@@ -328,6 +402,18 @@ const ConversationView: React.FC<ConversationViewProps> = ({
               } else if (data.type === 'chunk') {
                 // 累积完整文本内容
                 fullContent += data.content;
+
+                // 处理 Neovate SDK result 结束事件（兼容无 complete 场景）
+                if (typeof data.content === 'string' && data.content.trim().startsWith('{')) {
+                  try {
+                    const event = JSON.parse(data.content);
+                    if (event?.type === 'result') {
+                      markStreamComplete();
+                    }
+                  } catch (error) {
+                    // ignore JSON parse errors
+                  }
+                }
                 
                 // 解析 chunk 为结构化内容
                 const parsedContents = parseNeovateChunkStructured(data.content);
@@ -367,23 +453,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
                       );
                 }
               } else if (data.type === 'complete') {
-                // 流式传输完成
-                setMessages(prev =>
-                  prev.map(msg =>
-                    msg.id === aiMessageId
-                      ? { ...msg, isStreaming: false }
-                      : msg
-                  )
-                );
-                // 延迟加载消息以获取完整的元数据（包括 codeChanges）
-                // 使用较长的延迟（2500ms）确保后端异步保存已完成
-                console.log('[ConversationView] 流式传输完成，将在 2500ms 后加载消息以获取元数据');
-                setTimeout(() => {
-                  console.log('[ConversationView] 开始加载消息以获取元数据...');
-                  loadMessages().then(() => {
-                    console.log('[ConversationView] 消息加载完成');
-                  });
-                }, 2500);
+                markStreamComplete();
               } else if (data.type === 'error') {
                 console.error('AI 响应错误:', data.message);
                 setMessages(prev =>
@@ -406,6 +476,12 @@ const ConversationView: React.FC<ConversationViewProps> = ({
         }
       }
     } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        return;
+      }
+      if (error instanceof Error && error.message.includes('aborted')) {
+        return;
+      }
       console.error('发送消息失败:', error);
       // 更新 AI 消息显示错误
       setMessages(prev =>
@@ -425,6 +501,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
       );
       message.error('发送消息失败，请重试');
     } finally {
+      streamAbortRef.current = null;
       suppressInitialLoadRef.current = false;
       setSending(false);
     }
@@ -644,7 +721,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
      }
    };
 
-   const renderLandingContent = () => (
+  const renderLandingContent = () => (
     <div style={{
       maxWidth: 800,
       margin: '0 auto',
@@ -681,10 +758,10 @@ const ConversationView: React.FC<ConversationViewProps> = ({
           boxShadow: '0 4px 20px rgba(0,0,0,0.05)'
         }}
       >
-        <div style={{ marginBottom: 24, display: 'flex', gap: 24 }}>
+        <div style={{ marginBottom: 24, display: 'flex', gap: 20, flexWrap: 'nowrap', alignItems: 'stretch' }}>
           {/* 项目选择器 */}
-          <div style={{ flex: 1 }}>
-            <Text type="secondary" style={{ fontSize: 14, marginBottom: 8, display: 'block' }}>
+          <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }}>
+            <Text type="secondary" style={{ fontSize: 14, marginBottom: 6, minHeight: 20, display: 'block' }}>
               选择项目 <span style={{ color: '#ff4d4f' }}>*</span>
             </Text>
             <ProjectSelector
@@ -699,8 +776,8 @@ const ConversationView: React.FC<ConversationViewProps> = ({
           </div>
 
           {/* 基线分支选择 */}
-          <div style={{ width: 220 }}>
-            <Text type="secondary" style={{ fontSize: 14, marginBottom: 8, display: 'block' }}>
+          <div style={{ width: 200, flexShrink: 0, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }}>
+            <Text type="secondary" style={{ fontSize: 14, marginBottom: 6, minHeight: 20, display: 'block' }}>
               基线分支 <span style={{ color: '#ff4d4f' }}>*</span>
             </Text>
             <Select
@@ -722,8 +799,8 @@ const ConversationView: React.FC<ConversationViewProps> = ({
           </div>
 
           {/* 模式选择器 */}
-          <div>
-            <Text type="secondary" style={{ fontSize: 14, marginBottom: 8, display: 'block' }}>
+          <div style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }}>
+            <Text type="secondary" style={{ fontSize: 14, marginBottom: 6, minHeight: 20, display: 'block' }}>
               对话模式
             </Text>
             <ModeSelector value={mode} onChange={onModeChange || (() => { })} />
@@ -755,7 +832,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
                 }
                 setSending(true);
                 try {
-                  await onNewConversation(prompt, mode, selectedProjectId, baseBranch);
+                  await onNewConversation(prompt, mode, selectedProjectId, baseBranch, selectedModel);
                 } finally {
                   setSending(false);
                 }
@@ -764,45 +841,64 @@ const ConversationView: React.FC<ConversationViewProps> = ({
           />
         </div>
 
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
           <Text type="secondary" style={{ fontSize: 12 }}>
             按 Ctrl/Cmd + Enter 发送
           </Text>
-          <Button
-            type="primary"
-            size="large"
-            icon={<SendOutlined />}
-            onClick={async () => {
-              if (!selectedProjectId) {
-                message.warning('请先选择项目');
-                return;
-              }
-              if (!baseBranch) {
-                message.warning('请先选择基线分支');
-                return;
-              }
-              if (onNewConversation) {
-                setSending(true);
-                try {
-                  await onNewConversation(prompt, mode, selectedProjectId, baseBranch);
-                } finally {
-                  setSending(false);
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <Select
+              value={selectedModel}
+              size="middle"
+              style={{
+                width: 210,
+                background: '#f7f7f7',
+                borderRadius: 8,
+                opacity: 0.85,
+              }}
+              dropdownStyle={{ minWidth: 240 }}
+              variant="filled"
+              onChange={(value) => setSelectedModel(value)}
+              options={NEOVATE_MODEL_OPTIONS.map(option => ({
+                value: option.value,
+                label: option.recommended ? `${option.label} (recommend)` : option.label,
+              }))}
+            />
+            <Button
+              type="primary"
+              size="large"
+              icon={<SendOutlined />}
+              onClick={async () => {
+                if (!selectedProjectId) {
+                  message.warning('请先选择项目');
+                  return;
                 }
-              }
-            }}
-            loading={sending}
-            style={{
-              height: 48,
-              padding: '0 32px',
-              fontSize: 16,
-              borderRadius: 24,
-              background: 'linear-gradient(135deg, #7c5cff 0%, #6b4ce0 100%)',
-              border: 'none',
-              boxShadow: '0 4px 12px rgba(124, 92, 255, 0.3)'
-            }}
-          >
-            {sending ? '正在思考...' : '发送'}
-          </Button>
+                if (!baseBranch) {
+                  message.warning('请先选择基线分支');
+                  return;
+                }
+                if (onNewConversation) {
+                  setSending(true);
+                  try {
+                    await onNewConversation(prompt, mode, selectedProjectId, baseBranch, selectedModel);
+                  } finally {
+                    setSending(false);
+                  }
+                }
+              }}
+              loading={sending}
+              style={{
+                height: 48,
+                padding: '0 32px',
+                fontSize: 16,
+                borderRadius: 24,
+                background: 'linear-gradient(135deg, #7c5cff 0%, #6b4ce0 100%)',
+                border: 'none',
+                boxShadow: '0 4px 12px rgba(124, 92, 255, 0.3)'
+              }}
+            >
+              {sending ? '正在思考...' : '发送'}
+            </Button>
+          </div>
         </div>
       </div>
 
@@ -861,23 +957,59 @@ const ConversationView: React.FC<ConversationViewProps> = ({
       </div>
 
       {/* Input Area */}
-      <div style={{
-        padding: '16px 24px 24px',
-        background: '#fff'
-      }}>
-        <div style={{
-          background: '#fff',
-          borderRadius: 24,
-          border: '1px solid #e5e5e5',
-          boxShadow: '0 2px 12px rgba(0,0,0,0.08)',
-          padding: '12px 16px',
-          transition: 'all 0.2s'
-        }}>
+      <div className="chat-input-panel">
+        <div className="chat-input-shell">
           <MessageInput
             sessionId={sessionId}
             disabled={sending || isArchived}
             onSend={handleSendMessage}
+            value={draftMessage}
+            onChange={setDraftMessage}
             placeholder={isArchived ? '已归档的对话不能发送消息' : undefined}
+            actions={
+              <>
+                {isStreaming && (
+                  <Button
+                    type="text"
+                    className="chat-more-button"
+                    icon={<StopOutlined />}
+                    onClick={handleInterrupt}
+                  />
+                )}
+                <Dropdown
+                  trigger={['click']}
+                  placement="topRight"
+                  disabled={isArchived}
+                  dropdownRender={() => (
+                    <div className="chat-more-panel">
+                      <div className="chat-more-title">模型</div>
+                      <Select
+                        value={chatModel}
+                        size="small"
+                        disabled={isArchived}
+                        className="chat-model-select"
+                        dropdownStyle={{ minWidth: 240 }}
+                        onChange={(value) => setChatModel(value)}
+                        options={NEOVATE_MODEL_OPTIONS.map(option => ({
+                          value: option.value,
+                          label: option.recommended ? `${option.label} (recommend)` : option.label,
+                        }))}
+                      />
+                      <Text type="secondary" className="chat-input-hint">
+                        Ctrl/Cmd + Enter
+                      </Text>
+                    </div>
+                  )}
+                >
+                  <Button
+                    type="text"
+                    className="chat-more-button"
+                    icon={<EllipsisOutlined />}
+                    disabled={isArchived}
+                  />
+                </Dropdown>
+              </>
+            }
           />
         </div>
       </div>
@@ -939,6 +1071,9 @@ const ConversationView: React.FC<ConversationViewProps> = ({
                     </span>
                   </div>
                 )}
+
+                {/* 模型展示 */}
+                {/* 模型展示已移动到输入区 */}
 
                 {/* 当前分支（仅编辑模式展示） */}
                 {session.context?.mode === 'edit' && session.context?.projectInfo?.workDir && (

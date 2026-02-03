@@ -1,5 +1,4 @@
-import { SSHExecutor } from '../services/SSHExecutor';
-import { ICodeToolProvider, CodeToolResult, CodeChange, ChangeType } from '../types';
+import { ICodeToolProvider, CodeToolResult, CodeChange, ChangeType, ICommandExecutor } from '../types';
 import { createCodeChange, detectChangeType, parseFilePathFromDiff } from '../models/CodeChange';
 
 /**
@@ -9,7 +8,7 @@ import { createCodeChange, detectChangeType, parseFilePathFromDiff } from '../mo
 export class QoderCliProvider implements ICodeToolProvider {
   readonly name = 'qodercli';
 
-  constructor(private sshExecutor: SSHExecutor) {}
+  constructor(private executor: ICommandExecutor) {}
 
   /**
    * 使用 qodercli 修改代码
@@ -23,7 +22,7 @@ export class QoderCliProvider implements ICodeToolProvider {
       const command = this.buildCommand(prompt, workDir);
       
       // 执行命令
-      const result = await this.sshExecutor.executeCommand(command, workDir);
+      const result = await this.executor.executeCommand(command, workDir);
       
       // 检查执行是否成功
       if (result.exitCode !== 0) {
@@ -81,18 +80,20 @@ export class QoderCliProvider implements ICodeToolProvider {
       let fullOutput = '';
       
       // 执行命令并流式处理输出
-      const result = await this.sshExecutor.executeCommandStream(
+      const result = await this.executor.executeCommandStream(
         command,
         workDir,
         (data: string) => {
           fullOutput += data;
           onData(data);
-        },
-        onError
+        }
       );
       
       // 检查执行是否成功
       if (result.exitCode !== 0) {
+        if (onError) {
+          onError(result.stderr || result.stdout);
+        }
         return {
           success: false,
           message: 'qodercli 执行失败',
@@ -112,6 +113,9 @@ export class QoderCliProvider implements ICodeToolProvider {
         rawOutput: fullOutput,
       };
     } catch (error) {
+      if (onError) {
+        onError(error instanceof Error ? error.message : String(error));
+      }
       return {
         success: false,
         message: '执行 qodercli 时发生错误',
@@ -219,7 +223,7 @@ export class QoderCliProvider implements ICodeToolProvider {
    */
   private async getFileDiff(filePath: string, workDir: string): Promise<string> {
     try {
-      const result = await this.sshExecutor.executeCommand(
+      const result = await this.executor.executeCommand(
         `git diff HEAD -- "${filePath}"`,
         workDir
       );
@@ -234,7 +238,7 @@ export class QoderCliProvider implements ICodeToolProvider {
    */
   private async getAllDiff(workDir: string): Promise<string> {
     try {
-      const result = await this.sshExecutor.executeCommand(
+      const result = await this.executor.executeCommand(
         'git diff HEAD',
         workDir
       );
@@ -274,7 +278,7 @@ export class QoderCliProvider implements ICodeToolProvider {
    */
   async isAvailable(workDir: string): Promise<boolean> {
     try {
-      const result = await this.sshExecutor.executeCommand(
+      const result = await this.executor.executeCommand(
         'which qodercli',
         workDir
       );
@@ -289,7 +293,7 @@ export class QoderCliProvider implements ICodeToolProvider {
    */
   async getVersion(workDir: string): Promise<string> {
     try {
-      const result = await this.sshExecutor.executeCommand(
+      const result = await this.executor.executeCommand(
         'qodercli --version',
         workDir
       );

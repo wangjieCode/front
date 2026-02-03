@@ -5,6 +5,7 @@ import { ConversationAIService } from '../services/ConversationAIService';
 import { ConversationStatus, ConversationVisibility } from '../types';
 import { requireAuth, AuthRequest } from './authMiddleware';
 import dayjs from 'dayjs';
+import { DEFAULT_NEOVATE_MODEL, isNeovateModelSupported } from '../constants/neovateModels';
 
 /**
  * 创建对话路由
@@ -59,12 +60,13 @@ export function createConversationRoutes(
    */
   router.post('/', requireAuth, async (req: AuthRequest, res: Response) => {
     try {
-      const { initialPrompt, mode, projectId, baseBranch } = req.body;
+      const { initialPrompt, mode, projectId, baseBranch, model } = req.body;
 
       console.log('[API] 创建对话请求参数:', {
         initialPrompt: initialPrompt?.substring(0, 50) + '...',
         mode,
-        projectId
+        projectId,
+        model,
       });
 
       if (!initialPrompt) {
@@ -118,11 +120,16 @@ export function createConversationRoutes(
         });
       }
 
+      const resolvedModel = model && isNeovateModelSupported(model)
+        ? model.toLowerCase()
+        : DEFAULT_NEOVATE_MODEL;
+
       const session = await conversationManager.createSession(
         initialPrompt,
         projectInfo,
         mode,
-        req.userId!
+        req.userId!,
+        resolvedModel
       );
 
       
@@ -265,7 +272,7 @@ export function createConversationRoutes(
 
     try {
       const { sessionId } = req.params;
-      const { content } = req.body;
+      const { content, model } = req.body;
 
       console.log(`[conversationRoutes] sessionId: ${sessionId}, content 长度: ${content?.length || 0}`);
 
@@ -275,6 +282,10 @@ export function createConversationRoutes(
           error: '消息内容不能为空',
         });
       }
+
+      const resolvedModel = model && isNeovateModelSupported(model)
+        ? model.toLowerCase()
+        : undefined;
 
       const step1Start = dayjs().valueOf();
       const session = await conversationManager.getSession(sessionId);
@@ -338,7 +349,8 @@ export function createConversationRoutes(
             (chunk: string) => {
               fullContent += chunk;
               res.write(`data: ${JSON.stringify({ type: 'chunk', content: chunk })}\n\n`);
-            }
+            },
+            resolvedModel
           );
 
           const step3bTime = dayjs().valueOf() - step3bStart;
@@ -373,6 +385,48 @@ export function createConversationRoutes(
       res.status(500).json({
         success: false,
         error: error instanceof Error ? error.message : '发送消息失败',
+      });
+    }
+  });
+
+  /**
+   * POST /api/conversations/:sessionId/interrupt
+   * 中断当前对话流式响应
+   */
+  router.post('/:sessionId/interrupt', requireAuth, async (req: AuthRequest, res: Response) => {
+    try {
+      const { sessionId } = req.params;
+      const session = await conversationManager.getSession(sessionId);
+      if (!session) {
+        return res.status(404).json({
+          success: false,
+          error: '会话不存在',
+        });
+      }
+
+      if (!isCreator(session, req.userId)) {
+        return res.status(403).json({
+          success: false,
+          error: '只有创建者可以中断对话',
+        });
+      }
+
+      const canceled = aiService.cancelResponse(sessionId);
+      if (!canceled) {
+        return res.status(400).json({
+          success: false,
+          error: '当前没有可中断的流式响应',
+        });
+      }
+
+      return res.json({
+        success: true,
+        message: '对话已中断',
+      });
+    } catch (error) {
+      return res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : '中断对话失败',
       });
     }
   });
@@ -548,7 +602,6 @@ export function createConversationRoutes(
       });
     }
   });
-
 
   return router;
 }
