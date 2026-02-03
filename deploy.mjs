@@ -120,14 +120,17 @@ tar -xzf "${remoteArtifact}" -C "${DEPLOY_DIR}"
 
 echo "==> Setup environment"
 cd "${DEPLOY_DIR}/backend"
-# 将生产环境配置重命名为 .env
+# 将生产环境配置复制为 .env
 if [ -f ".env.production" ]; then
-  mv .env.production .env
+  cp .env.production .env
   echo "✅ 生产环境配置已应用"
 fi
 
 echo "==> Install deps"
 pnpm install --frozen-lockfile
+
+echo "==> Verify IFLOW_API_KEY"
+pnpm run verify:neovate
 
 echo "==> Start or Restart PM2 (API)"
 if pm2 describe "${APP_NAME}" >/dev/null 2>&1; then
@@ -197,4 +200,3 @@ try {
   rmSync(artifact, { force: true });
   process.exit(1);
 }
-
