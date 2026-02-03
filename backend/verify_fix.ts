@@ -1,7 +1,6 @@
 import { GitService } from './src/services/GitService';
 import { GitLabMCPService } from './src/services/GitLabMCPService';
 import { NeovateAIService } from './src/services/NeovateAIService';
-import { SSHExecutor } from './src/services/SSHExecutor';
 
 async function runVerification() {
   console.log('🚀 开始上线前服务修复校验...\n');

@@ -11,6 +11,7 @@ import { NeovateSessionManagerDB } from './NeovateSessionManagerDB';
 import { GitService } from './GitService';
 import { GitLabMCPService } from './GitLabMCPService';
 import dayjs from 'dayjs';
+import { DEFAULT_NEOVATE_MODEL } from '../constants/neovateModels';
 
 /**
  * 对话 AI 服务类
@@ -21,6 +22,7 @@ export class ConversationAIService {
   private sessionManager: NeovateSessionManagerDB;
   private gitService: GitService;
   private gitlabService: GitLabMCPService;
+  private activeAbortControllers: Map<string, AbortController> = new Map();
 
   constructor(
     neovateService: NeovateAIService,
@@ -41,7 +43,8 @@ export class ConversationAIService {
     context: ConversationContext,
     userMessage: string,
     sessionId: string,
-    onChunk: (chunk: string) => void
+    onChunk: (chunk: string) => void,
+    modelOverride?: string
   ): Promise<AIResponse> {
     try {
       console.log(`[ConversationAIService] 流式生成响应 - sessionId: ${sessionId}`);
@@ -60,6 +63,11 @@ export class ConversationAIService {
       const projectWorkDir = context.mode === ConversationMode.EDIT && context.projectInfo.worktreePath
         ? context.projectInfo.worktreePath
         : context.projectInfo.workDir;
+      const selectedModel = modelOverride
+        || (typeof context.variables?.model === 'string' ? context.variables.model : DEFAULT_NEOVATE_MODEL);
+
+      const abortController = new AbortController();
+      this.activeAbortControllers.set(sessionId, abortController);
       
       // 调用流式 AI 服务
       const result = await this.neovateService.modifyCodeStream(
@@ -67,8 +75,12 @@ export class ConversationAIService {
         sessionId,
         neovateSessionId,
         projectWorkDir,
-        onChunk
+        onChunk,
+        selectedModel,
+        abortController.signal
       );
+      this.activeAbortControllers.delete(sessionId);
+
 
       // 编辑模式：异步提交变更（不阻塞响应）
       if (context.mode === ConversationMode.EDIT && result.success && result.changes.length > 0) {
@@ -97,6 +109,7 @@ export class ConversationAIService {
         shouldPause: false,
       };
     } catch (error) {
+      this.activeAbortControllers.delete(sessionId);
       return {
         content: `发生错误: ${error instanceof Error ? error.message : String(error)}`,
         shouldPause: false,
@@ -105,13 +118,22 @@ export class ConversationAIService {
     }
   }
 
+  cancelResponse(sessionId: string): boolean {
+    const controller = this.activeAbortControllers.get(sessionId);
+    if (!controller) return false;
+    controller.abort();
+    this.activeAbortControllers.delete(sessionId);
+    return true;
+  }
+
   /**
    * 生成 AI 响应
    */
   async generateResponse(
     context: ConversationContext,
     userMessage: string,
-    sessionId: string
+    sessionId: string,
+    modelOverride?: string
   ): Promise<AIResponse> {
     try {
       console.log(`[ConversationAIService] 生成响应 - sessionId: ${sessionId}`);
@@ -149,6 +171,8 @@ export class ConversationAIService {
       const projectWorkDir = context.mode === ConversationMode.EDIT && context.projectInfo.worktreePath
         ? context.projectInfo.worktreePath
         : context.projectInfo.workDir;
+      const selectedModel = modelOverride
+        || (typeof context.variables?.model === 'string' ? context.variables.model : DEFAULT_NEOVATE_MODEL);
       // console.log(`[ConversationAIService] 调用 NeovateAIService - conversationId: ${sessionId}, neovateSessionId: ${neovateSessionId || '无'}`);
       // console.log(`[ConversationAIService] context.projectInfo:`, JSON.stringify(context.projectInfo, null, 2));
       // console.log(`[ConversationAIService] projectWorkDir: ${projectWorkDir}`);
@@ -157,7 +181,8 @@ export class ConversationAIService {
         userMessage,
         sessionId,
         neovateSessionId,
-        projectWorkDir
+        projectWorkDir,
+        selectedModel
       );
 
       // 编辑模式：异步提交变更（不阻塞响应）

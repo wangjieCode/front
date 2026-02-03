@@ -1,0 +1,39 @@
+.mobile-create {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.mobile-create-title {
+  margin: 0;
+}
+
+.mobile-create-card {
+  background: #fff;
+  border-radius: 12px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.mobile-create-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.mobile-create-field .ant-select,
+.mobile-create-field .ant-input,
+.mobile-create-field .ant-input-affix-wrapper {
+  width: 100%;
+}
+
+.mobile-create-submit {
+  height: 40px;
+  border-radius: 10px;
+}
+
+.required {
+  color: #ff4d4f;
+}

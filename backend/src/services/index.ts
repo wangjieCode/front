@@ -3,7 +3,6 @@
  * 导出所有服务类
  */
 
-export * from './SSHExecutor';
 export * from './LocalExecutor';
 export * from './TaskManager';
 export * from './GitService';

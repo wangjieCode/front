@@ -58,43 +58,40 @@ const ConversationList: React.FC<ConversationListProps> = ({
               padding: '12px',
               display: 'flex',
               alignItems: 'flex-start',
-              position: 'relative',
-              paddingRight: '12px',
             }}
           >
-            <div className="conversation-icon">
-              <MessageOutlined />
-            </div>
-
-            <div className="conversation-content">
-              <div className="conversation-title" title={conv.title || conv.overview || conv.context?.taskDescription || '新对话'}>
-                {conv.visibility === ConversationVisibility.PUBLIC ? (
-                  <GlobalOutlined style={{ marginRight: 6, color: '#52c41a' }} />
-                ) : (
-                  <LockOutlined style={{ marginRight: 6, color: '#999' }} />
-                )}
-                {conv.title || conv.overview || conv.context?.taskDescription || '新对话'}
+            <div className="conversation-main">
+              <div className="conversation-icon">
+                <MessageOutlined />
               </div>
 
-              <div className="conversation-footer">
-                {projectName && (
-                  <div className="project-pill" title={projectName}>
-                    <FolderOpenOutlined style={{ fontSize: 12 }} />
-                    <span>{projectName}</span>
-                  </div>
-                )}
-                <div style={{ marginTop: 4, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div className="conversation-content">
+                <div className="conversation-title" title={conv.title || conv.overview || conv.context?.taskDescription || '新对话'}>
+                  {conv.visibility === ConversationVisibility.PUBLIC ? (
+                    <GlobalOutlined style={{ marginRight: 6, color: '#52c41a' }} />
+                  ) : (
+                    <LockOutlined style={{ marginRight: 6, color: '#999' }} />
+                  )}
+                  {conv.title || conv.overview || conv.context?.taskDescription || '新对话'}
+                </div>
+
+                <div className="conversation-footer">
+                  {projectName && (
+                    <div className="project-pill" title={projectName}>
+                      <FolderOpenOutlined style={{ fontSize: 12 }} />
+                      <span>{projectName}</span>
+                    </div>
+                  )}
                   <span className="date-text">{dateStr}</span>
                 </div>
               </div>
             </div>
 
-            <div className={`mode-corner-tag ${mode === ConversationMode.EDIT ? 'edit' : ''}`}>
-              {mode === ConversationMode.EDIT ? <EditOutlined style={{ fontSize: 10 }} /> : <ReadOutlined style={{ fontSize: 10 }} />}
-              <span>{mode === ConversationMode.EDIT ? '编辑' : '只读'}</span>
-            </div>
-
-            <div className="delete-action" onClick={(e) => e.stopPropagation()}>
+            <div className="conversation-actions" onClick={(e) => e.stopPropagation()}>
+              <div className={`mode-pill ${mode === ConversationMode.EDIT ? 'edit' : ''}`}>
+                {mode === ConversationMode.EDIT ? <EditOutlined style={{ fontSize: 10 }} /> : <ReadOutlined style={{ fontSize: 10 }} />}
+                <span>{mode === ConversationMode.EDIT ? '编辑' : '只读'}</span>
+              </div>
               <Popconfirm
                 title="确认删除"
                 description="确定要删除这个对话吗？"

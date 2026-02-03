@@ -49,6 +49,7 @@
   "dependencies": {
     "@bull-board/api": "^6.16.4",
     "@bull-board/express": "^6.16.4",
+    "@neovate/code": "^0.25.0",
     "bullmq": "^5.67.2",
     "dayjs": "^1.11.19",
     "dockerode": "^4.0.9",

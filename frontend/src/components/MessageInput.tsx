@@ -9,6 +9,9 @@ interface MessageInputProps {
   disabled?: boolean;
   onSend: (content: string) => Promise<void>;
   placeholder?: string;
+  actions?: React.ReactNode;
+  value?: string;
+  onChange?: (value: string) => void;
 }
 
 /**
@@ -19,6 +22,9 @@ const MessageInput: React.FC<MessageInputProps> = ({
   disabled = false,
   onSend,
   placeholder = '输入消息... (Ctrl+Enter 发送)',
+  actions,
+  value,
+  onChange,
 }) => {
   const [content, setContent] = useState('');
   const [sending, setSending] = useState(false);
@@ -27,9 +33,10 @@ const MessageInput: React.FC<MessageInputProps> = ({
   /**
    * 处理发送消息
    */
+  const currentValue = onChange ? value ?? '' : content;
   const handleSend = async () => {
     // 验证输入
-    const trimmedContent = content.trim();
+    const trimmedContent = currentValue.trim();
     if (!trimmedContent) {
       return;
     }
@@ -40,9 +47,13 @@ const MessageInput: React.FC<MessageInputProps> = ({
 
     setSending(true);
     try {
-      await onSend(content);
+      await onSend(currentValue);
       // 发送成功后清空输入框
-      setContent('');
+      if (onChange) {
+        onChange('');
+      } else {
+        setContent('');
+      }
       // 重新聚焦到输入框
       textAreaRef.current?.focus();
     } catch (error) {
@@ -67,51 +78,39 @@ const MessageInput: React.FC<MessageInputProps> = ({
    * 处理输入变化
    */
   const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setContent(e.target.value);
+    const nextValue = e.target.value;
+    if (onChange) {
+      onChange(nextValue);
+    } else {
+      setContent(nextValue);
+    }
   };
 
   const isDisabled = disabled || sending;
-  const canSend = content.trim().length > 0 && !isDisabled;
+  const canSend = currentValue.trim().length > 0 && !isDisabled;
 
   return (
-    <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end' }}>
-      <div style={{ flex: 1 }}>
+    <div className="chat-input">
+      <div className="chat-input-textarea">
         <TextArea
           ref={textAreaRef}
-          value={content}
+          value={currentValue}
           onChange={handleChange}
           onKeyDown={handleKeyDown}
           placeholder={sending ? 'AI 正在处理中...' : placeholder}
           disabled={isDisabled}
           bordered={false}
           autoSize={{ minRows: 1, maxRows: 8 }}
-          style={{
-            resize: 'none',
-            fontSize: 15,
-            lineHeight: 1.6,
-            padding: '8px 0',
-            background: 'transparent',
-            opacity: sending ? 0.7 : 1,
-          }}
         />
       </div>
+      {actions ? <div className="chat-input-actions">{actions}</div> : null}
       <Button
         type="primary"
         icon={<SendOutlined />}
         onClick={handleSend}
         disabled={!canSend}
         loading={sending}
-        shape="circle"
-        size="large"
-        style={{
-          background: canSend ? 'linear-gradient(135deg, #7c5cff 0%, #6b4ce0 100%)' : '#e5e7eb',
-          color: canSend ? '#fff' : '#9ca3af',
-          border: 'none',
-          boxShadow: canSend ? '0 4px 12px rgba(124, 92, 255, 0.3)' : 'none',
-          marginBottom: 4,
-          flexShrink: 0,
-          transition: 'all 0.2s ease',
-        }}
+        className="chat-send-button"
         title={sending ? 'AI 正在处理中...' : canSend ? '发送消息 (Ctrl+Enter)' : '请输入消息'}
       />
     </div>

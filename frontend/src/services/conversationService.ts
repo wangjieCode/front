@@ -180,6 +180,7 @@ class ConversationService {
     projectId: string;
     baseBranch?: string;
     mode?: string;
+    model?: string;
   }): Promise<{ success: boolean; data: ConversationSession }> {
     const response = await fetchWithAuth(`${this.baseUrl}/api/conversations`, {
       method: 'POST',
@@ -506,6 +507,26 @@ class ConversationService {
     }
   }
 
+  /**
+   * 中断对话流式响应
+   */
+  async interruptConversation(sessionId: string): Promise<{ success: boolean; message?: string; error?: string }> {
+    try {
+      const response = await fetchWithAuth(`${this.baseUrl}/api/conversations/${sessionId}/interrupt`, {
+        method: 'POST',
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        return { success: false, error: data.error || '中断失败' };
+      }
+
+      return await response.json();
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : '中断失败' };
+    }
+  }
+
    /**
     * 归档对话
     */
@@ -524,17 +545,17 @@ class ConversationService {
    /**
     * 更新对话可见性
     */
-   async updateVisibility(sessionId: string, visibility: ConversationVisibility): Promise<void> {
-     const response = await fetchWithAuth(`${this.baseUrl}/api/conversations/${sessionId}/visibility`, {
-       method: 'PATCH',
-       body: JSON.stringify({ visibility }),
-     });
+  async updateVisibility(sessionId: string, visibility: ConversationVisibility): Promise<void> {
+    const response = await fetchWithAuth(`${this.baseUrl}/api/conversations/${sessionId}/visibility`, {
+      method: 'PATCH',
+      body: JSON.stringify({ visibility }),
+    });
 
      if (!response.ok) {
        const error = await response.json().catch(() => ({ error: '更新可见性失败' }));
        throw new Error(error.error || '更新可见性失败');
-     }
-   }
+    }
+  }
 
  }
 

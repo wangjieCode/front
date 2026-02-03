@@ -81,7 +81,8 @@ export const useAppLogic = () => {
     promptText: string,
     conversationMode: ConversationMode,
     projectId?: string,
-    baseBranch?: string
+    baseBranch?: string,
+    model?: string
   ) => {
     if (!promptText.trim()) {
       message.warning('请输入你的需求');
@@ -104,6 +105,7 @@ export const useAppLogic = () => {
         projectId,
         baseBranch,
         mode: conversationMode,
+        model,
       });
 
       if (response.success) {
