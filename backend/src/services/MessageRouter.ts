@@ -24,6 +24,7 @@ export class MessageRouter {
   async handleUserMessage(
     sessionId: string,
     content: string,
+    metadata?: MessageMetadata,
     existingSession?: any, // 可选的已存在会话对象，避免重复查询
     asyncSave: boolean = false // 是否异步保存
   ): Promise<void> {
@@ -42,7 +43,7 @@ export class MessageRouter {
       sessionId,
       MessageRole.USER,
       content,
-      undefined,
+      metadata,
       session,
       asyncSave
     );

@@ -10,6 +10,7 @@ import {
   ConversationMode,
   ConversationStatus,
   ConversationVisibility,
+  ImageAttachment,
   PreviewStatus,
 } from '../types/conversation';
 import { Project } from '../types/project';
@@ -201,7 +202,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
       const initialModel = location.state?.model || session?.context?.variables?.model || chatModel;
       // 延迟一点点发送，避免组件挂载期的状态竞争
       setTimeout(() => {
-        handleSendMessage(initialContent, initialModel);
+        handleSendMessage(initialContent, { modelOverride: initialModel });
       }, 50);
     }
   }, [sessionId, autoSend, initialContent, location.pathname, location.state, navigate, session?.context?.variables?.model, chatModel]);
@@ -285,8 +286,12 @@ const ConversationView: React.FC<ConversationViewProps> = ({
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
-  const handleSendMessage = async (content: string, modelOverride?: string) => {
+  const handleSendMessage = async (
+    content: string,
+    options?: { images?: ImageAttachment[]; modelOverride?: string }
+  ) => {
     if (!sessionId) return;
+    const images = options?.images || [];
     
     // 检查是否已归档
     if (isArchived) {
@@ -304,6 +309,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
       branchId: session?.context?.gitBranch || 'main',
       role: 'user' as any,
       content,
+      metadata: images.length > 0 ? { images } : undefined,
       timestamp: new Date().toISOString(),
     };
     // 创建临时 AI 消息用于流式更新，显示"正在思考"状态
@@ -324,7 +330,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
     setTimeout(scrollToBottom, 100);
 
     try {
-      const modelToSend = modelOverride || chatModel;
+      const modelToSend = options?.modelOverride || chatModel;
       const normalizedModel = modelToSend?.toLowerCase();
       const abortController = new AbortController();
       streamAbortRef.current = abortController;
@@ -338,6 +344,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
         signal: abortController.signal,
         body: JSON.stringify({
           content,
+          ...(images.length > 0 ? { images } : {}),
           ...(normalizedModel && isNeovateModelSupported(normalizedModel) ? { model: normalizedModel } : {}),
         }),
       });
