@@ -28,11 +28,16 @@ describe('ConversationAIService.generateResponseStream', () => {
 
     const gitlabService = {} as any;
 
+    const conversationManager = {
+      getMessageHistory: jest.fn().mockResolvedValue([]),
+    } as any;
+
     const service = new ConversationAIService(
       neovateService,
       'postgres://user:pass@localhost:5432/db',
       gitService,
-      gitlabService
+      gitlabService,
+      conversationManager
     );
 
     const context = {

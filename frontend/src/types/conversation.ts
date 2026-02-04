@@ -66,10 +66,17 @@ export interface MessageMetadata {
   isInvalid?: boolean;
   gitBranch?: string;
   mrUrl?: string;
+  images?: ImageAttachment[];
   operationDenied?: {
     operation: OperationType;
     reason: string;
   };
+}
+
+export interface ImageAttachment {
+  data: string;
+  mimeType: string;
+  name?: string;
 }
 
 export interface ParsedContent {

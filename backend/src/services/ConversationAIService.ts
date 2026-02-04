@@ -5,11 +5,14 @@ import {
   MessageMetadata,
   ToolCall,
   CodeChange,
+  ImageAttachment,
+  MessageRole,
 } from '../types';
 import { NeovateAIService, NeovateAIResult } from './NeovateAIService';
 import { NeovateSessionManagerDB } from './NeovateSessionManagerDB';
 import { GitService } from './GitService';
 import { GitLabMCPService } from './GitLabMCPService';
+import { ConversationManager } from './ConversationManager';
 import dayjs from 'dayjs';
 import { DEFAULT_NEOVATE_MODEL } from '../constants/neovateModels';
 
@@ -22,18 +25,21 @@ export class ConversationAIService {
   private sessionManager: NeovateSessionManagerDB;
   private gitService: GitService;
   private gitlabService: GitLabMCPService;
+  private conversationManager: ConversationManager;
   private activeAbortControllers: Map<string, AbortController> = new Map();
 
   constructor(
     neovateService: NeovateAIService,
     databaseUrl: string,
     gitService: GitService,
-    gitlabService: GitLabMCPService
+    gitlabService: GitLabMCPService,
+    conversationManager: ConversationManager
   ) {
     this.neovateService = neovateService;
     this.sessionManager = new NeovateSessionManagerDB(databaseUrl);
     this.gitService = gitService;
     this.gitlabService = gitlabService;
+    this.conversationManager = conversationManager;
   }
 
   /**
@@ -44,10 +50,35 @@ export class ConversationAIService {
     userMessage: string,
     sessionId: string,
     onChunk: (chunk: string) => void,
-    modelOverride?: string
+    modelOverride?: string,
+    images?: ImageAttachment[]
   ): Promise<AIResponse> {
     try {
       console.log(`[ConversationAIService] 流式生成响应 - sessionId: ${sessionId}`);
+
+      if (images && images.length > 0) {
+        const abortController = new AbortController();
+        this.activeAbortControllers.set(sessionId, abortController);
+        try {
+          const response = await this.generateVisionResponse(
+            sessionId,
+            userMessage,
+            images,
+            modelOverride,
+            abortController.signal
+          );
+          if (response) {
+            onChunk(response);
+          }
+          return {
+            content: response,
+            metadata: {},
+            shouldPause: false,
+          };
+        } finally {
+          this.activeAbortControllers.delete(sessionId);
+        }
+      }
 
       // 查询 Neovate 会话 ID
       let neovateSessionId: string | undefined;
@@ -133,7 +164,8 @@ export class ConversationAIService {
     context: ConversationContext,
     userMessage: string,
     sessionId: string,
-    modelOverride?: string
+    modelOverride?: string,
+    images?: ImageAttachment[]
   ): Promise<AIResponse> {
     try {
       console.log(`[ConversationAIService] 生成响应 - sessionId: ${sessionId}`);
@@ -150,6 +182,15 @@ export class ConversationAIService {
             isQuestion: true,
             requiresResponse: true,
           },
+        };
+      }
+
+      if (images && images.length > 0) {
+        const response = await this.generateVisionResponse(sessionId, userMessage, images, modelOverride);
+        return {
+          content: response,
+          metadata: {},
+          shouldPause: false,
         };
       }
 
@@ -282,6 +323,93 @@ export class ConversationAIService {
     } catch (error) {
       console.error(`[ConversationAIService] ❌ 提交变更失败:`, error);
     }
+  }
+
+  private async generateVisionResponse(
+    sessionId: string,
+    userMessage: string,
+    images: ImageAttachment[],
+    modelOverride?: string,
+    abortSignal?: AbortSignal
+  ): Promise<string> {
+    const baseUrl = process.env.MIDSCENE_MODEL_BASE_URL || '';
+    const apiKey = process.env.MIDSCENE_MODEL_API_KEY || '';
+    const model = process.env.MIDSCENE_MODEL_NAME || modelOverride || DEFAULT_NEOVATE_MODEL;
+
+    if (!baseUrl || !apiKey) {
+      throw new Error('未配置 MIDSCENE_MODEL_BASE_URL 或 MIDSCENE_MODEL_API_KEY');
+    }
+
+    const history = await this.conversationManager.getMessageHistory(sessionId);
+    const recent = history.slice(-8);
+    const messages = recent.map(message => {
+      if (message.role === MessageRole.USER) {
+        const contentParts: Array<{ type: 'text' | 'image_url'; text?: string; image_url?: { url: string } }> = [];
+        if (message.content) {
+          contentParts.push({ type: 'text', text: message.content });
+        }
+        if (message.metadata?.images) {
+          for (const image of message.metadata.images) {
+            contentParts.push({ type: 'image_url', image_url: { url: this.normalizeImageData(image) } });
+          }
+        }
+        return { role: 'user', content: contentParts.length > 0 ? contentParts : message.content };
+      }
+      return { role: message.role, content: message.content };
+    });
+
+    const lastMessage = history[history.length - 1];
+    const shouldAppend =
+      !lastMessage ||
+      lastMessage.role !== MessageRole.USER ||
+      lastMessage.content !== userMessage ||
+      (lastMessage.metadata?.images?.length || 0) !== images.length;
+
+    if (shouldAppend) {
+      const contentParts: Array<{ type: 'text' | 'image_url'; text?: string; image_url?: { url: string } }> = [];
+      if (userMessage) {
+        contentParts.push({ type: 'text', text: userMessage });
+      }
+      for (const image of images) {
+        contentParts.push({ type: 'image_url', image_url: { url: this.normalizeImageData(image) } });
+      }
+      messages.push({ role: 'user', content: contentParts });
+    }
+
+    const url = new URL('chat/completions', baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`).toString();
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model,
+        messages,
+        temperature: 0.2,
+        stream: false,
+      }),
+      signal: abortSignal,
+    });
+
+    if (!response.ok) {
+      const errorPayload = await response.json().catch(() => ({}));
+      const errorMessage = errorPayload?.error?.message || response.statusText;
+      throw new Error(`视觉模型调用失败: ${errorMessage}`);
+    }
+
+    const payload = await response.json();
+    return payload?.choices?.[0]?.message?.content || '';
+  }
+
+  private normalizeImageData(image: ImageAttachment): string {
+    if (image.data.startsWith('data:')) {
+      return image.data;
+    }
+    if (image.data.startsWith('http://') || image.data.startsWith('https://')) {
+      return image.data;
+    }
+    return `data:${image.mimeType};base64,${image.data}`;
   }
 
   /**

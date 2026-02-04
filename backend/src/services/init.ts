@@ -66,7 +66,13 @@ export async function initializeAllServices() {
   const conversationManager = new ConversationManager(storageAdapter, projectService, gitlabService, worktreeManager);
   const databaseUrl = process.env.DATABASE_URL || '';
   const neovateAIService = new NeovateAIService(executor, workDir, databaseUrl);
-  const conversationAIService = new ConversationAIService(neovateAIService, databaseUrl, gitService, gitlabService);
+  const conversationAIService = new ConversationAIService(
+    neovateAIService,
+    databaseUrl,
+    gitService,
+    gitlabService,
+    conversationManager
+  );
   const messageRouter = new MessageRouter(conversationManager);
 
   console.log('[INIT] 对话相关服务初始化完成，准备连接 Redis');
