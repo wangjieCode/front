@@ -41,6 +41,17 @@ export class RedisManager {
   }
 
   /**
+   * 获取 Redis 实例（安全版，未配置时返回 null）
+   */
+  public static getInstanceSafe(): Redis | null {
+    try {
+      return this.getInstance();
+    } catch (error) {
+      return null;
+    }
+  }
+
+  /**
    * 关闭 Redis 连接
    */
   public static async close(): Promise<void> {
