@@ -109,7 +109,7 @@ async function startServer() {
   const indexPath = path.join(publicDir, 'index.html');
   const mobileIndexPath = path.join(publicDir, 'mobile.html');
   if (fs.existsSync(publicDir)) {
-    app.use(express.static(publicDir));
+    app.use(express.static(publicDir, { index: false }));
     const isMobileRequest = (req: Request) => {
       const userAgent = req.headers['user-agent'] || '';
       return MOBILE_UA_REGEX.test(userAgent);
@@ -126,13 +126,16 @@ async function startServer() {
         return next();
       }
       if (!fs.existsSync(mobileIndexPath)) {
+        res.setHeader('X-Entry-Route', 'mobile-missing');
         return next();
       }
       if (!isMobileRequest(req)) {
         const query = getQuerySuffix(req);
         const desktopPath = req.path.replace(/^\/m/, '') || '/';
+        res.setHeader('X-Entry-Route', 'desktop-redirect');
         return res.redirect(302, `${desktopPath}${query}`);
       }
+      res.setHeader('X-Entry-Route', 'mobile-html');
       return res.sendFile(mobileIndexPath);
     });
 
@@ -143,11 +146,14 @@ async function startServer() {
       if (isMobileRequest(req) && fs.existsSync(mobileIndexPath)) {
         const query = getQuerySuffix(req);
         const mobilePath = `/m${req.path === '/' ? '' : req.path}`;
+        res.setHeader('X-Entry-Route', 'mobile-redirect');
         return res.redirect(302, `${mobilePath}${query}`);
       }
       if (fs.existsSync(indexPath)) {
+        res.setHeader('X-Entry-Route', 'desktop-html');
         return res.sendFile(indexPath);
       }
+      res.setHeader('X-Entry-Route', 'desktop-missing');
       return next();
     });
   }

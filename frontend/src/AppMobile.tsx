@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Layout, Typography, Button, Drawer, Dropdown, Space, Tabs } from 'antd';
+import { Layout, Button, Drawer, Dropdown, Space, Tabs } from 'antd';
 import { BrowserRouter as Router, Routes, Route, Link, useNavigate } from 'react-router-dom';
 import {
   MenuOutlined,
@@ -19,12 +19,10 @@ import './AppMobile.css';
 
 const MobileContent: React.FC = () => {
   const navigate = useNavigate();
-  const { Title, Text } = Typography;
   const { Content, Header } = Layout;
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const {
     currentPage,
-    pageMeta,
     activeSessionId,
     conversations,
     isConversationsLoading,
@@ -61,67 +59,71 @@ const MobileContent: React.FC = () => {
   return (
     <Layout className="mobile-layout">
       <Header className="mobile-header">
-        <div className="mobile-header-left">
-          <Button
-            type="text"
-            icon={<MenuOutlined />}
-            onClick={() => setIsDrawerOpen(true)}
-          />
-          <Link to="/" className="mobile-brand" onClick={handleNewConversation}>
-            <img src="/ai-avatar.png" alt="AI" />
-            <span>前端小秘</span>
-          </Link>
-        </div>
-        <Space size={12}>
-          {isLoggedIn && currentUser ? (
-            <Dropdown
-              menu={{
-                items: [
-                  {
-                    key: 'logout',
-                    icon: <LogoutOutlined />,
-                    label: '退出登录',
-                    onClick: handleLogout,
-                  },
-                ],
-              }}
-              placement="bottomRight"
-            >
-              <div className="mobile-user">
-                <div className="mobile-user-avatar">
-                  {currentUser.username.charAt(0).toUpperCase()}
+        <div className="mobile-header-main">
+          <div className="mobile-header-left">
+            <Button
+              type="text"
+              icon={<MenuOutlined />}
+              onClick={() => setIsDrawerOpen(true)}
+            />
+            <Link to="/" className="mobile-brand" onClick={handleNewConversation}>
+              <img src="/ai-avatar.png" alt="AI" />
+              <span>前端小秘</span>
+            </Link>
+          </div>
+          <Space size={12}>
+            {isLoggedIn && currentUser ? (
+              <Dropdown
+                menu={{
+                  items: [
+                    {
+                      key: 'logout',
+                      icon: <LogoutOutlined />,
+                      label: '退出登录',
+                      onClick: handleLogout,
+                    },
+                  ],
+                }}
+                placement="bottomRight"
+              >
+                <div className="mobile-user">
+                  <div className="mobile-user-avatar">
+                    {currentUser.username.charAt(0).toUpperCase()}
+                  </div>
+                  <span className="mobile-user-name">{currentUser.username}</span>
                 </div>
-                <span className="mobile-user-name">{currentUser.username}</span>
-              </div>
-            </Dropdown>
-          ) : (
-            <Button type="primary" size="small" onClick={() => setShowLoginModal(true)}>
-              登录
-            </Button>
-          )}
-        </Space>
+              </Dropdown>
+            ) : (
+              <Button type="primary" size="small" onClick={() => setShowLoginModal(true)}>
+                登录
+              </Button>
+            )}
+          </Space>
+        </div>
+
+        <div className="mobile-page-shell mobile-page-shell--in-header">
+          <Tabs
+            className="mobile-tabs"
+            activeKey={currentPage}
+            items={tabItems}
+            onChange={handleTabChange}
+            tabBarExtraContent={{
+              right: (
+                <Button
+                  type="primary"
+                  size="small"
+                  className="mobile-tabs-new-button"
+                  onClick={handleNewConversation}
+                >
+                  新对话
+                </Button>
+              ),
+            }}
+          />
+        </div>
       </Header>
 
       <Content className="mobile-content">
-        <div className="mobile-page-header">
-          <div>
-            <Title level={4}>{pageMeta.title}</Title>
-            <Text type="secondary">{pageMeta.subtitle}</Text>
-          </div>
-          {currentPage === 'conversations' && (
-            <Button type="primary" size="small" onClick={handleNewConversation}>
-              新对话
-            </Button>
-          )}
-        </div>
-
-        <Tabs
-          className="mobile-tabs"
-          activeKey={currentPage}
-          items={tabItems}
-          onChange={handleTabChange}
-        />
-
         <div className="mobile-route-container">
           <Routes>
             <Route path="/projects" element={<MobileProjectsPage />} />
@@ -149,10 +151,12 @@ const MobileContent: React.FC = () => {
             />
           </Routes>
         </div>
+
       </Content>
 
       <Drawer
         title="对话列表"
+        className="mobile-conversation-drawer"
         placement="left"
         width={320}
         open={isDrawerOpen}

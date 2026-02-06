@@ -9,23 +9,67 @@ export default defineConfig({
       name: 'mobile-entry',
       enforce: 'pre',
       configureServer: (server) => {
+        const MOBILE_UA_REGEX = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i;
+        const STATIC_FILE_REGEX = /\.[a-zA-Z0-9]+$/;
+
         server.middlewares.use((req, res, next) => {
-          const url = req.url || '';
-          if (!url.startsWith('/m')) {
-            return next();
-          }
+          const rawUrl = req.url || '';
+          const url = new URL(rawUrl, 'http://localhost');
+          const pathname = url.pathname;
+          const isHtmlRequest = (req.headers.accept || '').includes('text/html');
+          const isMobileRequest = MOBILE_UA_REGEX.test(req.headers['user-agent'] || '');
+
           if (req.method && req.method.toUpperCase() !== 'GET') {
             return next();
           }
-          const htmlPath = path.resolve(__dirname, 'mobile.html');
-          if (!fs.existsSync(htmlPath)) {
+
+          if (!isHtmlRequest) {
             return next();
           }
-          const html = fs.readFileSync(htmlPath, 'utf-8');
-          const transformed = server.transformIndexHtml(url, html);
-          res.statusCode = 200;
-          res.setHeader('Content-Type', 'text/html');
-          Promise.resolve(transformed).then((result) => res.end(result));
+
+          if (pathname.startsWith('/api')) {
+            return next();
+          }
+
+          if (STATIC_FILE_REGEX.test(pathname)) {
+            return next();
+          }
+
+          const htmlPath = path.resolve(__dirname, 'mobile.html');
+
+          if (pathname.startsWith('/m')) {
+            if (!isMobileRequest) {
+              const desktopPath = pathname.replace(/^\/m/, '') || '/';
+              const redirectTo = `${desktopPath}${url.search || ''}`;
+              res.statusCode = 302;
+              res.setHeader('X-Entry-Route', 'desktop-redirect');
+              res.setHeader('Location', redirectTo);
+              return res.end();
+            }
+
+            if (!fs.existsSync(htmlPath)) {
+              return next();
+            }
+
+            const html = fs.readFileSync(htmlPath, 'utf-8');
+            const transformed = server.transformIndexHtml(rawUrl, html);
+            res.statusCode = 200;
+            res.setHeader('X-Entry-Route', 'mobile-html');
+            res.setHeader('Content-Type', 'text/html');
+            Promise.resolve(transformed).then((result) => res.end(result));
+            return;
+          }
+
+          if (isMobileRequest) {
+            const mobilePath = `/m${pathname === '/' ? '' : pathname}`;
+            const redirectTo = `${mobilePath}${url.search || ''}`;
+            res.statusCode = 302;
+            res.setHeader('X-Entry-Route', 'mobile-redirect');
+            res.setHeader('Location', redirectTo);
+            return res.end();
+          }
+
+          return next();
         });
       },
     },
