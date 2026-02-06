@@ -10,7 +10,7 @@ import { CreateProjectRequest, UpdateProjectRequest, ProjectFilters, ICommandExe
 /**
  * 创建项目路由
  */
-export function createProjectRoutes(executor?: ICommandExecutor): Router {
+export function createProjectRoutes(executor: ICommandExecutor): Router {
   const router = Router();
   const projectService = new ProjectService(executor);
 

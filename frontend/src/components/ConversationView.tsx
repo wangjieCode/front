@@ -12,7 +12,6 @@ import {
   ConversationVisibility,
   PreviewStatus,
 } from '../types/conversation';
-import { Project } from '../types/project';
 import MessageInput from './MessageInput';
 import MessageList from './MessageList';
 import { conversationService } from '../services/conversationService';
@@ -68,7 +67,6 @@ const ConversationView: React.FC<ConversationViewProps> = ({
   // New conversation state
   const [prompt, setPrompt] = useState('');
   const [selectedProjectId, setSelectedProjectId] = useState<string>('');
-  const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [baseBranch, setBaseBranch] = useState<string>('');
   const [branchOptions, setBranchOptions] = useState<string[]>([]);
   const [loadingBranches, setLoadingBranches] = useState(false);
@@ -92,21 +90,21 @@ const ConversationView: React.FC<ConversationViewProps> = ({
     '看一下某接口调用使用了哪些返回值',
   ];
 
-  const loadBranches = async (projectId: string, fallbackBranch: string, canceled?: { value: boolean }) => {
+  const loadBranches = async (projectId: string, canceled?: { value: boolean }) => {
     if (loadingBranches) return;
     setLoadingBranches(true);
     try {
       const result = await conversationService.getGitBranches(projectId);
       if (canceled?.value) return;
       const branches = result.branches || [];
-      const defaultBranch = result.defaultBranch || fallbackBranch || branches[0] || '';
+      const defaultBranch = result.defaultBranch || branches[0] || '';
       setBranchOptions(branches);
       setBaseBranch(defaultBranch);
     } catch (error) {
       if (canceled?.value) return;
       message.error('获取基线分支失败');
-      setBranchOptions(fallbackBranch ? [fallbackBranch] : []);
-      setBaseBranch(fallbackBranch);
+      setBranchOptions([]);
+      setBaseBranch('');
     } finally {
       if (!canceled?.value) {
         setLoadingBranches(false);
@@ -122,12 +120,12 @@ const ConversationView: React.FC<ConversationViewProps> = ({
     }
 
     const canceled = { value: false };
-    void loadBranches(selectedProjectId, selectedProject?.gitBranch || '', canceled);
+    void loadBranches(selectedProjectId, canceled);
 
     return () => {
       canceled.value = true;
     };
-  }, [selectedProjectId, selectedProject?.gitBranch]);
+  }, [selectedProjectId]);
 
   useEffect(() => {
     if (!sessionId) {
@@ -403,18 +401,6 @@ const ConversationView: React.FC<ConversationViewProps> = ({
                 // 累积完整文本内容
                 fullContent += data.content;
 
-                // 处理 Neovate SDK result 结束事件（兼容无 complete 场景）
-                if (typeof data.content === 'string' && data.content.trim().startsWith('{')) {
-                  try {
-                    const event = JSON.parse(data.content);
-                    if (event?.type === 'result') {
-                      markStreamComplete();
-                    }
-                  } catch (error) {
-                    // ignore JSON parse errors
-                  }
-                }
-                
                 // 解析 chunk 为结构化内容
                 const parsedContents = parseNeovateChunkStructured(data.content);
                 
@@ -768,7 +754,6 @@ const ConversationView: React.FC<ConversationViewProps> = ({
               value={selectedProjectId}
               onChange={(projectId, project) => {
                 setSelectedProjectId(projectId);
-                setSelectedProject(project);
                 setBaseBranch(project?.gitBranch || '');
               }}
               placeholder="请选择要操作的项目"
@@ -791,7 +776,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
               onChange={(value) => setBaseBranch(value)}
               onDropdownVisibleChange={(open) => {
                 if (open && selectedProjectId) {
-                  void loadBranches(selectedProjectId, selectedProject?.gitBranch || '');
+                  void loadBranches(selectedProjectId);
                 }
               }}
               options={branchOptions.map(branch => ({ value: branch, label: branch }))}
