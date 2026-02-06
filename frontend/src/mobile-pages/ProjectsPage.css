@@ -1,0 +1,127 @@
+.mobile-projects {
+  background: #f7f7fb;
+  min-height: 100vh;
+}
+
+.mobile-projects-content {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.mobile-projects-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.mobile-projects-header .ant-typography {
+  margin: 0;
+}
+
+.mobile-projects-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.stat-card {
+  border-radius: 12px;
+  background: #ffffff;
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.06);
+}
+
+.stat-card .ant-card-body {
+  padding: 10px 12px;
+}
+
+.stat-value {
+  font-size: 18px;
+  font-weight: 700;
+  color: #1f1f1f;
+}
+
+.mobile-projects-filters {
+  display: grid;
+  gap: 10px;
+}
+
+.mobile-projects-filters .ant-select,
+.mobile-projects-filters .ant-input-search {
+  width: 100%;
+}
+
+.mobile-projects-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.project-card {
+  border-radius: 14px;
+  border: 1px solid #eef0f4;
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.05);
+}
+
+.project-card .ant-card-body {
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.project-card-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.project-card-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #6b7280;
+  margin-top: 4px;
+}
+
+.project-card-desc {
+  margin: 0;
+  color: #667085;
+  font-size: 13px;
+}
+
+.project-card-info {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.project-card-info > div {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.project-card-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.project-card-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+@media (min-width: 480px) {
+  .mobile-projects-content {
+    padding: 20px;
+  }
+}
