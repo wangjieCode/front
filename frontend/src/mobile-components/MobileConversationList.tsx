@@ -6,7 +6,6 @@ import {
   FolderOpenOutlined,
   GlobalOutlined,
   LockOutlined,
-  MessageOutlined,
   ReadOutlined,
 } from '@ant-design/icons';
 import { ConversationMode, ConversationVisibility } from '../types/conversation';
@@ -28,14 +27,19 @@ const MobileConversationList: React.FC<ConversationListProps> = ({
 }) => {
   if (isLoading) {
     return (
-      <div style={{ textAlign: 'center', padding: '20px' }}>
+      <div className="mobile-conversation-list-loading">
         <Spin />
       </div>
     );
   }
 
+  if (!conversations.length) {
+    return <div className="mobile-conversation-list-empty">暂无对话</div>;
+  }
+
   return (
     <List
+      className="mobile-conversation-list"
       dataSource={conversations}
       renderItem={(conv: any) => {
         const mode = conv?.mode || ConversationMode.EDIT;
@@ -51,45 +55,33 @@ const MobileConversationList: React.FC<ConversationListProps> = ({
         return (
           <List.Item
             key={conv.id}
-            className={`conversation-item ${isActive ? 'active' : ''}`}
+            className={`mobile-conversation-item ${isActive ? 'active' : ''}`}
             onClick={() => onConversationClick(conv)}
-            style={{
-              cursor: 'pointer',
-              padding: '12px',
-              display: 'flex',
-              alignItems: 'flex-start',
-            }}
+            style={{ cursor: 'pointer' }}
           >
-            <div className="conversation-main">
-              <div className="conversation-icon">
-                <MessageOutlined />
-              </div>
-
-              <div className="conversation-content">
-                <div className="conversation-title" title={conv.title || conv.overview || conv.context?.taskDescription || '新对话'}>
-                  {conv.visibility === ConversationVisibility.PUBLIC ? (
-                    <GlobalOutlined style={{ marginRight: 6, color: '#52c41a' }} />
-                  ) : (
-                    <LockOutlined style={{ marginRight: 6, color: '#999' }} />
-                  )}
+            <div className="mobile-conversation-main">
+              <div className="mobile-conversation-title-row">
+                <div className="mobile-conversation-title" title={conv.title || conv.overview || conv.context?.taskDescription || '新对话'}>
                   {conv.title || conv.overview || conv.context?.taskDescription || '新对话'}
                 </div>
+                <span className={`mobile-visibility-pill ${conv.visibility === ConversationVisibility.PUBLIC ? 'public' : 'private'}`}>
+                  {conv.visibility === ConversationVisibility.PUBLIC ? <GlobalOutlined /> : <LockOutlined />}
+                  {conv.visibility === ConversationVisibility.PUBLIC ? '公开' : '私密'}
+                </span>
+              </div>
 
-                <div className="conversation-footer">
-                  {projectName && (
-                    <div className="project-pill" title={projectName}>
-                      <FolderOpenOutlined style={{ fontSize: 12 }} />
-                      <span>{projectName}</span>
-                    </div>
-                  )}
-                  <span className="date-text">{dateStr}</span>
+              <div className="mobile-conversation-meta-row">
+                <div className="mobile-project-pill" title={projectName || '-'}>
+                  <FolderOpenOutlined />
+                  <span>{projectName || '-'}</span>
                 </div>
+                <span className="mobile-date-text">{dateStr}</span>
               </div>
             </div>
 
-            <div className="conversation-actions" onClick={(e) => e.stopPropagation()}>
-              <div className={`mode-pill ${mode === ConversationMode.EDIT ? 'edit' : ''}`}>
-                {mode === ConversationMode.EDIT ? <EditOutlined style={{ fontSize: 10 }} /> : <ReadOutlined style={{ fontSize: 10 }} />}
+            <div className="mobile-conversation-actions" onClick={(e) => e.stopPropagation()}>
+              <div className={`mobile-mode-pill ${mode === ConversationMode.EDIT ? 'edit' : ''}`}>
+                {mode === ConversationMode.EDIT ? <EditOutlined /> : <ReadOutlined />}
                 <span>{mode === ConversationMode.EDIT ? '编辑' : '只读'}</span>
               </div>
               <Popconfirm
@@ -108,7 +100,7 @@ const MobileConversationList: React.FC<ConversationListProps> = ({
                   danger
                   size="small"
                   icon={<DeleteOutlined />}
-                  className="delete-btn"
+                  className="mobile-delete-btn"
                 />
               </Popconfirm>
             </div>

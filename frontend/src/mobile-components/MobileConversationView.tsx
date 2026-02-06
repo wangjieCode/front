@@ -936,7 +936,7 @@ const MobileConversationView: React.FC<ConversationViewProps> = ({
         style={{
           flex: 1,
           overflowY: 'auto',
-          padding: '20px 0'
+          padding: '20px 0 140px'
         }}
       >
         {loadingMessages ? (
