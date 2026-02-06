@@ -18,6 +18,7 @@ import {
 import IntroPage from './pages/IntroPage';
 import ConversationView from './components/ConversationView';
 import LoginModal from './components/LoginModal';
+import AccountSettingsModal from './components/AccountSettingsModal';
 import ProjectsPage from './pages/ProjectsPage';
 import { conversationService, setLoginModalCallback } from './services/conversationService';
 import { setLoginModalCallback as setProjectLoginModalCallback } from './services/projectService';
@@ -69,7 +70,8 @@ const AppContent: React.FC = () => {
   const [mode, setMode] = useState<ConversationMode>(ConversationMode.READONLY);
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [currentUser, setCurrentUser] = useState<{ userId: string; username: string } | null>(null);
+  const [currentUser, setCurrentUser] = useState<{ userId: string; username: string; hasPassword: boolean } | null>(null);
+  const [showAccountSettings, setShowAccountSettings] = useState(false);
 
   // 根据路径确定当前页面
   let currentPage = PageType.CONVERSATIONS;
@@ -187,10 +189,10 @@ const AppContent: React.FC = () => {
   };
 
   // 登录成功
-  const handleLoginSuccess = (userId: string, username: string) => {
-    authUtils.setUserInfo(userId, username);
+  const handleLoginSuccess = (userId: string, username: string, hasPassword: boolean) => {
+    authUtils.setUserInfo(userId, username, hasPassword);
     setIsLoggedIn(true);
-    setCurrentUser({ userId, username });
+    setCurrentUser({ userId, username, hasPassword });
     setShowLoginModal(false);
     message.success(`欢迎回来，${username}！`);
     // 登录成功后加载对话列表
@@ -463,6 +465,12 @@ const AppContent: React.FC = () => {
                 menu={{
                   items: [
                     {
+                      key: 'account',
+                      icon: <InfoCircleOutlined />,
+                      label: '账号管理',
+                      onClick: () => setShowAccountSettings(true),
+                    },
+                    {
                       key: 'logout',
                       icon: <LogoutOutlined />,
                       label: '退出登录',
@@ -525,6 +533,22 @@ const AppContent: React.FC = () => {
         onSuccess={handleLoginSuccess}
         onCancel={handleLoginCancel}
       />
+      {currentUser && (
+        <AccountSettingsModal
+          visible={showAccountSettings}
+          userId={currentUser.userId}
+          username={currentUser.username}
+          hasPassword={currentUser.hasPassword}
+          onCancel={() => setShowAccountSettings(false)}
+          onUserUpdated={(username, hasPassword) => {
+            authUtils.setUsername(username);
+            authUtils.setHasPassword(hasPassword);
+            setCurrentUser((prev) => prev ? { ...prev, username, hasPassword } : prev);
+            setShowAccountSettings(false);
+          }}
+        />
+      )}
+
     </Layout>
   );
 };
