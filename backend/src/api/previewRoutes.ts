@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { ProjectPreviewService } from '../services/ProjectPreviewService';
+import { requireAuth, AuthRequest } from './authMiddleware';
 
 /**
  * 创建预览路由
@@ -11,7 +12,7 @@ export function createPreviewRoutes(previewService: ProjectPreviewService): Rout
    * POST /api/conversations/:sessionId/preview
    * 创建预览部署
    */
-  router.post('/:sessionId/preview', async (req: Request, res: Response) => {
+  router.post('/:sessionId/preview', requireAuth, async (req: AuthRequest, res: Response) => {
     try {
       const { sessionId } = req.params;
       const { branchId, forceRebuild = false, apiTarget } = req.body;
@@ -46,7 +47,7 @@ export function createPreviewRoutes(previewService: ProjectPreviewService): Rout
    * GET /api/conversations/:sessionId/preview/status
    * 获取预览状态
    */
-  router.get('/:sessionId/preview/status', async (req: Request, res: Response) => {
+  router.get('/:sessionId/preview/status', requireAuth, async (req: AuthRequest, res: Response) => {
     try {
       const { sessionId } = req.params;
 
@@ -69,7 +70,7 @@ export function createPreviewRoutes(previewService: ProjectPreviewService): Rout
    * DELETE /api/conversations/:sessionId/preview
    * 停止预览
    */
-  router.delete('/:sessionId/preview', async (req: Request, res: Response) => {
+  router.delete('/:sessionId/preview', requireAuth, async (req: AuthRequest, res: Response) => {
     try {
       const { sessionId } = req.params;
 
