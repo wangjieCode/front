@@ -63,5 +63,4 @@
 
 ## 已知缺口（代码现状）
 
-- 前端调用的 `/api/conversations/:sessionId/status` 未实现
-- 前端调用的 `/api/conversations/:sessionId/messages/:messageId` 未实现
+- 暂无。
