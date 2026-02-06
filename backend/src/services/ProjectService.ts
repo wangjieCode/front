@@ -1,6 +1,7 @@
-import { eq, and, desc } from 'drizzle-orm';
+import { eq, and, desc, ilike, or } from 'drizzle-orm';
 import { DatabaseManager } from '../db/DatabaseManager';
-import { projects, users } from '../db/schema';
+import { projects } from '../db/schema';
+import { RedisManager } from '../db/RedisManager';
 import {
   OperationResult,
   ValidationResult,
@@ -78,6 +79,25 @@ export interface ProjectListResult extends OperationResult {
 export class ProjectService {
   private db = DatabaseManager.getDb();
   private repositoryService: RepositoryService;
+  private listCacheTtlSeconds = 30;
+
+  private getRedis() {
+    return RedisManager.getInstanceSafe();
+  }
+
+  private async invalidateProjectListCache(userId: string): Promise<void> {
+    const redis = this.getRedis();
+    if (!redis) return;
+    const pattern = `projects:list:${userId}:*`;
+    let cursor = '0';
+    do {
+      const [nextCursor, keys] = await redis.scan(cursor, 'MATCH', pattern, 'COUNT', 100);
+      if (keys.length > 0) {
+        await redis.del(...keys);
+      }
+      cursor = nextCursor;
+    } while (cursor !== '0');
+  }
 
   constructor(
     private executor: ICommandExecutor
@@ -191,6 +211,8 @@ export class ProjectService {
         });
       }
 
+      await this.invalidateProjectListCache(userId);
+
       return {
         success: true,
         message: '项目创建成功',
@@ -211,32 +233,52 @@ export class ProjectService {
    */
   async getProjects(userId: string, filters?: ProjectFilters): Promise<ProjectListResult> {
     try {
-      const conditions = [];
+      const searchTerm = filters?.search?.trim().toLowerCase() || '';
+      const isActiveKey = filters?.isActive === undefined ? 'all' : filters.isActive ? 'active' : 'inactive';
+      const cacheKey = `projects:list:${userId}:${isActiveKey}:${searchTerm || 'all'}`;
+      const redis = this.getRedis();
+      if (redis) {
+        const cached = await redis.get(cacheKey);
+        if (cached) {
+          try {
+            return JSON.parse(cached) as ProjectListResult;
+          } catch (error) {
+            console.warn('[ProjectService] 项目列表缓存解析失败，已忽略');
+          }
+        }
+      }
+
+      const conditions = [eq(projects.ownerId, userId)];
       if (filters?.isActive !== undefined) {
         conditions.push(eq(projects.isActive, filters.isActive));
       }
-
-      const allProjects = await this.db
-        .select()
-        .from(projects)
-        .where(conditions.length > 0 ? and(...conditions) : undefined)
-        .orderBy(desc(projects.createdAt));
-
-      let filteredProjects = allProjects;
-      if (filters?.search) {
-        const searchTerm = filters.search.toLowerCase();
-        filteredProjects = allProjects.filter((project: Project) =>
-          project.name.toLowerCase().includes(searchTerm) ||
-          (project.description && project.description.toLowerCase().includes(searchTerm))
+      if (searchTerm) {
+        conditions.push(
+          or(
+            ilike(projects.name, `%${searchTerm}%`),
+            ilike(projects.description, `%${searchTerm}%`)
+          )
         );
       }
 
-      return {
+      const filteredProjects = await this.db
+        .select()
+        .from(projects)
+        .where(and(...conditions))
+        .orderBy(desc(projects.createdAt));
+
+      const result: ProjectListResult = {
         success: true,
         message: '获取项目列表成功',
         projects: filteredProjects.map(p => this.resolveProjectPaths(p)),
         total: filteredProjects.length,
       };
+
+      if (redis) {
+        await redis.set(cacheKey, JSON.stringify(result), 'EX', this.listCacheTtlSeconds);
+      }
+
+      return result;
     } catch (error) {
       console.error('获取项目列表失败:', error);
       return {
@@ -323,6 +365,8 @@ export class ProjectService {
         .where(eq(projects.id, projectId))
         .returning();
 
+      await this.invalidateProjectListCache(userId);
+
       return {
         success: true,
         message: '项目更新成功',
@@ -369,6 +413,8 @@ export class ProjectService {
       }
 
       await this.db.delete(projects).where(eq(projects.id, projectId));
+
+      await this.invalidateProjectListCache(userId);
 
       return {
         success: true,

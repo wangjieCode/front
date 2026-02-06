@@ -32,6 +32,44 @@ export interface ParsedContent {
   toolCallId?: string;
 }
 
+function parseEventToContents(event: NeovateMessage): ParsedContent[] {
+  const contents: ParsedContent[] = [];
+
+  if (event.role === 'assistant' && Array.isArray(event.content)) {
+    for (const block of event.content) {
+      if (block.type === 'text' && block.text) {
+        contents.push({
+          type: 'text',
+          text: block.text,
+        });
+      } else if (block.type === 'tool_use') {
+        contents.push({
+          type: 'tool_use',
+          toolName: block.name,
+          toolInput: block.input,
+          toolDescription: block.description,
+          toolCallId: block.id,
+        });
+      }
+    }
+  }
+
+  if (event.role === 'tool' && Array.isArray(event.content)) {
+    for (const block of event.content) {
+      if (block.type === 'tool-result') {
+        contents.push({
+          type: 'tool_result',
+          toolName: block.toolName,
+          toolCallId: block.toolCallId,
+          toolResult: block.result,
+        });
+      }
+    }
+  }
+
+  return contents;
+}
+
 /**
  * 解析 Neovate stream-json 格式的内容为结构化数据
  * @param rawContent 原始的 stream-json 格式内容（每行一个 JSON）
@@ -52,57 +90,13 @@ export function parseNeovateStreamJsonStructured(rawContent: string): ParsedCont
       }
 
       const event: NeovateMessage = JSON.parse(line);
-
-      // 处理 assistant 消息
-      if (event.role === 'assistant' && Array.isArray(event.content)) {
-        for (const block of event.content) {
-          if (block.type === 'text' && block.text) {
-            contents.push({
-              type: 'text',
-              text: block.text,
-            });
-          } else if (block.type === 'tool_use') {
-            contents.push({
-              type: 'tool_use',
-              toolName: block.name,
-              toolInput: block.input,
-              toolDescription: block.description,
-              toolCallId: block.id,
-            });
-          }
-        }
-      }
-
-      // 处理 tool 消息（工具执行结果）
-      if (event.role === 'tool' && Array.isArray(event.content)) {
-        for (const block of event.content) {
-          if (block.type === 'tool-result') {
-            contents.push({
-              type: 'tool_result',
-              toolName: block.toolName,
-              toolCallId: block.toolCallId,
-              toolResult: block.result,
-            });
-          }
-        }
-      }
+      contents.push(...parseEventToContents(event));
     } catch (e) {
       console.debug('[NeovateParser] 跳过无法解析的行:', line.substring(0, 100));
     }
   }
 
   return contents;
-}
-
-/**
- * 解析为纯文本（向后兼容）
- */
-export function parseNeovateStreamJson(rawContent: string): string {
-  const contents = parseNeovateStreamJsonStructured(rawContent);
-  return contents
-    .filter(c => c.type === 'text')
-    .map(c => c.text)
-    .join('');
 }
 
 /**
@@ -115,58 +109,11 @@ export function parseNeovateChunkStructured(chunk: string): ParsedContent[] {
     }
 
     const event: NeovateMessage = JSON.parse(chunk);
-    const contents: ParsedContent[] = [];
-
-    // 处理 assistant 消息
-    if (event.role === 'assistant' && Array.isArray(event.content)) {
-      for (const block of event.content) {
-        if (block.type === 'text' && block.text) {
-          contents.push({
-            type: 'text',
-            text: block.text,
-          });
-        } else if (block.type === 'tool_use') {
-          contents.push({
-            type: 'tool_use',
-            toolName: block.name,
-            toolInput: block.input,
-            toolDescription: block.description,
-            toolCallId: block.id,
-          });
-        }
-      }
-    }
-
-    // 处理 tool 消息
-    if (event.role === 'tool' && Array.isArray(event.content)) {
-      for (const block of event.content) {
-        if (block.type === 'tool-result') {
-          contents.push({
-            type: 'tool_result',
-            toolName: block.toolName,
-            toolCallId: block.toolCallId,
-            toolResult: block.result,
-          });
-        }
-      }
-    }
-
-    return contents;
+    return parseEventToContents(event);
   } catch (e) {
     console.debug('[NeovateParser] 解析 chunk 失败:', e);
     return [];
   }
-}
-
-/**
- * 实时解析流式数据块（纯文本，向后兼容）
- */
-export function parseNeovateChunk(chunk: string): string {
-  const contents = parseNeovateChunkStructured(chunk);
-  return contents
-    .filter(c => c.type === 'text')
-    .map(c => c.text)
-    .join('');
 }
 
 /**
