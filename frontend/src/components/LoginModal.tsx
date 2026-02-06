@@ -4,7 +4,7 @@ import { EyeOutlined } from '@ant-design/icons';
 
 interface LoginModalProps {
   visible: boolean;
-  onSuccess: (userId: string, username: string) => void;
+  onSuccess: (userId: string, username: string, hasPassword: boolean) => void;
   onCancel: () => void;
 }
 
@@ -22,14 +22,14 @@ const LoginModal: React.FC<LoginModalProps> = ({ visible, onSuccess, onCancel })
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ username: values.username }),
+        body: JSON.stringify({ username: values.username, password: values.password }),
       });
 
       const data = await response.json();
 
       if (data.success) {
         message.success('登录成功');
-        onSuccess(data.data.userId, data.data.username);
+        onSuccess(data.data.userId, data.data.username, Boolean(data.data.hasPassword));
         form.resetFields();
       } else {
         message.error(data.error || '登录失败');
@@ -76,19 +76,34 @@ const LoginModal: React.FC<LoginModalProps> = ({ visible, onSuccess, onCancel })
           label="用户名"
           rules={[
             { required: true, message: '请输入用户名' },
-            { 
-              pattern: /^[a-zA-Z]+$/, 
-              message: '用户名只能包含英文字母' 
+            {
+              pattern: /^[a-zA-Z]+$/,
+              message: '用户名只能包含英文字母',
             },
-            { 
-              min: 2, 
-              max: 50, 
-              message: '用户名长度必须在 2-50 个字符之间' 
+            {
+              min: 2,
+              max: 50,
+              message: '用户名长度必须在 2-50 个字符之间',
             },
           ]}
         >
-          <Input 
-            placeholder="请输入纯英文用户名" 
+          <Input
+            placeholder="请输入纯英文用户名"
+            autoComplete="off"
+            onPressEnter={handleLogin}
+          />
+        </Form.Item>
+
+        <Form.Item
+          name="password"
+          label="密码"
+          rules={[
+            { required: true, message: '请输入密码' },
+            { min: 6, max: 128, message: '密码长度必须在 6-128 个字符之间' },
+          ]}
+        >
+          <Input.Password
+            placeholder="请输入密码（首次登录将自动注册账号）"
             autoComplete="off"
             onPressEnter={handleLogin}
           />
