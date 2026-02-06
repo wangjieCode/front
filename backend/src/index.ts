@@ -13,12 +13,14 @@ import {
   validateRequest,
   notFoundHandler,
 } from './api/middleware';
+import type { Request } from 'express';
 
 // 加载环境变量
 dotenv.config();
 
 const app: Express = express();
 const PORT = process.env.PORT || 3001;
+const MOBILE_UA_REGEX = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i;
 
 // 创建 HTTP 服务器
 const server = createServer(app);
@@ -105,15 +107,53 @@ async function startServer() {
   // 静态资源服务
   const publicDir = path.resolve(__dirname, '../public');
   const indexPath = path.join(publicDir, 'index.html');
+  const mobileIndexPath = path.join(publicDir, 'mobile.html');
   if (fs.existsSync(publicDir)) {
-    app.use(express.static(publicDir));
+    app.use(express.static(publicDir, { index: false }));
+    const isMobileRequest = (req: Request) => {
+      const userAgent = req.headers['user-agent'] || '';
+      return MOBILE_UA_REGEX.test(userAgent);
+    };
+
+    const getQuerySuffix = (req: Request) => {
+      const originalUrl = req.originalUrl || '';
+      const queryIndex = originalUrl.indexOf('?');
+      return queryIndex >= 0 ? originalUrl.slice(queryIndex) : '';
+    };
+
+    app.get(/^\/m(\/|$)/, (req, res, next) => {
+      if (req.path.startsWith('/api')) {
+        return next();
+      }
+      if (!fs.existsSync(mobileIndexPath)) {
+        res.setHeader('X-Entry-Route', 'mobile-missing');
+        return next();
+      }
+      if (!isMobileRequest(req)) {
+        const query = getQuerySuffix(req);
+        const desktopPath = req.path.replace(/^\/m/, '') || '/';
+        res.setHeader('X-Entry-Route', 'desktop-redirect');
+        return res.redirect(302, `${desktopPath}${query}`);
+      }
+      res.setHeader('X-Entry-Route', 'mobile-html');
+      return res.sendFile(mobileIndexPath);
+    });
+
     app.get('*', (req, res, next) => {
       if (req.path.startsWith('/api')) {
         return next();
       }
+      if (isMobileRequest(req) && fs.existsSync(mobileIndexPath)) {
+        const query = getQuerySuffix(req);
+        const mobilePath = `/m${req.path === '/' ? '' : req.path}`;
+        res.setHeader('X-Entry-Route', 'mobile-redirect');
+        return res.redirect(302, `${mobilePath}${query}`);
+      }
       if (fs.existsSync(indexPath)) {
+        res.setHeader('X-Entry-Route', 'desktop-html');
         return res.sendFile(indexPath);
       }
+      res.setHeader('X-Entry-Route', 'desktop-missing');
       return next();
     });
   }

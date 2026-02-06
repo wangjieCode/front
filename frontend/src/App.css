@@ -76,21 +76,21 @@ body {
 
 /* Conversation List Item */
 .conversation-item {
-  background: transparent !important;
-  border: 1px solid transparent !important;
-  border-radius: 8px !important;
-  transition: all 0.2s ease !important;
-  margin-bottom: 8px !important;
+  background: #fff !important;
+  border: 1px solid #f0f0f0 !important;
+  border-radius: 12px !important;
+  transition: box-shadow 0.2s ease, border-color 0.2s ease !important;
+  margin-bottom: 10px !important;
 }
 
 .conversation-item:hover {
-  background: #fafafa !important;
-  border-color: #e8e8e8 !important;
+  border-color: #e6e6e6 !important;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.06) !important;
 }
 
 .conversation-item.active {
-  background: rgba(124, 92, 255, 0.08) !important;
-  border-color: var(--primary-color) !important;
+  border-color: rgba(124, 92, 255, 0.35) !important;
+  box-shadow: 0 8px 20px rgba(124, 92, 255, 0.12) !important;
 }
 
 .conversation-item .delete-btn {
@@ -102,71 +102,73 @@ body {
   opacity: 1;
 }
 
-.delete-action {
-  position: absolute;
-  right: 8px;
-  top: 50%;
-  transform: translateY(-50%);
-  z-index: 2;
+.conversation-main {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  flex: 1;
+  min-width: 0;
 }
 
-.mode-corner-tag {
-  position: absolute;
-  top: 0;
-  right: 0;
-  font-size: 10px;
-  padding: 2px 8px;
-  border-bottom-left-radius: 8px;
-  border-top-right-radius: 8px;
+.conversation-actions {
   display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.mode-pill {
+  display: inline-flex;
   align-items: center;
   gap: 4px;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
   background: #f5f5f5;
-  color: #999;
-  z-index: 1;
+  color: #888;
+  white-space: nowrap;
 }
 
-.mode-corner-tag.edit {
+.mode-pill.edit {
   color: var(--primary-color);
-  background: rgba(124, 92, 255, 0.15);
+  background: rgba(124, 92, 255, 0.12);
 }
 
 .conversation-icon {
-  width: 40px;
-  height: 40px;
-  background: #f0ebff;
-  border-radius: 8px;
+  width: 36px;
+  height: 36px;
+  background: #f4f2ff;
+  border-radius: 10px;
   display: flex;
   align-items: center;
   justify-content: center;
   color: var(--primary-color);
-  font-size: 20px;
+  font-size: 18px;
   flex-shrink: 0;
 }
 
 .conversation-content {
   flex: 1;
   min-width: 0;
-  margin: 0 12px;
+  margin: 0;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
 }
 
 .conversation-title {
-  font-weight: 500;
+  font-weight: 600;
   color: var(--text-main);
   font-size: 14px;
-  line-height: 1.5;
-  margin-bottom: 8px;
+  line-height: 1.4;
+  margin-bottom: 4px;
   display: -webkit-box;
-  -webkit-line-clamp: 2;
-  line-clamp: 2;
+  -webkit-line-clamp: 1;
+  line-clamp: 1;
   -webkit-box-orient: vertical;
   overflow: hidden;
   text-overflow: ellipsis;
   word-break: break-all;
-  padding-right: 20px; /* Avoid overlap with corner tag partially */
 }
 
 .conversation-footer {
@@ -175,20 +177,18 @@ body {
   justify-content: space-between;
   gap: 8px;
   width: 100%;
-  margin-top: auto;
-  padding-right: 32px; /* 为删除按钮留出空间 */
 }
 
 .project-pill {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  background: #f5f5f5;
-  padding: 2px 8px;
-  border-radius: 4px;
+  background: #f7f7f7;
+  padding: 2px 6px;
+  border-radius: 6px;
   font-size: 11px;
   color: #666;
-  max-width: 60%; 
+  max-width: 65%;
 }
 
 .project-pill span {
@@ -199,7 +199,7 @@ body {
 
 .date-text {
   font-size: 11px;
-  color: #c0c0c0;
+  color: #9c9c9c;
   white-space: nowrap;
   margin-left: auto;
 }
