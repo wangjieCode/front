@@ -94,16 +94,6 @@ async function startServer() {
     app.use('/api/conversations', createPreviewRoutes(previewService));
   }
 
-  // Docker 管理路由
-  const dockerRoutes = require('./api/dockerRoutes').default;
-  app.use('/api/docker', dockerRoutes);
-
-  // Docker Compose 管理路由
-  const { createDockerComposeRoutes } = require('./api/dockerComposeRoutes');
-  const { DockerComposeService } = require('./services/DockerComposeService');
-  const dockerComposeService = new DockerComposeService(executor);
-  app.use('/api/docker-compose', createDockerComposeRoutes(dockerComposeService));
-
   // 静态资源服务
   const publicDir = path.resolve(__dirname, '../public');
   const indexPath = path.join(publicDir, 'index.html');

@@ -16,7 +16,7 @@ import { getGitWorkDir } from '../utils/config';
 
 /**
  * 项目预览服务
- * 负责统筹预览部署流程 (基于 Infrastructure Docker Compose)
+ * 负责统筹预览部署流程（基于 PM2）
  */
 export class ProjectPreviewService {
   private conversationManager: ConversationManager;
@@ -75,7 +75,7 @@ export class ProjectPreviewService {
 
       console.log(`[ProjectPreviewService] 工作目录: ${workDir}, Git 分支: ${gitBranch}`);
 
-      // 2. 准备项目名称 (用于 docker-compose isolation)
+      // 2. 准备项目名称（用于预览进程隔离）
       const projectName = `preview-${sessionId.substring(0, 8)}`;
       
       // 如果强制重建，先尝试清理
