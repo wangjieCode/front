@@ -5,6 +5,7 @@ export interface NeovateSdkRunOptions {
   workDir: string;
   sessionId?: string;
   model?: string;
+  timeoutMs?: number;
   onChunk?: (chunk: string) => void;
   abortSignal?: AbortSignal;
 }
@@ -20,12 +21,27 @@ export async function runNeovateSdk(options: NeovateSdkRunOptions): Promise<Neov
   const pkg = getLocalPackageInfo();
   const { createSession, resumeSession } = await loadNeovateSdk();
   const model = options.model || DEFAULT_NEOVATE_MODEL;
+  const timeoutMs = Number.isFinite(options.timeoutMs)
+    ? Number(options.timeoutMs)
+    : Number(process.env.NEOVATE_EXEC_TIMEOUT_MS || 180000);
   const start = Date.now();
   let output = '';
 
   let error: Error | undefined;
   let session: Awaited<ReturnType<typeof createSession>> | null = null;
   let aborted = false;
+  let timeout: NodeJS.Timeout | null = null;
+  const logPayload = {
+    model,
+    cwd: options.workDir,
+    hasSessionId: !!options.sessionId,
+    sessionId: options.sessionId || null,
+    timeoutMs,
+    hasAbortSignal: !!options.abortSignal,
+    hasOnChunk: !!options.onChunk,
+    promptLength: options.prompt?.length || 0,
+  };
+  console.log(`[NeovateSdkRunner] 准备调用 SDK: ${JSON.stringify(logPayload)}`);
   const handleAbort = () => {
     aborted = true;
     if (session) {
@@ -37,6 +53,12 @@ export async function runNeovateSdk(options: NeovateSdkRunOptions): Promise<Neov
     }
   };
   try {
+    if (timeoutMs > 0) {
+      timeout = setTimeout(() => {
+        handleAbort();
+      }, timeoutMs);
+    }
+
     if (options.abortSignal?.aborted) {
       handleAbort();
       throw new Error('aborted');
@@ -46,19 +68,43 @@ export async function runNeovateSdk(options: NeovateSdkRunOptions): Promise<Neov
       options.abortSignal.addEventListener('abort', handleAbort, { once: true });
     }
 
-    session = options.sessionId
-      ? await resumeSession(options.sessionId, {
+    if (options.sessionId) {
+      console.log(
+        `[NeovateSdkRunner] 调用 resumeSession: ${JSON.stringify({
+          sessionId: options.sessionId,
           model,
           cwd: options.workDir,
           productName: pkg.name,
-        })
-      : await createSession({
+        })}`
+      );
+      session = await resumeSession(options.sessionId, {
+        model,
+        cwd: options.workDir,
+        productName: pkg.name,
+      });
+    } else {
+      console.log(
+        `[NeovateSdkRunner] 调用 createSession: ${JSON.stringify({
           model,
           cwd: options.workDir,
           productName: pkg.name,
-        });
+        })}`
+      );
+      session = await createSession({
+        model,
+        cwd: options.workDir,
+        productName: pkg.name,
+      });
+    }
 
     await session.send(options.prompt);
+    console.log(
+      `[NeovateSdkRunner] session.send 完成: ${JSON.stringify({
+        sessionId: session.sessionId,
+        model,
+        promptLength: options.prompt?.length || 0,
+      })}`
+    );
 
     for await (const msg of session.receive()) {
       if (aborted) {
@@ -69,10 +115,29 @@ export async function runNeovateSdk(options: NeovateSdkRunOptions): Promise<Neov
       if (options.onChunk) {
         options.onChunk(line);
       }
+      if (
+        msg
+        && typeof msg === 'object'
+        && (msg as any).type === 'result'
+        && ((msg as any).isError || (msg as any).subtype === 'error')
+      ) {
+        error = new Error((msg as any).content || '模型执行失败');
+        break;
+      }
     }
   } catch (err) {
     error = err instanceof Error ? err : new Error(String(err));
+    console.error(
+      `[NeovateSdkRunner] SDK 调用异常: ${JSON.stringify({
+        model,
+        sessionId: options.sessionId || null,
+        error: error.message,
+      })}`
+    );
   } finally {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
     if (options.abortSignal) {
       options.abortSignal.removeEventListener('abort', handleAbort);
     }

@@ -384,7 +384,7 @@ const MobileMessageList: React.FC<MessageListProps> = ({
 
           {/* 消息内容 - 使用 Markdown 渲染 */}
           <div className="message-content">
-            {!isUser && !isSystem && !displayContent && structuredContents.length === 0 ? (
+            {!isUser && !isSystem && (message as any).isStreaming && !displayContent && structuredContents.length === 0 ? (
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#999' }}>
                 <Spin size="small" />
                 <span>AI 正在处理您的消息...</span>

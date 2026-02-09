@@ -6,7 +6,8 @@ import MobileProjectSelector from './MobileProjectSelector';
 import { ConversationMode } from '../types/conversation';
 import { Project } from '../types/project';
 import { conversationService } from '../services/conversationService';
-import { DEFAULT_NEOVATE_MODEL, NEOVATE_MODEL_OPTIONS } from '../constants/neovateModels';
+import { DEFAULT_NEOVATE_MODEL } from '../constants/neovateModels';
+import { useModelOptions } from '../hooks/useModelOptions';
 import './MobileCreateConversation.css';
 
 const { Text, Title } = Typography;
@@ -36,7 +37,15 @@ const MobileCreateConversation: React.FC<MobileCreateConversationProps> = ({
   const [branchOptions, setBranchOptions] = useState<string[]>([]);
   const [loadingBranches, setLoadingBranches] = useState(false);
   const [selectedModel, setSelectedModel] = useState(DEFAULT_NEOVATE_MODEL);
+  const { modelOptions, defaultModel } = useModelOptions();
   const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    const enabledModels = new Set(modelOptions.filter(option => option.enabled !== false).map(option => option.value));
+    if (!enabledModels.has(selectedModel)) {
+      setSelectedModel(defaultModel);
+    }
+  }, [modelOptions, selectedModel, defaultModel]);
 
   const loadBranches = async (projectId: string, fallbackBranch: string, canceled?: { value: boolean }) => {
     if (loadingBranches) return;
@@ -143,8 +152,9 @@ const MobileCreateConversation: React.FC<MobileCreateConversationProps> = ({
             value={selectedModel}
             size="middle"
             onChange={(value) => setSelectedModel(value)}
-            options={NEOVATE_MODEL_OPTIONS.map(option => ({
+            options={modelOptions.map(option => ({
               value: option.value,
+              disabled: option.enabled === false,
               label: option.recommended ? `${option.label} (recommend)` : option.label,
             }))}
           />
