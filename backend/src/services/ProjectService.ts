@@ -1,4 +1,5 @@
 import { eq, and, desc, ilike, or } from 'drizzle-orm';
+import { LRUCache } from 'lru-cache';
 import { DatabaseManager } from '../db/DatabaseManager';
 import { projects } from '../db/schema';
 import { RedisManager } from '../db/RedisManager';
@@ -80,23 +81,36 @@ export class ProjectService {
   private db = DatabaseManager.getDb();
   private repositoryService: RepositoryService;
   private listCacheTtlSeconds = 30;
+  
+  // 本地二级缓存，减少对 Redis 的请求压力
+  private listLocalCache = new LRUCache<string, ProjectListResult>({
+    max: 100,
+    ttl: 1000 * 15, // 本地只缓存 15 秒，比 Redis 短一些以保证一致性
+  });
 
   private getRedis() {
     return RedisManager.getInstanceSafe();
   }
 
   private async invalidateProjectListCache(userId: string): Promise<void> {
+    // 同时清除本地缓存
+    this.listLocalCache.clear();
+
     const redis = this.getRedis();
     if (!redis) return;
-    const pattern = `projects:list:${userId}:*`;
-    let cursor = '0';
-    do {
-      const [nextCursor, keys] = await redis.scan(cursor, 'MATCH', pattern, 'COUNT', 100);
-      if (keys.length > 0) {
-        await redis.del(...keys);
-      }
-      cursor = nextCursor;
-    } while (cursor !== '0');
+    try {
+      const pattern = `projects:list:${userId}:*`;
+      let cursor = '0';
+      do {
+        const [nextCursor, keys] = await redis.scan(cursor, 'MATCH', pattern, 'COUNT', 100);
+        if (keys.length > 0) {
+          await redis.del(...keys);
+        }
+        cursor = nextCursor;
+      } while (cursor !== '0');
+    } catch (error) {
+      console.warn('[ProjectService] 缓存清理失败 (Redis 可能达到限制):', error);
+    }
   }
 
   constructor(
@@ -236,19 +250,35 @@ export class ProjectService {
       const searchTerm = filters?.search?.trim().toLowerCase() || '';
       const isActiveKey = filters?.isActive === undefined ? 'all' : filters.isActive ? 'active' : 'inactive';
       const cacheKey = `projects:list:${userId}:${isActiveKey}:${searchTerm || 'all'}`;
+      
+      // 1. 检查本地缓存
+      const localCached = this.listLocalCache.get(cacheKey);
+      if (localCached) {
+        return localCached;
+      }
+
+      // 2. 检查 Redis 缓存
       const redis = this.getRedis();
       if (redis) {
-        const cached = await redis.get(cacheKey);
-        if (cached) {
-          try {
-            return JSON.parse(cached) as ProjectListResult;
-          } catch (error) {
-            console.warn('[ProjectService] 项目列表缓存解析失败，已忽略');
+        try {
+          const cached = await redis.get(cacheKey);
+          if (cached) {
+            try {
+              const result = JSON.parse(cached) as ProjectListResult;
+              // 存入本地缓存
+              this.listLocalCache.set(cacheKey, result);
+              return result;
+            } catch (error) {
+              console.warn('[ProjectService] 项目列表缓存解析失败，已忽略');
+            }
           }
+        } catch (error) {
+          console.warn('[ProjectService] Redis 查询失败 (可能达到额度限制):', error);
+          // 继续向下走，从数据库读取
         }
       }
 
-      const conditions = [eq(projects.ownerId, userId)];
+      const conditions: any[] = [eq(projects.ownerId, userId)];
       if (filters?.isActive !== undefined) {
         conditions.push(eq(projects.isActive, filters.isActive));
       }
@@ -274,8 +304,15 @@ export class ProjectService {
         total: filteredProjects.length,
       };
 
+      // 存入本地缓存
+      this.listLocalCache.set(cacheKey, result);
+
       if (redis) {
-        await redis.set(cacheKey, JSON.stringify(result), 'EX', this.listCacheTtlSeconds);
+        try {
+          await redis.set(cacheKey, JSON.stringify(result), 'EX', this.listCacheTtlSeconds);
+        } catch (error) {
+          console.warn('[ProjectService] Redis 写入失败 (可能达到额度限制):', error);
+        }
       }
 
       return result;
