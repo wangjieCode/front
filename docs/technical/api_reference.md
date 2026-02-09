@@ -2,7 +2,7 @@
 
 ## 认证
 
-- POST `/api/auth/login`：登录（用户名）
+- POST `/api/auth/login`：登录（用户名+密码，返回 JWT）
 - GET `/api/auth/verify`：校验登录态
 
 ## 项目

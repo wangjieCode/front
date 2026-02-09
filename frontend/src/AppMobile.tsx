@@ -7,10 +7,12 @@ import {
   FolderOutlined,
   InfoCircleOutlined,
   LogoutOutlined,
+  SettingOutlined,
 } from '@ant-design/icons';
 import MobileIntroPage from './mobile-pages/IntroPage';
 import MobileProjectsPage from './mobile-pages/ProjectsPage';
 import MobileLoginModal from './mobile-components/MobileLoginModal';
+import AccountSettingsModal from './components/AccountSettingsModal';
 import MobileChatRoute from './mobile-components/MobileChatRoute';
 import MobileConversationList from './mobile-components/MobileConversationList';
 import MobileCreateConversation from './mobile-components/MobileCreateConversation';
@@ -30,6 +32,7 @@ const MobileContent: React.FC = () => {
     setMode,
     showLoginModal,
     setShowLoginModal,
+    showAccountSettingsModal,
     isLoggedIn,
     currentUser,
     handleSubmit,
@@ -37,6 +40,9 @@ const MobileContent: React.FC = () => {
     handleNewConversation,
     handleLoginSuccess,
     handleLogout,
+    handleOpenAccountSettings,
+    handleAccountSettingsCancel,
+    handleAccountUpdated,
     handleVisibilityChange,
     handleLoginCancel,
     handleDeleteConversation,
@@ -76,6 +82,12 @@ const MobileContent: React.FC = () => {
               <Dropdown
                 menu={{
                   items: [
+                    {
+                      key: 'account-settings',
+                      icon: <SettingOutlined />,
+                      label: '账号设置',
+                      onClick: handleOpenAccountSettings,
+                    },
                     {
                       key: 'logout',
                       icon: <LogoutOutlined />,
@@ -179,6 +191,16 @@ const MobileContent: React.FC = () => {
         onSuccess={handleLoginSuccess}
         onCancel={handleLoginCancel}
       />
+      {currentUser && (
+        <AccountSettingsModal
+          visible={showAccountSettingsModal}
+          userId={currentUser.userId}
+          username={currentUser.username}
+          hasPassword={currentUser.hasPassword}
+          onCancel={handleAccountSettingsCancel}
+          onUserUpdated={handleAccountUpdated}
+        />
+      )}
     </Layout>
   );
 };

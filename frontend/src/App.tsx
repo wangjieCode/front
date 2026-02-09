@@ -8,9 +8,11 @@ import {
   LogoutOutlined,
   FolderOutlined,
   InfoCircleOutlined,
+  SettingOutlined,
 } from '@ant-design/icons';
 import IntroPage from './pages/IntroPage';
 import LoginModal from './components/LoginModal';
+import AccountSettingsModal from './components/AccountSettingsModal';
 import ProjectsPage from './pages/ProjectsPage';
 import './App.css';
 import { useAppLogic } from './hooks/useAppLogic';
@@ -30,6 +32,7 @@ const AppContent: React.FC = () => {
     setMode,
     showLoginModal,
     setShowLoginModal,
+    showAccountSettingsModal,
     isLoggedIn,
     currentUser,
     handleSubmit,
@@ -37,6 +40,9 @@ const AppContent: React.FC = () => {
     handleNewConversation,
     handleLoginSuccess,
     handleLogout,
+    handleOpenAccountSettings,
+    handleAccountSettingsCancel,
+    handleAccountUpdated,
     handleVisibilityChange,
     handleLoginCancel,
     handleDeleteConversation,
@@ -182,6 +188,12 @@ const AppContent: React.FC = () => {
                 menu={{
                   items: [
                     {
+                      key: 'account-settings',
+                      icon: <SettingOutlined />,
+                      label: '账号设置',
+                      onClick: handleOpenAccountSettings,
+                    },
+                    {
                       key: 'logout',
                       icon: <LogoutOutlined />,
                       label: '退出登录',
@@ -245,6 +257,16 @@ const AppContent: React.FC = () => {
         onSuccess={handleLoginSuccess}
         onCancel={handleLoginCancel}
       />
+      {currentUser && (
+        <AccountSettingsModal
+          visible={showAccountSettingsModal}
+          userId={currentUser.userId}
+          username={currentUser.username}
+          hasPassword={currentUser.hasPassword}
+          onCancel={handleAccountSettingsCancel}
+          onUserUpdated={handleAccountUpdated}
+        />
+      )}
     </Layout>
   );
 };

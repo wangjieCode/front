@@ -5,6 +5,7 @@ import { projectService } from '../services/projectService';
 import { Project } from '../types/project';
 
 const { Option } = Select;
+const LOGIN_SUCCESS_EVENT = 'fi:login-success';
 interface ProjectSelectorProps {
   value?: string;
   onChange?: (projectId: string, project: Project) => void;
@@ -21,27 +22,37 @@ const ProjectSelector: React.FC<ProjectSelectorProps> = ({
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(false);
 
+  const loadProjects = async () => {
+    try {
+      setLoading(true);
+      const response = await projectService.getProjects();
+
+      if (response.success && response.data) {
+        setProjects(response.data);
+      } else {
+        message.error('加载项目列表失败');
+      }
+    } catch (error) {
+      console.error('加载项目列表失败:', error);
+      message.error('加载项目列表失败');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // 加载项目列表
   useEffect(() => {
-    const loadProjects = async () => {
-      try {
-        setLoading(true);
-        const response = await projectService.getProjects();
-        
-        if (response.success && response.data) {
-          setProjects(response.data);
-        } else {
-          message.error('加载项目列表失败');
-        }
-      } catch (error) {
-        console.error('加载项目列表失败:', error);
-        message.error('加载项目列表失败');
-      } finally {
-        setLoading(false);
-      }
-    };
-
     loadProjects();
+  }, [value]);
+
+  useEffect(() => {
+    const handleLoginSuccess = () => {
+      loadProjects();
+    };
+    window.addEventListener(LOGIN_SUCCESS_EVENT, handleLoginSuccess);
+    return () => {
+      window.removeEventListener(LOGIN_SUCCESS_EVENT, handleLoginSuccess);
+    };
   }, [value]);
 
   // 处理项目选择
