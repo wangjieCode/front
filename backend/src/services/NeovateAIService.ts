@@ -52,7 +52,7 @@ export class NeovateAIService {
     let neovateSessionId: string | undefined = existingSessionId;
 
     try {
-      const { output, durationMs, error, sessionId } = await runNeovateSdk({
+      let { output, durationMs, error, sessionId } = await runNeovateSdk({
         prompt,
         workDir,
         sessionId: existingSessionId,
@@ -62,6 +62,27 @@ export class NeovateAIService {
           onData(chunk);
         },
       });
+
+      const shouldRetryWithoutSession = !!existingSessionId && !!error;
+      if (shouldRetryWithoutSession) {
+        console.warn(
+          `[AI-EXEC] 恢复会话失败，回退为新建会话重试。sessionId=${existingSessionId}, model=${model || 'default'}, error=${error?.message}`
+        );
+        const retryResult = await runNeovateSdk({
+          prompt,
+          workDir,
+          model,
+          abortSignal,
+          onChunk: (chunk) => {
+            onData(chunk);
+          },
+        });
+        output = retryResult.output;
+        durationMs += retryResult.durationMs;
+        error = retryResult.error;
+        sessionId = retryResult.sessionId;
+        neovateSessionId = undefined;
+      }
 
       if (!neovateSessionId && sessionId) {
         neovateSessionId = sessionId;
@@ -81,7 +102,7 @@ export class NeovateAIService {
 
       console.log(`[AI-EXEC] 执行成功 (耗时: ${durationMs}ms)`);
 
-      if (conversationId && neovateSessionId && !existingSessionId) {
+      if (conversationId && neovateSessionId) {
         await this.sessionManager.saveSessionId(
           conversationId,
           neovateSessionId,
@@ -128,13 +149,30 @@ export class NeovateAIService {
     console.log(`[AI-EXEC] 开始执行 Neovate SDK (dir: ${displayWorkDir})`);
 
     try {
-      const { output, durationMs, error, sessionId } = await runNeovateSdk({
+      let { output, durationMs, error, sessionId } = await runNeovateSdk({
         prompt,
         workDir,
         sessionId: existingSessionId,
         model,
         abortSignal,
       });
+
+      const shouldRetryWithoutSession = !!existingSessionId && !!error;
+      if (shouldRetryWithoutSession) {
+        console.warn(
+          `[AI-EXEC] 恢复会话失败，回退为新建会话重试。sessionId=${existingSessionId}, model=${model || 'default'}, error=${error?.message}`
+        );
+        const retryResult = await runNeovateSdk({
+          prompt,
+          workDir,
+          model,
+          abortSignal,
+        });
+        output = retryResult.output;
+        durationMs += retryResult.durationMs;
+        error = retryResult.error;
+        sessionId = retryResult.sessionId;
+      }
 
       if (error) {
         console.error(`[AI-EXEC] 执行失败 (耗时: ${durationMs}ms): ${error.message}`);
@@ -149,10 +187,10 @@ export class NeovateAIService {
 
       console.log(`[AI-EXEC] 执行成功 (耗时: ${durationMs}ms)`);
 
-      const { cleanOutput, sessionId: parsedSessionId } = this.normalizeOutput(output, existingSessionId);
+      const { cleanOutput, sessionId: parsedSessionId } = this.normalizeOutput(output);
       const neovateSessionId = parsedSessionId || sessionId;
 
-      if (conversationId && neovateSessionId && !existingSessionId) {
+      if (conversationId && neovateSessionId) {
         await this.sessionManager.saveSessionId(
           conversationId,
           neovateSessionId,
@@ -183,8 +221,8 @@ export class NeovateAIService {
     }
   }
 
-  private normalizeOutput(rawOutput: string, existingSessionId?: string): { cleanOutput: string; sessionId?: string } {
-    let neovateSessionId = existingSessionId;
+  private normalizeOutput(rawOutput: string): { cleanOutput: string; sessionId?: string } {
+    let neovateSessionId: string | undefined;
     const lines = rawOutput.split('\n').filter(line => line.trim());
     const validJsonLines: string[] = [];
 
@@ -196,7 +234,7 @@ export class NeovateAIService {
         const parsed = JSON.parse(line);
         validJsonLines.push(line);
 
-        if (!existingSessionId && !neovateSessionId && parsed.sessionId && typeof parsed.sessionId === 'string') {
+        if (!neovateSessionId && parsed.sessionId && typeof parsed.sessionId === 'string') {
           neovateSessionId = parsed.sessionId;
           console.log(`[NeovateAIService] 提取到新会话 ID: ${neovateSessionId}`);
         }

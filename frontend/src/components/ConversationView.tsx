@@ -15,9 +15,10 @@ import {
 import MessageInput from './MessageInput';
 import MessageList from './MessageList';
 import { conversationService } from '../services/conversationService';
-import { parseNeovateChunkStructured, ParsedContent } from '../utils/neovateParser';
+import { normalizeNeovateErrorMessage, parseNeovateChunkStructured, ParsedContent } from '../utils/neovateParser';
 import { authUtils } from '../utils/auth';
-import { DEFAULT_NEOVATE_MODEL, NEOVATE_MODEL_OPTIONS, isNeovateModelSupported } from '../constants/neovateModels';
+import { DEFAULT_NEOVATE_MODEL, isNeovateModelSupported } from '../constants/neovateModels';
+import { useModelOptions } from '../hooks/useModelOptions';
 
 interface ConversationViewProps {
   sessionId?: string;
@@ -72,6 +73,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
   const [loadingBranches, setLoadingBranches] = useState(false);
   const [selectedModel, setSelectedModel] = useState<string>(DEFAULT_NEOVATE_MODEL);
   const [chatModel, setChatModel] = useState<string>(DEFAULT_NEOVATE_MODEL);
+  const { modelOptions, defaultModel } = useModelOptions();
 
   // 预览相关状态
   const [isDeploying, setIsDeploying] = useState(false);
@@ -129,17 +131,27 @@ const ConversationView: React.FC<ConversationViewProps> = ({
 
   useEffect(() => {
     if (!sessionId) {
-      setSelectedModel(DEFAULT_NEOVATE_MODEL);
+      setSelectedModel(defaultModel);
     }
-  }, [sessionId]);
+  }, [sessionId, defaultModel]);
 
   useEffect(() => {
     if (session?.context?.variables?.model) {
       setChatModel(session.context.variables.model);
     } else if (sessionId) {
-      setChatModel(DEFAULT_NEOVATE_MODEL);
+      setChatModel(defaultModel);
     }
-  }, [sessionId, session?.context?.variables?.model]);
+  }, [sessionId, session?.context?.variables?.model, defaultModel]);
+
+  useEffect(() => {
+    const enabledModels = new Set(modelOptions.filter(option => option.enabled !== false).map(option => option.value));
+    if (!enabledModels.has(selectedModel)) {
+      setSelectedModel(defaultModel);
+    }
+    if (!enabledModels.has(chatModel)) {
+      setChatModel(defaultModel);
+    }
+  }, [modelOptions, defaultModel, selectedModel, chatModel]);
 
   // 加载会话数据
   useEffect(() => {
@@ -323,7 +335,6 @@ const ConversationView: React.FC<ConversationViewProps> = ({
 
     try {
       const modelToSend = modelOverride || chatModel;
-      const normalizedModel = modelToSend?.toLowerCase();
       const abortController = new AbortController();
       streamAbortRef.current = abortController;
       const response = await fetch(`/api/conversations/${sessionId}/messages`, {
@@ -335,7 +346,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
         signal: abortController.signal,
         body: JSON.stringify({
           content,
-          ...(normalizedModel && isNeovateModelSupported(normalizedModel) ? { model: normalizedModel } : {}),
+          ...(modelToSend && isNeovateModelSupported(modelToSend) ? { model: modelToSend } : {}),
         }),
       });
 
@@ -397,6 +408,32 @@ const ConversationView: React.FC<ConversationViewProps> = ({
               } else if (data.type === 'thinking') {
                 // AI 开始思考，不再显示"正在思考"文本，等待实际内容
               } else if (data.type === 'chunk') {
+                // 处理 SDK result error 事件，直接展示错误信息
+                if (typeof data.content === 'string' && data.content.trim().startsWith('{')) {
+                  try {
+                    const event = JSON.parse(data.content.trim());
+                    if (event?.type === 'result' && event?.isError) {
+                      const errorText = `❌ ${normalizeNeovateErrorMessage(event.content)}`;
+                      setMessages(prev =>
+                        prev.map(msg =>
+                          msg.id === aiMessageId
+                            ? {
+                                ...msg,
+                                content: errorText,
+                                parsedContents: [{ type: 'text', text: errorText }],
+                                isStreaming: false,
+                              }
+                            : msg
+                        )
+                      );
+                      markStreamComplete();
+                      continue;
+                    }
+                  } catch (error) {
+                    // ignore JSON parse errors
+                  }
+                }
+
                 // 累积完整文本内容
                 fullContent += data.content;
 
@@ -460,6 +497,9 @@ const ConversationView: React.FC<ConversationViewProps> = ({
           }
         }
       }
+
+      // 兜底：即使未收到 complete 事件，只要流结束也结束 streaming 状态
+      markStreamComplete();
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') {
         return;
@@ -842,8 +882,9 @@ const ConversationView: React.FC<ConversationViewProps> = ({
               dropdownStyle={{ minWidth: 240 }}
               variant="filled"
               onChange={(value) => setSelectedModel(value)}
-              options={NEOVATE_MODEL_OPTIONS.map(option => ({
+              options={modelOptions.map(option => ({
                 value: option.value,
+                disabled: option.enabled === false,
                 label: option.recommended ? `${option.label} (recommend)` : option.label,
               }))}
             />
@@ -974,8 +1015,9 @@ const ConversationView: React.FC<ConversationViewProps> = ({
                         className="chat-model-select"
                         dropdownStyle={{ minWidth: 240 }}
                         onChange={(value) => setChatModel(value)}
-                        options={NEOVATE_MODEL_OPTIONS.map(option => ({
+                        options={modelOptions.map(option => ({
                           value: option.value,
+                          disabled: option.enabled === false,
                           label: option.recommended ? `${option.label} (recommend)` : option.label,
                         }))}
                       />

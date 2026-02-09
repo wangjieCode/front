@@ -74,7 +74,7 @@ function printHelp() {
   console.log('Usage: pnpm --dir backend verify:neovate [options]');
   console.log('');
   console.log('Options:');
-  console.log('  --model <model>       Override model (default: iflow/qwen3-coder-plus)');
+  console.log('  --model <model>       Override model (iflow/qwen3-coder-plus, codex/gpt-5.3-codex, etc.)');
   console.log('  --workdir <path>      Working directory (default: process.cwd())');
   console.log('  --prompt <text>       Prompt to send (default: Respond with "OK" only.)');
   console.log('  --timeout <ms>        Timeout in ms (default: 20000)');
@@ -110,18 +110,28 @@ function extractAssistantText(message) {
 }
 
 async function verifyNeovateSdk() {
-  const apiKey = requireApiKey();
-
   const args = parseArgs(process.argv.slice(2));
+  const model = args.model || DEFAULT_MODEL;
+  const isCodex = model.startsWith('codex/');
+
+  let apiKey = '';
+  if (!isCodex) {
+    apiKey = requireApiKey();
+  }
+
   const options = {
-    model: args.model || DEFAULT_MODEL,
+    model,
     workDir: args.workDir || process.cwd(),
     prompt: args.prompt || 'Respond with "OK" only.',
     timeoutMs: Number.isFinite(args.timeoutMs) ? Number(args.timeoutMs) : 20000,
   };
 
-  console.log('[NeovateVerify] 开始验证 IFLOW_API_KEY 与模型可用性');
-  console.log(`[NeovateVerify] apiKey: ${maskApiKey(apiKey)}`);
+  console.log('[NeovateVerify] 开始验证 Neovate SDK 与模型可用性');
+  if (isCodex) {
+    console.log('[NeovateVerify] 使用本地 Auth (Codex 系列)');
+  } else {
+    console.log(`[NeovateVerify] apiKey: ${maskApiKey(apiKey)}`);
+  }
   console.log(`[NeovateVerify] model: ${options.model}`);
   console.log(`[NeovateVerify] workDir: ${options.workDir}`);
   console.log(`[NeovateVerify] timeoutMs: ${options.timeoutMs}`);

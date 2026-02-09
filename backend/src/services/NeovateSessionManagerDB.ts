@@ -92,10 +92,15 @@ export class NeovateSessionManagerDB {
         .limit(1);
 
       if (existing.length > 0) {
-        // 记录已存在，不需要更新，直接返回
-        // 只在创建时保存一次
-        // console.log(`[NeovateSessionManagerDB] 会话已存在，跳过更新`);
-        return;
+        await this.db
+          .update(neovateSessions)
+          .set({
+            neovateSessionId,
+            workDir: convertToStoredPath(workDir) || '',
+            lastUsedAt: dayjs().toDate(),
+          })
+          .where(eq(neovateSessions.conversationId, conversationId));
+        console.log(`[NeovateSessionManagerDB] 会话信息已更新`);
       } else {
         // 插入新记录
         await this.db.insert(neovateSessions).values({

@@ -34,6 +34,7 @@ let conversationManager: any;
 let messageRouter: any;
 let conversationAIService: any;
 let executor: any;
+let modelAvailabilityService: any;
 
 import { initializeAllServices } from './services/init';
 
@@ -45,6 +46,7 @@ async function initializeServices() {
     messageRouter = services.messageRouter;
     conversationAIService = services.conversationAIService;
     executor = services.executor;
+    modelAvailabilityService = services.modelAvailabilityService;
     
     console.log('✅ 对话服务已初始化 (存储: Drizzle/Supabase)');
   } catch (error) {
@@ -85,7 +87,10 @@ async function startServer() {
 
   // 对话路由（在服务初始化后注册）
   if (conversationManager && messageRouter && conversationAIService) {
-    app.use('/api/conversations', createConversationRoutes(conversationManager, messageRouter, conversationAIService));
+    app.use(
+      '/api/conversations',
+      createConversationRoutes(conversationManager, messageRouter, conversationAIService, modelAvailabilityService)
+    );
     
     // 预览路由
     const { createPreviewRoutes } = require('./api/previewRoutes');

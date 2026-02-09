@@ -127,6 +127,18 @@ export interface SimplifiedConversation {
   title?: string;
 }
 
+export interface ModelOption {
+  value: string;
+  label: string;
+  recommended?: boolean;
+  enabled?: boolean;
+}
+
+export interface ModelConfigResponse {
+  defaultModel: string;
+  options: ModelOption[];
+}
+
 export interface ConversationSession {
   id: string;
   userId: string;
