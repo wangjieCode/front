@@ -24,18 +24,9 @@ const fetchWithAuth = async (url: string, options: RequestInit = {}): Promise<Re
   // 添加认证头
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
+    ...authUtils.getAuthHeaders(),
     ...((options.headers as Record<string, string>) || {}),
   };
-  
-  const userId = localStorage.getItem('user_id');
-  if (userId) {
-    headers['x-user-id'] = userId;
-    
-    const username = localStorage.getItem('username');
-    if (username) {
-      headers['x-username'] = username;
-    }
-  }
 
   const response = await fetch(url, {
     ...options,
@@ -45,8 +36,7 @@ const fetchWithAuth = async (url: string, options: RequestInit = {}): Promise<Re
   // 处理 401 错误
   if (response.status === 401) {
     // 清除本地存储的用户信息
-    localStorage.removeItem('user_id');
-    localStorage.removeItem('username');
+    authUtils.clearUserInfo();
     
     // 触发登录模态框
     if (showLoginModalCallback) {
