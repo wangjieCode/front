@@ -3,8 +3,9 @@ export type NeovateModelProvider = 'iflow' | 'codex';
 export interface NeovateModelOption {
   value: string;
   label: string;
-  provider: NeovateModelProvider;
+  provider?: NeovateModelProvider;
   recommended?: boolean;
+  enabled?: boolean;
 }
 
 export const NEOVATE_MODEL_OPTIONS: NeovateModelOption[] = [

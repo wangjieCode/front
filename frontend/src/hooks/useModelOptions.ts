@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { DEFAULT_NEOVATE_MODEL, NEOVATE_MODEL_OPTIONS, NeovateModelOption } from '../constants/neovateModels';
+import { DEFAULT_NEOVATE_MODEL, NEOVATE_MODEL_OPTIONS, NeovateModelOption } from '@front/shared';
 import { conversationService } from '../services/conversationService';
 
 interface UseModelOptionsResult {

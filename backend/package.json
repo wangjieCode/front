@@ -42,6 +42,7 @@
     "@bull-board/api": "^6.16.4",
     "@bull-board/express": "^6.16.4",
     "@neovate/code": "^0.27.1",
+    "@front/shared": "workspace:*",
     "bullmq": "^5.67.2",
     "dayjs": "^1.11.19",
     "dotenv": "^16.3.1",
