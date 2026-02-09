@@ -18,7 +18,6 @@ export interface NeovateSdkRunResult {
 }
 
 export async function runNeovateSdk(options: NeovateSdkRunOptions): Promise<NeovateSdkRunResult> {
-  const pkg = getLocalPackageInfo();
   const { createSession, resumeSession } = await loadNeovateSdk();
   const model = options.model || DEFAULT_NEOVATE_MODEL;
   const timeoutMs = Number.isFinite(options.timeoutMs)
@@ -74,26 +73,22 @@ export async function runNeovateSdk(options: NeovateSdkRunOptions): Promise<Neov
           sessionId: options.sessionId,
           model,
           cwd: options.workDir,
-          productName: pkg.name,
         })}`
       );
       session = await resumeSession(options.sessionId, {
         model,
         cwd: options.workDir,
-        productName: pkg.name,
       });
     } else {
       console.log(
         `[NeovateSdkRunner] 调用 createSession: ${JSON.stringify({
           model,
           cwd: options.workDir,
-          productName: pkg.name,
         })}`
       );
       session = await createSession({
         model,
         cwd: options.workDir,
-        productName: pkg.name,
       });
     }
 
@@ -163,18 +158,6 @@ async function loadNeovateSdk(): Promise<{
   resumeSession: typeof import('@neovate/code').resumeSession;
 }> {
   return import('@neovate/code');
-}
-
-function getLocalPackageInfo(): { name: string; version: string } {
-  try {
-    const pkg = require('../../package.json');
-    return {
-      name: typeof pkg?.name === 'string' ? pkg.name : 'neovate-sdk-client',
-      version: typeof pkg?.version === 'string' ? pkg.version : '0.0.0',
-    };
-  } catch (error) {
-    return { name: 'neovate-sdk-client', version: '0.0.0' };
-  }
 }
 
 export function getNeovateSdkVersion(): string | null {

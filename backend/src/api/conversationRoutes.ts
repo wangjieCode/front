@@ -24,7 +24,7 @@ export function createConversationRoutes(
     if (!userId) return false;
     return session.userId === userId;
   };
-  const resolveModelForCreate = (model?: string) => {
+  const resolveModel = (model?: string) => {
     const defaultModel = modelAvailabilityService?.resolveDefaultModel() || DEFAULT_NEOVATE_MODEL;
     if (!model || !isNeovateModelSupported(model)) {
       return defaultModel;
@@ -32,17 +32,7 @@ export function createConversationRoutes(
     if (modelAvailabilityService && !modelAvailabilityService.isModelEnabled(model)) {
       return defaultModel;
     }
-    return model.toLowerCase();
-  };
-  const resolveModelForMessage = (model?: string) => {
-    const defaultModel = modelAvailabilityService?.resolveDefaultModel() || DEFAULT_NEOVATE_MODEL;
-    if (!model || !isNeovateModelSupported(model)) {
-      return defaultModel;
-    }
-    if (modelAvailabilityService && !modelAvailabilityService.isModelEnabled(model)) {
-      return defaultModel;
-    }
-    return model.toLowerCase();
+    return model;
   };
 
   router.get('/models', async (_req, res: Response) => {
@@ -156,7 +146,7 @@ export function createConversationRoutes(
         });
       }
 
-      const resolvedModel = resolveModelForCreate(model);
+      const resolvedModel = resolveModel(model);
 
       const session = await conversationManager.createSession(
         initialPrompt,
@@ -347,7 +337,7 @@ export function createConversationRoutes(
       const sessionModel = typeof session.context?.variables?.model === 'string'
         ? session.context.variables.model
         : undefined;
-      const resolvedModel = resolveModelForMessage(model || sessionModel);
+      const resolvedModel = resolveModel(model || sessionModel);
       console.log(`[conversationRoutes] 解析执行模型: input=${model || sessionModel || 'none'}, resolved=${resolvedModel}`);
 
       const step2Start = dayjs().valueOf();

@@ -42,8 +42,7 @@ export class ModelAvailabilityService {
 
   isModelEnabled(model?: string): boolean {
     if (!model) return false;
-    const lowerModel = model.toLowerCase();
-    const modelOption = NEOVATE_MODEL_OPTIONS.find(option => option.value === lowerModel);
+    const modelOption = NEOVATE_MODEL_OPTIONS.find(option => option.value === model);
     if (!modelOption) return false;
     return this.isProviderEnabled(modelOption.provider);
   }
@@ -74,7 +73,7 @@ export class ModelAvailabilityService {
       const result = await runNeovateSdk({
         prompt: 'Respond with "OK" only.',
         workDir,
-        model: 'codex/gpt-5-codex',
+        model: 'codex/gpt-5.3-codex',
         abortSignal: abortController.signal,
       });
 
