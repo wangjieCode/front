@@ -1,4 +1,4 @@
-import { GitService, CodeToolService, GitLabMCPService, ProjectService, LocalExecutor, NeovateAIService } from './index';
+import { GitService, CodeToolService, GitLabMCPService, ProjectService, LocalExecutor, NeovateAIService, ModelAvailabilityService } from './index';
 import { WorktreeManager } from './WorktreeManager';
 import { ConversationManager } from './ConversationManager';
 import { MessageRouter } from './MessageRouter';
@@ -21,6 +21,7 @@ let services: {
   gitlabService: GitLabMCPService;
   gitService: GitService;
   codeToolService: CodeToolService;
+  modelAvailabilityService: ModelAvailabilityService;
   redis: any;
 } | null = null;
 
@@ -62,6 +63,8 @@ export async function initializeAllServices() {
   const worktreeBaseDir = getWorktreeBaseDir(workDir);
   const worktreeManager = new WorktreeManager(executor, workDir, worktreeBaseDir, 'global-or-default');
   const projectService = new ProjectService(executor);
+  const modelAvailabilityService = new ModelAvailabilityService();
+  await modelAvailabilityService.initialize(workDir);
   
   const redis = RedisManager.getInstance();
   const conversationManager = new ConversationManager(storageAdapter, projectService, gitlabService, worktreeManager, redis);
@@ -83,6 +86,7 @@ export async function initializeAllServices() {
     gitlabService,
     gitService,
     codeToolService,
+    modelAvailabilityService,
     redis
   };
 
