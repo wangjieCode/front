@@ -11,12 +11,11 @@ export interface UserInfo {
 }
 
 export const authUtils = {
-  setUserInfo(userId: string, username: string, hasPassword = false, token?: string): void {
-    const authToken = token || `fi_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+  setUserInfo(userId: string, username: string, hasPassword: boolean, token: string): void {
     localStorage.setItem(USER_ID_KEY, userId);
     localStorage.setItem(USERNAME_KEY, username);
     localStorage.setItem(USER_HAS_PASSWORD_KEY, hasPassword ? '1' : '0');
-    localStorage.setItem(AUTH_TOKEN_KEY, authToken);
+    localStorage.setItem(AUTH_TOKEN_KEY, token);
   },
 
   getUserInfo(): UserInfo | null {
@@ -49,13 +48,12 @@ export const authUtils = {
   },
 
   getAuthHeaders(): Record<string, string> {
-    const userInfo = this.getUserInfo();
-    if (!userInfo) {
+    const token = this.getToken();
+    if (!token) {
       return {};
     }
     return {
-      'x-user-id': userInfo.userId,
-      'x-username': userInfo.username,
+      Authorization: `Bearer ${token}`,
     };
   },
 
