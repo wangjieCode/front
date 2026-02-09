@@ -335,7 +335,6 @@ const ConversationView: React.FC<ConversationViewProps> = ({
 
     try {
       const modelToSend = modelOverride || chatModel;
-      const normalizedModel = modelToSend?.toLowerCase();
       const abortController = new AbortController();
       streamAbortRef.current = abortController;
       const response = await fetch(`/api/conversations/${sessionId}/messages`, {
@@ -347,7 +346,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
         signal: abortController.signal,
         body: JSON.stringify({
           content,
-          ...(normalizedModel && isNeovateModelSupported(normalizedModel) ? { model: normalizedModel } : {}),
+          ...(modelToSend && isNeovateModelSupported(modelToSend) ? { model: modelToSend } : {}),
         }),
       });
 

@@ -33,7 +33,7 @@
 - 必须显式检查 `IFLOW_API_KEY` 是否存在。
 - 日志只展示脱敏后的 API Key（保留前后 4 位）。
 - 优先加载 `.env.production`，不存在时再加载 `.env`。
-- 默认使用 `codex/gpt-5-codex` 模型，允许命令行覆盖。
+- 默认使用 `iflow/qwen3-coder-plus` 模型，允许命令行覆盖。
 - 在超时时间内未收到响应视为失败。
 
 ## 需求

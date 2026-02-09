@@ -12,14 +12,15 @@ export const NEOVATE_MODEL_OPTIONS: NeovateModelOption[] = [
   { value: 'iflow/kimi-k2-thinking', label: 'IFLOW / Kimi-K2-Thinking' },
   { value: 'iflow/minimax-m2', label: 'IFLOW / MiniMax-M2' },
   { value: 'iflow/kimi-k2-0905', label: 'IFLOW / Kimi-K2-0905' },
-  { value: 'codex/gpt-5-codex', label: 'Codex / GPT-5-Codex', recommended: true },
-  { value: 'codex/gpt-5', label: 'Codex / GPT-5' },
-  { value: 'codex/gpt-5-mini', label: 'Codex / GPT-5-Mini' },
-  { value: 'codex/gpt-4.1', label: 'Codex / GPT-4.1' },
-  { value: 'codex/gpt-4.1-mini', label: 'Codex / GPT-4.1-Mini' },
+  { value: 'codex/gpt-5.1-codex', label: 'Codex / GPT-5.1-Codex' },
+  { value: 'codex/gpt-5.1-codex-mini', label: 'Codex / GPT-5.1-Codex-mini' },
+  { value: 'codex/gpt-5.1-codex-max', label: 'Codex / GPT 5.1 Codex Max' },
+  { value: 'codex/gpt-5.2', label: 'Codex / GPT-5.2' },
+  { value: 'codex/gpt-5.2-codex', label: 'Codex / GPT-5.2-Codex' },
+  { value: 'codex/gpt-5.3-codex', label: 'Codex / GPT-5.3 Codex', recommended: true },
 ];
 
-export const DEFAULT_NEOVATE_MODEL = 'codex/gpt-5-codex';
+export const DEFAULT_NEOVATE_MODEL = 'iflow/qwen3-coder-plus';
 
 export const isNeovateModelSupported = (value?: string): boolean => {
   if (!value) return false;

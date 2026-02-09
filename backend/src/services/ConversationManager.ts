@@ -163,7 +163,7 @@ export class ConversationManager {
     (this as any).currentProjectId = projectInfo.projectId;
 
     // 初始化上下文
-    const resolvedModel = isNeovateModelSupported(model) ? model!.toLowerCase() : DEFAULT_NEOVATE_MODEL;
+    const resolvedModel = isNeovateModelSupported(model) ? model! : DEFAULT_NEOVATE_MODEL;
     const context: ConversationContext = {
       projectInfo: completeProjectInfo,
       taskDescription: initialPrompt,

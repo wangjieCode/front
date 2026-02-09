@@ -35,7 +35,7 @@ describe('ModelAvailabilityService Codex 可用性探测', () => {
 
     expect(codexOptions.length).toBeGreaterThan(0);
     expect(codexOptions.every((option: any) => option.enabled)).toBe(true);
-    expect(service.isModelEnabled('codex/gpt-5-codex')).toBe(true);
+    expect(service.isModelEnabled('codex/gpt-5.3-codex')).toBe(true);
   });
 
   it('Codex 探测失败时应禁用 codex 模型并回退默认模型', async () => {
@@ -45,7 +45,6 @@ describe('ModelAvailabilityService Codex 可用性探测', () => {
       sessionId: undefined,
       error: new Error('codex auth failed'),
     });
-
     const service = new ModelAvailabilityService();
     await service.initialize('/tmp');
 
@@ -57,7 +56,7 @@ describe('ModelAvailabilityService Codex 可用性探测', () => {
     expect(codexOptions.every((option: any) => !option.enabled)).toBe(true);
     expect(iflowOptions.length).toBeGreaterThan(0);
     expect(iflowOptions.every((option: any) => option.enabled)).toBe(true);
-    expect(service.isModelEnabled('codex/gpt-5-codex')).toBe(false);
-    expect(service.resolveDefaultModel()).toBe(iflowOptions[0].value);
+    expect(service.isModelEnabled('codex/gpt-5.3-codex')).toBe(false);
+    expect(service.resolveDefaultModel()).toBe('iflow/qwen3-coder-plus');
   });
 });
