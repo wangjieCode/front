@@ -37,6 +37,7 @@ const { Content } = Layout;
 const { Text } = Typography;
 const { Option } = Select;
 const { Column } = Table;
+const LOGIN_SUCCESS_EVENT = 'fi:login-success';
 
 const ProjectsPage: React.FC = () => {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -79,6 +80,16 @@ const ProjectsPage: React.FC = () => {
   useEffect(() => {
     loadProjects();
   }, []);
+
+  useEffect(() => {
+    const handleLoginSuccess = () => {
+      loadProjects();
+    };
+    window.addEventListener(LOGIN_SUCCESS_EVENT, handleLoginSuccess);
+    return () => {
+      window.removeEventListener(LOGIN_SUCCESS_EVENT, handleLoginSuccess);
+    };
+  }, [filters]);
 
   // 搜索处理
   const handleSearch = async (value: string) => {

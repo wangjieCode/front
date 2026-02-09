@@ -22,6 +22,7 @@ import './ProjectsPage.css';
 
 const { Content } = Layout;
 const { Title, Text } = Typography;
+const LOGIN_SUCCESS_EVENT = 'fi:login-success';
 
 const MobileProjectsPage: React.FC = () => {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -66,6 +67,16 @@ const MobileProjectsPage: React.FC = () => {
   useEffect(() => {
     loadProjects();
   }, []);
+
+  useEffect(() => {
+    const handleLoginSuccess = () => {
+      loadProjects();
+    };
+    window.addEventListener(LOGIN_SUCCESS_EVENT, handleLoginSuccess);
+    return () => {
+      window.removeEventListener(LOGIN_SUCCESS_EVENT, handleLoginSuccess);
+    };
+  }, [filters]);
 
   const handleSearch = async (value: string) => {
     const nextFilters = { ...filters, search: value };

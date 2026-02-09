@@ -344,8 +344,7 @@ const MobileConversationView: React.FC<ConversationViewProps> = ({
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-user-id': localStorage.getItem('user_id') || '',
-          'x-username': localStorage.getItem('username') || '',
+          ...authUtils.getAuthHeaders(),
         },
         signal: abortController.signal,
         body: JSON.stringify({

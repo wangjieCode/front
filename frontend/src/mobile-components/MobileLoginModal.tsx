@@ -4,7 +4,7 @@ import { EyeOutlined } from '@ant-design/icons';
 
 interface LoginModalProps {
   visible: boolean;
-  onSuccess: (userId: string, username: string) => void;
+  onSuccess: (userId: string, username: string, hasPassword: boolean, token: string) => void;
   onCancel: () => void;
 }
 
@@ -22,14 +22,23 @@ const MobileLoginModal: React.FC<LoginModalProps> = ({ visible, onSuccess, onCan
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ username: values.username }),
+        body: JSON.stringify({ username: values.username, password: values.password }),
       });
 
       const data = await response.json();
 
       if (data.success) {
+        if (!data.data?.token) {
+          message.error('登录失败：缺少 token');
+          return;
+        }
         message.success('登录成功');
-        onSuccess(data.data.userId, data.data.username);
+        onSuccess(
+          data.data.userId,
+          data.data.username,
+          Boolean(data.data.hasPassword),
+          data.data.token
+        );
         form.resetFields();
       } else {
         message.error(data.error || '登录失败');
@@ -89,6 +98,20 @@ const MobileLoginModal: React.FC<LoginModalProps> = ({ visible, onSuccess, onCan
         >
           <Input 
             placeholder="请输入纯英文用户名" 
+            autoComplete="off"
+            onPressEnter={handleLogin}
+          />
+        </Form.Item>
+        <Form.Item
+          name="password"
+          label="密码"
+          rules={[
+            { required: true, message: '请输入密码' },
+            { min: 6, max: 128, message: '密码长度必须在 6-128 个字符之间' },
+          ]}
+        >
+          <Input.Password
+            placeholder="请输入密码（首次登录将自动注册账号）"
             autoComplete="off"
             onPressEnter={handleLogin}
           />

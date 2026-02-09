@@ -57,7 +57,7 @@ describe('GET /api/conversations performance', () => {
     const start = performance.now();
     const response = await request(app)
       .get('/api/conversations')
-      .set('x-user-id', 'user-1');
+      .set('Authorization', 'Bearer test.jwt.token');
     const end = performance.now();
 
     expect(response.status).toBe(200);
