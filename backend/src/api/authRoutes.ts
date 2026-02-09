@@ -5,6 +5,8 @@ import { and, eq, ne } from 'drizzle-orm';
 import { newId } from '../utils/id';
 import dayjs from 'dayjs';
 import { hashPassword, verifyPassword } from '../utils/password';
+import { requireAuth, AuthRequest } from './authMiddleware';
+import { signAuthToken } from '../utils/jwt';
 
 const USERNAME_PATTERN = /^[a-zA-Z]+$/;
 
@@ -36,6 +38,7 @@ export function createAuthRoutes(): Router {
       const db = DatabaseManager.getDb();
       const existingUsers = await db.select().from(users).where(eq(users.username, username)).limit(1);
       let user = existingUsers[0];
+      let hasPassword = Boolean(user?.passwordHash);
 
       if (!user) {
         const passwordError = validatePassword(password);
@@ -49,6 +52,7 @@ export function createAuthRoutes(): Router {
           passwordHash: hashPassword(password),
         }).returning();
         user = newUser;
+        hasPassword = true;
       } else if (user.passwordHash) {
         const passwordError = validatePassword(password);
         if (passwordError) {
@@ -63,9 +67,15 @@ export function createAuthRoutes(): Router {
           .set({ lastLoginAt: dayjs().toDate() })
           .where(eq(users.id, user.id));
       } else {
+        const passwordError = validatePassword(password);
+        if (passwordError) {
+          return res.status(400).json({ success: false, error: passwordError });
+        }
+
         await db.update(users)
-          .set({ lastLoginAt: dayjs().toDate() })
+          .set({ passwordHash: hashPassword(password), lastLoginAt: dayjs().toDate() })
           .where(eq(users.id, user.id));
+        hasPassword = true;
       }
 
       return res.json({
@@ -73,7 +83,8 @@ export function createAuthRoutes(): Router {
         data: {
           userId: user.id,
           username: user.username,
-          hasPassword: Boolean(user.passwordHash),
+          hasPassword,
+          token: signAuthToken(user.id, user.username),
         },
       });
     } catch (error) {
@@ -82,16 +93,10 @@ export function createAuthRoutes(): Router {
     }
   });
 
-  router.get('/verify', async (req: Request, res: Response) => {
+  router.get('/verify', requireAuth, async (req: AuthRequest, res: Response) => {
     try {
-      const userId = req.headers['x-user-id'] as string;
-
-      if (!userId) {
-        return res.status(401).json({ success: false, error: '未登录' });
-      }
-
       const db = DatabaseManager.getDb();
-      const foundUsers = await db.select().from(users).where(eq(users.id, userId)).limit(1);
+      const foundUsers = await db.select().from(users).where(eq(users.id, req.userId!)).limit(1);
       const user = foundUsers[0];
 
       if (!user) {
@@ -123,10 +128,9 @@ export function createAuthRoutes(): Router {
     }
   });
 
-  router.patch('/users/:id/password', async (req: Request, res: Response) => {
+  router.patch('/users/:id/password', requireAuth, async (req: AuthRequest, res: Response) => {
     try {
-      const userId = req.headers['x-user-id'] as string;
-      if (!userId) return res.status(401).json({ success: false, error: '未登录' });
+      const userId = req.userId!;
 
       const targetId = req.params.id;
       if (targetId !== userId) {
@@ -161,10 +165,9 @@ export function createAuthRoutes(): Router {
     }
   });
 
-  router.patch('/users/:id/username', async (req: Request, res: Response) => {
+  router.patch('/users/:id/username', requireAuth, async (req: AuthRequest, res: Response) => {
     try {
-      const userId = req.headers['x-user-id'] as string;
-      if (!userId) return res.status(401).json({ success: false, error: '未登录' });
+      const userId = req.userId!;
 
       const targetId = req.params.id;
       if (targetId !== userId) {

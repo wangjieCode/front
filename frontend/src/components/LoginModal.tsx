@@ -4,7 +4,7 @@ import { EyeOutlined } from '@ant-design/icons';
 
 interface LoginModalProps {
   visible: boolean;
-  onSuccess: (userId: string, username: string, hasPassword: boolean) => void;
+  onSuccess: (userId: string, username: string, hasPassword: boolean, token: string) => void;
   onCancel: () => void;
 }
 
@@ -28,8 +28,17 @@ const LoginModal: React.FC<LoginModalProps> = ({ visible, onSuccess, onCancel })
       const data = await response.json();
 
       if (data.success) {
+        if (!data.data?.token) {
+          message.error('登录失败：缺少 token');
+          return;
+        }
         message.success('登录成功');
-        onSuccess(data.data.userId, data.data.username, Boolean(data.data.hasPassword));
+        onSuccess(
+          data.data.userId,
+          data.data.username,
+          Boolean(data.data.hasPassword),
+          data.data.token
+        );
         form.resetFields();
       } else {
         message.error(data.error || '登录失败');

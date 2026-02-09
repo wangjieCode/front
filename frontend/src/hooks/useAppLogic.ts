@@ -12,6 +12,8 @@ enum PageType {
   INTRO = 'intro',
 }
 
+const LOGIN_SUCCESS_EVENT = 'fi:login-success';
+
 const getPageMeta = (page: PageType) => {
   if (page === PageType.PROJECTS) {
     return { title: '项目管理', subtitle: '管理您的Git项目和团队成员' };
@@ -29,8 +31,9 @@ export const useAppLogic = () => {
   const [isConversationsLoading, setIsConversationsLoading] = useState(true);
   const [mode, setMode] = useState<ConversationMode>(ConversationMode.READONLY);
   const [showLoginModal, setShowLoginModal] = useState(false);
+  const [showAccountSettingsModal, setShowAccountSettingsModal] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [currentUser, setCurrentUser] = useState<{ userId: string; username: string } | null>(null);
+  const [currentUser, setCurrentUser] = useState<{ userId: string; username: string; hasPassword: boolean } | null>(null);
 
   let currentPage = PageType.CONVERSATIONS;
   if (location.pathname === '/projects') {
@@ -70,6 +73,7 @@ export const useAppLogic = () => {
     const showLogin = () => {
       setIsLoggedIn(false);
       setCurrentUser(null);
+      setShowAccountSettingsModal(false);
       setShowLoginModal(true);
     };
 
@@ -135,11 +139,12 @@ export const useAppLogic = () => {
     navigate('/');
   };
 
-  const handleLoginSuccess = (userId: string, username: string) => {
-    authUtils.setUserInfo(userId, username);
+  const handleLoginSuccess = (userId: string, username: string, hasPassword: boolean, token: string) => {
+    authUtils.setUserInfo(userId, username, hasPassword, token);
     setIsLoggedIn(true);
-    setCurrentUser({ userId, username });
+    setCurrentUser({ userId, username, hasPassword });
     setShowLoginModal(false);
+    window.dispatchEvent(new Event(LOGIN_SUCCESS_EVENT));
     message.success(`欢迎回来，${username}！`);
     loadConversations();
   };
@@ -148,7 +153,26 @@ export const useAppLogic = () => {
     authUtils.clearUserInfo();
     setIsLoggedIn(false);
     setCurrentUser(null);
+    setShowAccountSettingsModal(false);
     message.success('已退出登录');
+  };
+
+  const handleOpenAccountSettings = () => {
+    if (!currentUser) return;
+    setShowAccountSettingsModal(true);
+  };
+
+  const handleAccountSettingsCancel = () => {
+    setShowAccountSettingsModal(false);
+  };
+
+  const handleAccountUpdated = (username: string, hasPassword: boolean) => {
+    authUtils.setUsername(username);
+    authUtils.setHasPassword(hasPassword);
+    setCurrentUser((prev) => {
+      if (!prev) return null;
+      return { ...prev, username, hasPassword };
+    });
   };
 
   const handleVisibilityChange = (sessionId: string, visibility: ConversationVisibility) => {
@@ -194,6 +218,8 @@ export const useAppLogic = () => {
     setMode,
     showLoginModal,
     setShowLoginModal,
+    showAccountSettingsModal,
+    setShowAccountSettingsModal,
     isLoggedIn,
     currentUser,
     handleSubmit,
@@ -201,6 +227,9 @@ export const useAppLogic = () => {
     handleNewConversation,
     handleLoginSuccess,
     handleLogout,
+    handleOpenAccountSettings,
+    handleAccountSettingsCancel,
+    handleAccountUpdated,
     handleVisibilityChange,
     handleLoginCancel,
     handleDeleteConversation,

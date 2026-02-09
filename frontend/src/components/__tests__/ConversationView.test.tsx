@@ -85,7 +85,7 @@ describe('ConversationView streaming messages', () => {
   beforeEach(() => {
     (conversationService.getSession as jest.Mock).mockResolvedValue(makeSession());
     (conversationService.getMessages as jest.Mock).mockResolvedValue([]);
-    authUtils.setUserInfo('user-1', 'tester');
+    authUtils.setUserInfo('user-1', 'tester', true, 'test.jwt.token');
   });
 
   it('renders streamed response for the first message', async () => {

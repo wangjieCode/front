@@ -25,8 +25,7 @@ const AccountSettingsModal: React.FC<AccountSettingsModalProps> = ({
 
   const requestHeaders = () => ({
     'Content-Type': 'application/json',
-    'x-user-id': authUtils.getUserId() || '',
-    'x-username': authUtils.getUsername() || '',
+    ...authUtils.getAuthHeaders(),
   });
 
   const handleUpdateUsername = async () => {
