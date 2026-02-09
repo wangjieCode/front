@@ -12,5 +12,6 @@
 
 ## 前端行为
 
-- localStorage 保存 user_id/username
+- localStorage 保存 `fi_auth_user_id_v2`、`fi_auth_username_v2`、`fi_auth_has_password_v2`、`fi_auth_token_v2`
+- 登录态判定要求 `fi_auth_token_v2` 存在
 - 401 时清理本地信息并弹出登录框

@@ -5,7 +5,7 @@
 - 名称：认证与登录
 - 负责人：未指定
 - 创建日期：2026-01-30
-- 最近更新：2026-01-30
+- 最近更新：2026-02-09
 
 ## 背景
 
@@ -45,11 +45,13 @@
 
 - 前端登录成功后写入 localStorage。
 - 401 时清理本地信息并提示登录。
+- 登录态判定必须包含前端 token 字段 `fi_auth_token_v2`，避免因残留用户信息误判为已登录。
 
 ## 数据与接口
 
 - users 表：id、username、last_login_at。
 - Header：`x-user-id`、`x-username`。
+- 前端 localStorage 字段：`fi_auth_user_id_v2`、`fi_auth_username_v2`、`fi_auth_has_password_v2`、`fi_auth_token_v2`。
 
 ## 验收标准
 
@@ -63,3 +65,4 @@
 ## 迭代记录
 
 - 2026-01-30：重建规格文档。
+- 2026-02-09：登录态判定增加 token 字段约束，并更新前端本地存储字段命名。

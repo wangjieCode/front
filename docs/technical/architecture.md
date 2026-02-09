@@ -14,7 +14,6 @@
 - Worktree：WorktreeManager
 - 预览部署：ProjectPreviewService（PM2）
 - 项目管理：ProjectService + RepositoryService
-- Docker 管理：DockerService / DockerComposeService
 
 ## 典型链路
 

@@ -5,6 +5,7 @@ import { MemoryRouter } from 'react-router-dom';
 import ConversationView from '../ConversationView';
 import { ConversationMode, ConversationStatus } from '../../types/conversation';
 import { conversationService } from '../../services/conversationService';
+import { authUtils } from '../../utils/auth';
 
 jest.mock('../../services/conversationService', () => ({
   conversationService: {
@@ -84,8 +85,7 @@ describe('ConversationView streaming messages', () => {
   beforeEach(() => {
     (conversationService.getSession as jest.Mock).mockResolvedValue(makeSession());
     (conversationService.getMessages as jest.Mock).mockResolvedValue([]);
-    localStorage.setItem('user_id', 'user-1');
-    localStorage.setItem('username', 'tester');
+    authUtils.setUserInfo('user-1', 'tester');
   });
 
   it('renders streamed response for the first message', async () => {
