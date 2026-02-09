@@ -6,7 +6,7 @@
 export interface NeovateMessage {
   type: string;
   role?: string;
-  content?: Array<{
+  content?: string | Array<{
     type: string;
     text?: string;
     id?: string;
@@ -18,6 +18,8 @@ export interface NeovateMessage {
     result?: any;
     [key: string]: any;
   }>;
+  isError?: boolean;
+  subtype?: string;
   text?: string;
   [key: string]: any;
 }
@@ -67,7 +69,25 @@ function parseEventToContents(event: NeovateMessage): ParsedContent[] {
     }
   }
 
+  if (event.type === 'result' && event.isError) {
+    const errorMessage = normalizeNeovateErrorMessage(
+      typeof event.content === 'string' ? event.content : ''
+    );
+    contents.push({
+      type: 'text',
+      text: `❌ ${errorMessage || '执行失败'}`,
+    });
+  }
+
   return contents;
+}
+
+export function normalizeNeovateErrorMessage(message?: string): string {
+  if (!message) return '执行失败';
+  if (message.includes(`Cannot read properties of null (reading 'model')`)) {
+    return '模型会话异常，请重试；如仍失败请切换模型后再试。';
+  }
+  return message;
 }
 
 /**

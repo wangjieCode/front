@@ -12,3 +12,4 @@ export * from './GitLabMCPService';
 export * from './ProjectPreviewService';
 export * from './ProjectService';
 export * from './RepositoryService';
+export * from './ModelAvailabilityService';

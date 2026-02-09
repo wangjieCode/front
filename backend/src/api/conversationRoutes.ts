@@ -5,7 +5,8 @@ import { ConversationAIService } from '../services/ConversationAIService';
 import { ConversationStatus, ConversationVisibility } from '../types';
 import { requireAuth, AuthRequest } from './authMiddleware';
 import dayjs from 'dayjs';
-import { DEFAULT_NEOVATE_MODEL, isNeovateModelSupported } from '../constants/neovateModels';
+import { DEFAULT_NEOVATE_MODEL, isNeovateModelSupported, NEOVATE_MODEL_OPTIONS } from '../constants/neovateModels';
+import { ModelAvailabilityService } from '../services/ModelAvailabilityService';
 
 /**
  * 创建对话路由
@@ -13,7 +14,8 @@ import { DEFAULT_NEOVATE_MODEL, isNeovateModelSupported } from '../constants/neo
 export function createConversationRoutes(
   conversationManager: ConversationManager,
   messageRouter: MessageRouter,
-  aiService: ConversationAIService
+  aiService: ConversationAIService,
+  modelAvailabilityService?: ModelAvailabilityService
 ): Router {
   // 获取 ConversationManager 中的 ProjectService 实例
   const projectService = (conversationManager as any).projectService;
@@ -22,6 +24,30 @@ export function createConversationRoutes(
     if (!userId) return false;
     return session.userId === userId;
   };
+  const resolveModel = (model?: string) => {
+    const defaultModel = modelAvailabilityService?.resolveDefaultModel() || DEFAULT_NEOVATE_MODEL;
+    if (!model || !isNeovateModelSupported(model)) {
+      return defaultModel;
+    }
+    if (modelAvailabilityService && !modelAvailabilityService.isModelEnabled(model)) {
+      return defaultModel;
+    }
+    return model;
+  };
+
+  router.get('/models', async (_req, res: Response) => {
+    const defaultModel = modelAvailabilityService?.resolveDefaultModel() || DEFAULT_NEOVATE_MODEL;
+    const options = modelAvailabilityService?.getModelOptions()
+      || NEOVATE_MODEL_OPTIONS.map(option => ({ ...option, enabled: true }));
+
+    res.json({
+      success: true,
+      data: {
+        defaultModel,
+        options,
+      },
+    });
+  });
   const canReadSession = (session: any, userId?: string) => {
     if (session.visibility === ConversationVisibility.PUBLIC) return true;
     return isCreator(session, userId);
@@ -120,9 +146,7 @@ export function createConversationRoutes(
         });
       }
 
-      const resolvedModel = model && isNeovateModelSupported(model)
-        ? model.toLowerCase()
-        : DEFAULT_NEOVATE_MODEL;
+      const resolvedModel = resolveModel(model);
 
       const session = await conversationManager.createSession(
         initialPrompt,
@@ -283,10 +307,6 @@ export function createConversationRoutes(
         });
       }
 
-      const resolvedModel = model && isNeovateModelSupported(model)
-        ? model.toLowerCase()
-        : undefined;
-
       const step1Start = dayjs().valueOf();
       const session = await conversationManager.getSession(sessionId);
       const step1Time = dayjs().valueOf() - step1Start;
@@ -313,6 +333,12 @@ export function createConversationRoutes(
           error: '已归档的对话不能发送消息',
         });
       }
+
+      const sessionModel = typeof session.context?.variables?.model === 'string'
+        ? session.context.variables.model
+        : undefined;
+      const resolvedModel = resolveModel(model || sessionModel);
+      console.log(`[conversationRoutes] 解析执行模型: input=${model || sessionModel || 'none'}, resolved=${resolvedModel}`);
 
       const step2Start = dayjs().valueOf();
       res.setHeader('Content-Type', 'text/event-stream');

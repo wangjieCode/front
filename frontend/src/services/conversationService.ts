@@ -2,10 +2,12 @@ import {
   ConversationSession,
   ConversationMessage,
   ConversationVisibility,
+  ModelConfigResponse,
   PreviewResult,
   PreviewStatusResponse,
   SimplifiedConversation,
 } from '../types/conversation';
+import { DEFAULT_NEOVATE_MODEL, NEOVATE_MODEL_OPTIONS } from '../constants/neovateModels';
 import { authUtils } from '../utils/auth';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || '';
@@ -58,6 +60,7 @@ const fetchWithAuth = async (url: string, options: RequestInit = {}): Promise<Re
  */
 class ConversationService {
   private baseUrl: string;
+  private modelConfigCache: ModelConfigResponse | null = null;
 
   constructor(baseUrl: string = API_BASE_URL) {
     this.baseUrl = baseUrl;
@@ -157,6 +160,39 @@ class ConversationService {
     }
     const result = await response.json();
     return result.data;
+  }
+
+  async getModelConfig(forceRefresh: boolean = false): Promise<ModelConfigResponse> {
+    if (!forceRefresh && this.modelConfigCache) {
+      return this.modelConfigCache;
+    }
+
+    try {
+      const response = await fetch(`${this.baseUrl}/api/conversations/models`);
+      if (!response.ok) {
+        throw new Error('获取模型配置失败');
+      }
+      const result = await response.json();
+      const data = result?.data;
+      if (!data || !Array.isArray(data.options) || typeof data.defaultModel !== 'string') {
+        throw new Error('模型配置格式不正确');
+      }
+      this.modelConfigCache = {
+        defaultModel: data.defaultModel,
+        options: data.options,
+      };
+      return this.modelConfigCache;
+    } catch (error) {
+      const fallback: ModelConfigResponse = {
+        defaultModel: DEFAULT_NEOVATE_MODEL,
+        options: NEOVATE_MODEL_OPTIONS.map(option => ({
+          ...option,
+          enabled: true,
+        })),
+      };
+      this.modelConfigCache = fallback;
+      return fallback;
+    }
   }
 
   /**
