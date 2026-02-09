@@ -61,7 +61,7 @@ describe('GET /api/projects performance', () => {
     const start = performance.now();
     const responsePromise = request(app)
       .get('/api/projects')
-      .set('x-user-id', 'user-1');
+      .set('Authorization', 'Bearer test.jwt.token');
 
     const response = await responsePromise;
     const end = performance.now();

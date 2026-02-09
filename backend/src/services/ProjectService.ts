@@ -92,14 +92,14 @@ export class ProjectService {
     return RedisManager.getInstanceSafe();
   }
 
-  private async invalidateProjectListCache(userId: string): Promise<void> {
+  private async invalidateProjectListCache(_userId: string): Promise<void> {
     // 同时清除本地缓存
     this.listLocalCache.clear();
 
     const redis = this.getRedis();
     if (!redis) return;
     try {
-      const pattern = `projects:list:${userId}:*`;
+      const pattern = 'projects:list:*';
       let cursor = '0';
       do {
         const [nextCursor, keys] = await redis.scan(cursor, 'MATCH', pattern, 'COUNT', 100);
@@ -245,11 +245,11 @@ export class ProjectService {
   /**
    * 获取用户项目列表
    */
-  async getProjects(userId: string, filters?: ProjectFilters): Promise<ProjectListResult> {
+  async getProjects(_userId: string, filters?: ProjectFilters): Promise<ProjectListResult> {
     try {
       const searchTerm = filters?.search?.trim().toLowerCase() || '';
       const isActiveKey = filters?.isActive === undefined ? 'all' : filters.isActive ? 'active' : 'inactive';
-      const cacheKey = `projects:list:${userId}:${isActiveKey}:${searchTerm || 'all'}`;
+      const cacheKey = `projects:list:${isActiveKey}:${searchTerm || 'all'}`;
       
       // 1. 检查本地缓存
       const localCached = this.listLocalCache.get(cacheKey);
@@ -278,7 +278,7 @@ export class ProjectService {
         }
       }
 
-      const conditions: any[] = [eq(projects.ownerId, userId)];
+      const conditions: any[] = [];
       if (filters?.isActive !== undefined) {
         conditions.push(eq(projects.isActive, filters.isActive));
       }
@@ -291,11 +291,11 @@ export class ProjectService {
         );
       }
 
-      const filteredProjects = await this.db
-        .select()
-        .from(projects)
-        .where(and(...conditions))
-        .orderBy(desc(projects.createdAt));
+      const whereCondition = conditions.length > 0 ? and(...conditions) : undefined;
+      const baseQuery = this.db.select().from(projects);
+      const filteredProjects = whereCondition
+        ? await baseQuery.where(whereCondition).orderBy(desc(projects.createdAt))
+        : await baseQuery.orderBy(desc(projects.createdAt));
 
       const result: ProjectListResult = {
         success: true,
