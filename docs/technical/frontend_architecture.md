@@ -15,7 +15,7 @@
 
 ## 状态与认证
 
-- 认证信息存储在 localStorage（user_id、username）
+- 认证信息存储在 localStorage（`fi_auth_user_id_v2`、`fi_auth_username_v2`、`fi_auth_has_password_v2`、`fi_auth_token_v2`）
 - 所有 API 请求通过统一 fetchWithAuth 注入头信息
 - 401 时自动清理本地信息并弹出登录框
 

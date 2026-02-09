@@ -1,30 +1,35 @@
-const USER_ID_KEY = 'user_id';
-const USERNAME_KEY = 'username';
-const USER_HAS_PASSWORD_KEY = 'user_has_password';
+const USER_ID_KEY = 'fi_auth_user_id_v2';
+const USERNAME_KEY = 'fi_auth_username_v2';
+const USER_HAS_PASSWORD_KEY = 'fi_auth_has_password_v2';
+const AUTH_TOKEN_KEY = 'fi_auth_token_v2';
 
 export interface UserInfo {
   userId: string;
   username: string;
   hasPassword: boolean;
+  token: string;
 }
 
 export const authUtils = {
-  setUserInfo(userId: string, username: string, hasPassword = false): void {
+  setUserInfo(userId: string, username: string, hasPassword = false, token?: string): void {
+    const authToken = token || `fi_${Date.now()}_${Math.random().toString(36).slice(2)}`;
     localStorage.setItem(USER_ID_KEY, userId);
     localStorage.setItem(USERNAME_KEY, username);
     localStorage.setItem(USER_HAS_PASSWORD_KEY, hasPassword ? '1' : '0');
+    localStorage.setItem(AUTH_TOKEN_KEY, authToken);
   },
 
   getUserInfo(): UserInfo | null {
     const userId = localStorage.getItem(USER_ID_KEY);
     const username = localStorage.getItem(USERNAME_KEY);
     const hasPassword = localStorage.getItem(USER_HAS_PASSWORD_KEY) === '1';
+    const token = localStorage.getItem(AUTH_TOKEN_KEY);
 
-    if (!userId || !username) {
+    if (!userId || !username || !token) {
       return null;
     }
 
-    return { userId, username, hasPassword };
+    return { userId, username, hasPassword, token };
   },
 
   getUserId(): string | null {
@@ -39,6 +44,21 @@ export const authUtils = {
     return localStorage.getItem(USER_HAS_PASSWORD_KEY) === '1';
   },
 
+  getToken(): string | null {
+    return localStorage.getItem(AUTH_TOKEN_KEY);
+  },
+
+  getAuthHeaders(): Record<string, string> {
+    const userInfo = this.getUserInfo();
+    if (!userInfo) {
+      return {};
+    }
+    return {
+      'x-user-id': userInfo.userId,
+      'x-username': userInfo.username,
+    };
+  },
+
   setUsername(username: string): void {
     localStorage.setItem(USERNAME_KEY, username);
   },
@@ -51,6 +71,7 @@ export const authUtils = {
     localStorage.removeItem(USER_ID_KEY);
     localStorage.removeItem(USERNAME_KEY);
     localStorage.removeItem(USER_HAS_PASSWORD_KEY);
+    localStorage.removeItem(AUTH_TOKEN_KEY);
   },
 
   isLoggedIn(): boolean {

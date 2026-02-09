@@ -69,8 +69,12 @@ export class ConversationManager {
     if (!userId) return;
     const redis = this.getRedis();
     if (!redis) return;
-    const currentEnv = process.env.APP_ENV || "local";
-    await redis.del(`sessions:list:${userId}:${currentEnv}`);
+    try {
+      const currentEnv = process.env.APP_ENV || "local";
+      await redis.del(`sessions:list:${userId}:${currentEnv}`);
+    } catch (error) {
+      console.warn("[ConversationManager] 会话列表缓存清理失败 (Redis 可能达到限制):", error);
+    }
   }
 
   private async persistSession(session: ConversationSession): Promise<void> {
@@ -352,13 +356,18 @@ export class ConversationManager {
     const cacheKey = `sessions:list:${userId || "public"}:${currentEnv}`;
     const redis = this.getRedis();
     if (redis) {
-      const cached = await redis.get(cacheKey);
-      if (cached) {
-        try {
-          return JSON.parse(cached) as ConversationSession[];
-        } catch (error) {
-          console.warn("[ConversationManager] 会话列表缓存解析失败，已忽略");
+      try {
+        const cached = await redis.get(cacheKey);
+        if (cached) {
+          try {
+            return JSON.parse(cached) as ConversationSession[];
+          } catch (error) {
+            console.warn("[ConversationManager] 会话列表缓存解析失败，已忽略");
+          }
         }
+      } catch (error) {
+        console.warn("[ConversationManager] Redis 查询失败 (可能达到额度限制):", error);
+        // 继续向下走，从数据库读取
       }
     }
 
@@ -387,7 +396,11 @@ export class ConversationManager {
     });
 
     if (redis) {
-      await redis.set(cacheKey, JSON.stringify(envFiltered), "EX", 30);
+      try {
+        await redis.set(cacheKey, JSON.stringify(envFiltered), "EX", 30);
+      } catch (error) {
+        console.warn("[ConversationManager] Redis 写入失败 (可能达到额度限制):", error);
+      }
     }
 
     return envFiltered as ConversationSession[];

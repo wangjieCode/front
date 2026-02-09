@@ -2,8 +2,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Spin, Typography, Button, Input, message, Modal, Descriptions, Tag, Tooltip, Select, Dropdown } from 'antd';
 import { ThunderboltOutlined, SendOutlined, RocketOutlined, CheckOutlined, WarningOutlined, StopOutlined, GitlabOutlined, ClockCircleOutlined, LinkOutlined, LockOutlined, InboxOutlined, GlobalOutlined, EllipsisOutlined } from '@ant-design/icons';
-import ModeSelector from './ModeSelector';
-import ProjectSelector from './ProjectSelector';
+import MobileModeSelector from './MobileModeSelector';
+import MobileProjectSelector from './MobileProjectSelector';
 import {
   ConversationSession,
   ConversationMessage,
@@ -12,8 +12,9 @@ import {
   ConversationVisibility,
   PreviewStatus,
 } from '../types/conversation';
-import MessageInput from './MessageInput';
-import MessageList from './MessageList';
+import { Project } from '../types/project';
+import MobileMessageInput from './MobileMessageInput';
+import MobileMessageList from './MobileMessageList';
 import { conversationService } from '../services/conversationService';
 import { parseNeovateChunkStructured, ParsedContent } from '../utils/neovateParser';
 import { authUtils } from '../utils/auth';
@@ -38,7 +39,7 @@ interface ConversationViewProps {
 const { Title, Paragraph, Text } = Typography;
 const { TextArea } = Input;
 
-const ConversationView: React.FC<ConversationViewProps> = ({
+const MobileConversationView: React.FC<ConversationViewProps> = ({
   sessionId,
   initialPrompt,
   initialSession,
@@ -67,6 +68,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
   // New conversation state
   const [prompt, setPrompt] = useState('');
   const [selectedProjectId, setSelectedProjectId] = useState<string>('');
+  const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [baseBranch, setBaseBranch] = useState<string>('');
   const [branchOptions, setBranchOptions] = useState<string[]>([]);
   const [loadingBranches, setLoadingBranches] = useState(false);
@@ -90,21 +92,21 @@ const ConversationView: React.FC<ConversationViewProps> = ({
     '看一下某接口调用使用了哪些返回值',
   ];
 
-  const loadBranches = async (projectId: string, canceled?: { value: boolean }) => {
+  const loadBranches = async (projectId: string, fallbackBranch: string, canceled?: { value: boolean }) => {
     if (loadingBranches) return;
     setLoadingBranches(true);
     try {
       const result = await conversationService.getGitBranches(projectId);
       if (canceled?.value) return;
       const branches = result.branches || [];
-      const defaultBranch = result.defaultBranch || branches[0] || '';
+      const defaultBranch = result.defaultBranch || fallbackBranch || branches[0] || '';
       setBranchOptions(branches);
       setBaseBranch(defaultBranch);
     } catch (error) {
       if (canceled?.value) return;
       message.error('获取基线分支失败');
-      setBranchOptions([]);
-      setBaseBranch('');
+      setBranchOptions(fallbackBranch ? [fallbackBranch] : []);
+      setBaseBranch(fallbackBranch);
     } finally {
       if (!canceled?.value) {
         setLoadingBranches(false);
@@ -120,12 +122,12 @@ const ConversationView: React.FC<ConversationViewProps> = ({
     }
 
     const canceled = { value: false };
-    void loadBranches(selectedProjectId, canceled);
+    void loadBranches(selectedProjectId, selectedProject?.gitBranch || '', canceled);
 
     return () => {
       canceled.value = true;
     };
-  }, [selectedProjectId]);
+  }, [selectedProjectId, selectedProject?.gitBranch]);
 
   useEffect(() => {
     if (!sessionId) {
@@ -400,6 +402,18 @@ const ConversationView: React.FC<ConversationViewProps> = ({
                 // 累积完整文本内容
                 fullContent += data.content;
 
+                // 处理 Neovate SDK result 结束事件（兼容无 complete 场景）
+                if (typeof data.content === 'string' && data.content.trim().startsWith('{')) {
+                  try {
+                    const event = JSON.parse(data.content);
+                    if (event?.type === 'result') {
+                      markStreamComplete();
+                    }
+                  } catch (error) {
+                    // ignore JSON parse errors
+                  }
+                }
+                
                 // 解析 chunk 为结构化内容
                 const parsedContents = parseNeovateChunkStructured(data.content);
                 
@@ -749,10 +763,11 @@ const ConversationView: React.FC<ConversationViewProps> = ({
             <Text type="secondary" style={{ fontSize: 14, marginBottom: 6, minHeight: 20, display: 'block' }}>
               选择项目 <span style={{ color: '#ff4d4f' }}>*</span>
             </Text>
-            <ProjectSelector
+            <MobileProjectSelector
               value={selectedProjectId}
               onChange={(projectId, project) => {
                 setSelectedProjectId(projectId);
+                setSelectedProject(project);
                 setBaseBranch(project?.gitBranch || '');
               }}
               placeholder="请选择要操作的项目"
@@ -775,7 +790,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
               onChange={(value) => setBaseBranch(value)}
               onDropdownVisibleChange={(open) => {
                 if (open && selectedProjectId) {
-                  void loadBranches(selectedProjectId);
+                  void loadBranches(selectedProjectId, selectedProject?.gitBranch || '');
                 }
               }}
               options={branchOptions.map(branch => ({ value: branch, label: branch }))}
@@ -787,7 +802,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
             <Text type="secondary" style={{ fontSize: 14, marginBottom: 6, minHeight: 20, display: 'block' }}>
               对话模式
             </Text>
-            <ModeSelector value={mode} onChange={onModeChange || (() => { })} />
+            <MobileModeSelector value={mode} onChange={onModeChange || (() => { })} />
           </div>
         </div>
 
@@ -920,7 +935,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
         style={{
           flex: 1,
           overflowY: 'auto',
-          padding: '20px 0'
+          padding: '20px 0 140px'
         }}
       >
         {loadingMessages ? (
@@ -934,7 +949,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
         ) : (
           <div className="message-list-inner">
             {/* 状态栏 */}
-            <MessageList messages={messages} onMessageClick={handleMessageClick} />
+            <MobileMessageList messages={messages} onMessageClick={handleMessageClick} />
             <div ref={messagesEndRef} />
           </div>
         )}
@@ -943,7 +958,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
       {/* Input Area */}
       <div className="chat-input-panel">
         <div className="chat-input-shell">
-          <MessageInput
+          <MobileMessageInput
             sessionId={sessionId}
             disabled={sending || isArchived}
             onSend={handleSendMessage}
@@ -1430,4 +1445,4 @@ const ConversationView: React.FC<ConversationViewProps> = ({
   );
 };
 
-export default ConversationView;
+export default MobileConversationView;
