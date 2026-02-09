@@ -10,6 +10,7 @@
     "test": "jest"
   },
   "dependencies": {
+    "@front/shared": "workspace:*",
     "@ant-design/icons": "^6.1.0",
     "antd": "^5.12.2",
     "react": "^18.2.0",

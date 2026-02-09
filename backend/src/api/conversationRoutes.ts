@@ -5,7 +5,7 @@ import { ConversationAIService } from '../services/ConversationAIService';
 import { ConversationStatus, ConversationVisibility } from '../types';
 import { requireAuth, AuthRequest } from './authMiddleware';
 import dayjs from 'dayjs';
-import { DEFAULT_NEOVATE_MODEL, isNeovateModelSupported, NEOVATE_MODEL_OPTIONS } from '../constants/neovateModels';
+import { DEFAULT_NEOVATE_MODEL, isNeovateModelSupported, NEOVATE_MODEL_OPTIONS } from '@front/shared';
 import { ModelAvailabilityService } from '../services/ModelAvailabilityService';
 
 /**

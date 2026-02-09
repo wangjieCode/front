@@ -1,4 +1,4 @@
-import { DEFAULT_NEOVATE_MODEL, NEOVATE_MODEL_OPTIONS, NeovateModelOption, NeovateModelProvider } from '../constants/neovateModels';
+import { DEFAULT_NEOVATE_MODEL, NEOVATE_MODEL_OPTIONS, NeovateModelOption, NeovateModelProvider } from '@front/shared';
 import { runNeovateSdk } from '../utils/NeovateSdkRunner';
 
 export interface RuntimeModelOption extends NeovateModelOption {
@@ -36,7 +36,7 @@ export class ModelAvailabilityService {
   getModelOptions(): RuntimeModelOption[] {
     return NEOVATE_MODEL_OPTIONS.map(option => ({
       ...option,
-      enabled: this.isProviderEnabled(option.provider),
+      enabled: this.isProviderEnabled(option.provider ?? 'iflow'),
     }));
   }
 
@@ -44,7 +44,7 @@ export class ModelAvailabilityService {
     if (!model) return false;
     const modelOption = NEOVATE_MODEL_OPTIONS.find(option => option.value === model);
     if (!modelOption) return false;
-    return this.isProviderEnabled(modelOption.provider);
+    return this.isProviderEnabled(modelOption.provider ?? 'iflow');
   }
 
   resolveDefaultModel(): string {

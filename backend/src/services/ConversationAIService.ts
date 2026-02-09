@@ -11,7 +11,7 @@ import { NeovateSessionManagerDB } from './NeovateSessionManagerDB';
 import { GitService } from './GitService';
 import { GitLabMCPService } from './GitLabMCPService';
 import dayjs from 'dayjs';
-import { DEFAULT_NEOVATE_MODEL } from '../constants/neovateModels';
+import { DEFAULT_NEOVATE_MODEL } from '@front/shared';
 
 /**
  * 对话 AI 服务类
