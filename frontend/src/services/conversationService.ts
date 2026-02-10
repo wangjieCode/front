@@ -7,7 +7,7 @@ import {
   PreviewStatusResponse,
   SimplifiedConversation,
 } from '../types/conversation';
-import { DEFAULT_NEOVATE_MODEL, NEOVATE_MODEL_OPTIONS } from '../constants/neovateModels';
+import { DEFAULT_NEOVATE_MODEL, NEOVATE_MODEL_OPTIONS } from '@front/shared';
 import { authUtils } from '../utils/auth';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || '';

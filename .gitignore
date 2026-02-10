@@ -2,6 +2,8 @@
 node_modules/
 package-lock.json
 yarn.lock
+backend/pnpm-lock.yaml
+frontend/pnpm-lock.yaml
 
 # 构建输出
 dist/
@@ -44,3 +46,5 @@ backend/backend/data/
 front-workspace/
 
 public/
+
+.turbo

@@ -17,7 +17,7 @@ import MessageList from './MessageList';
 import { conversationService } from '../services/conversationService';
 import { normalizeNeovateErrorMessage, parseNeovateChunkStructured, ParsedContent } from '../utils/neovateParser';
 import { authUtils } from '../utils/auth';
-import { DEFAULT_NEOVATE_MODEL, isNeovateModelSupported } from '../constants/neovateModels';
+import { DEFAULT_NEOVATE_MODEL, isNeovateModelSupported } from '@front/shared';
 import { useModelOptions } from '../hooks/useModelOptions';
 
 interface ConversationViewProps {
