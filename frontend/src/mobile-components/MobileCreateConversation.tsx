@@ -6,7 +6,7 @@ import MobileProjectSelector from './MobileProjectSelector';
 import { ConversationMode } from '../types/conversation';
 import { Project } from '../types/project';
 import { conversationService } from '../services/conversationService';
-import { DEFAULT_NEOVATE_MODEL } from '../constants/neovateModels';
+import { DEFAULT_NEOVATE_MODEL } from '@front/shared';
 import { useModelOptions } from '../hooks/useModelOptions';
 import './MobileCreateConversation.css';
 

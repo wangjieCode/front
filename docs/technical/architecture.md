@@ -2,6 +2,7 @@
 
 ## 总体结构
 
+- Monorepo：pnpm workspace + Turborepo
 - 前端：React + Vite
 - 后端：Express + TypeScript
 - 数据库：PostgreSQL（Drizzle）

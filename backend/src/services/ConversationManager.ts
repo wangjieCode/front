@@ -20,7 +20,7 @@ import { ProjectService } from "./ProjectService";
 import { newId } from "../utils/id";
 import { getWorktreeBaseDir } from "../utils/config";
 import dayjs from "dayjs";
-import { DEFAULT_NEOVATE_MODEL, isNeovateModelSupported } from "../constants/neovateModels";
+import { DEFAULT_NEOVATE_MODEL, isNeovateModelSupported } from "@front/shared";
 import { RedisManager } from "../db/RedisManager";
 import type Redis from "ioredis";
 

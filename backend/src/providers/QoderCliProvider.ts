@@ -78,6 +78,9 @@ export class QoderCliProvider implements ICodeToolProvider {
       const command = this.buildCommand(prompt, workDir, true);
       
       let fullOutput = '';
+      if (!this.executor.executeCommandStream) {
+        throw new Error('当前执行器不支持流式命令执行');
+      }
       
       // 执行命令并流式处理输出
       const result = await this.executor.executeCommandStream(

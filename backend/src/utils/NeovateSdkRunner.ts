@@ -1,4 +1,4 @@
-import { DEFAULT_NEOVATE_MODEL } from '../constants/neovateModels';
+import { DEFAULT_NEOVATE_MODEL } from '@front/shared';
 
 export interface NeovateSdkRunOptions {
   prompt: string;
