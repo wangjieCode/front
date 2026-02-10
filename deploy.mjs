@@ -44,17 +44,12 @@ const sshOpts = [
 const sshBase = ['sshpass', '-p', DEPLOY_PASS, 'ssh', ...sshOpts];
 const scpBase = ['sshpass', '-p', DEPLOY_PASS, 'scp', ...sshOpts];
 
-async function buildFrontend() {
-  console.log('==> 开始构建前端...');
-  await $`pnpm -C frontend install`;
-  await $`pnpm -C frontend build`;
-  console.log('==> 前端构建完成');
-}
-
-async function buildBackend() {
-  console.log('==> 开始安装后端依赖...');
-  await $`pnpm -C backend install`;
-  console.log('==> 后端依赖安装完成');
+async function buildWorkspace() {
+  console.log('==> 开始安装工作区依赖...');
+  await $`pnpm install --frozen-lockfile`;
+  console.log('==> 依赖安装完成，开始 Turbo 构建...');
+  await $`pnpm turbo run build --filter=@front/shared --filter=web-frontend-intern-assistant-frontend --filter=web-frontend-intern-assistant-backend`;
+  console.log('==> Turbo 构建完成');
 }
 
 async function syncNeovateConfig() {
@@ -69,19 +64,21 @@ async function syncNeovateConfig() {
 }
 
 console.log('==> 开始构建流程...');
-await buildFrontend();
-await buildBackend();
+await buildWorkspace();
 
 const archiveItems = [
+  'package.json',
+  'pnpm-lock.yaml',
+  'pnpm-workspace.yaml',
   'backend/src',
   'backend/public',
   'backend/drizzle',
   'backend/drizzle.config.ts',
-  'backend/tsconfig.json',
   'backend/package.json',
-  'backend/pnpm-lock.yaml',
   'backend/.env.production',  // 部署生产环境配置
   'backend/scripts',          // 添加脚本目录
+  'packages/shared/dist',
+  'packages/shared/package.json',
   'infrastructure',           // 添加 Docker Compose 配置文件目录
 ];
 const templatesDir = path.join(rootDir, 'backend', 'templates');
@@ -135,15 +132,17 @@ echo "==> Extract package"
 tar -xzf "${remoteArtifact}" -C "${DEPLOY_DIR}"
 
 echo "==> Setup environment"
-cd "${DEPLOY_DIR}/backend"
+cd "${DEPLOY_DIR}"
 # 将生产环境配置复制为 .env
-if [ -f ".env.production" ]; then
-  cp .env.production .env
+if [ -f "backend/.env.production" ]; then
+  cp backend/.env.production backend/.env
   echo "✅ 生产环境配置已应用"
 fi
 
 echo "==> Install deps"
-pnpm install --frozen-lockfile
+pnpm install --prod --frozen-lockfile --filter @front/shared --filter web-frontend-intern-assistant-backend
+
+cd "${DEPLOY_DIR}/backend"
 
 echo "==> Verify IFLOW_API_KEY"
 if pnpm run verify:neovate; then

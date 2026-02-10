@@ -9,3 +9,4 @@
 - 预览：`spec-preview.md`
 - Merge Request：`spec-merge-request.md`
 - 移动端入口与分流：`spec-mobile-entry.md`
+- Monorepo 工作区：`spec-monorepo-workspace.md`
