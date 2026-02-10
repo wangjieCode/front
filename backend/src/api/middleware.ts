@@ -51,7 +51,8 @@ export function corsMiddleware(
   res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 
   if (req.method === 'OPTIONS') {
-    return res.sendStatus(200);
+    res.sendStatus(200);
+    return;
   }
 
   next();
@@ -69,9 +70,10 @@ export function validateRequest(
   if (req.method === 'POST' || req.method === 'PUT') {
     const contentType = req.headers['content-type'];
     if (!contentType || !contentType.includes('application/json')) {
-      return res.status(415).json({
+      res.status(415).json({
         error: 'Content-Type 必须是 application/json',
       });
+      return;
     }
   }
 
