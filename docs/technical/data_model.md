@@ -40,7 +40,7 @@
 - tool_calls, code_changes
 - is_question, question_options
 - requires_response, is_invalid
-- git_branch, mr_url, operation_denied
+- git_branch, mr_url, images, operation_denied
 
 ## neovate_sessions
 

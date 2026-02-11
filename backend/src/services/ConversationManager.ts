@@ -20,7 +20,9 @@ import { ProjectService } from "./ProjectService";
 import { newId } from "../utils/id";
 import { getWorktreeBaseDir } from "../utils/config";
 import dayjs from "dayjs";
-import { DEFAULT_NEOVATE_MODEL, isNeovateModelSupported } from "../constants/neovateModels";
+import { DEFAULT_NEOVATE_MODEL, isNeovateModelSupported } from "@front/shared";
+import { RedisManager } from "../db/RedisManager";
+import type Redis from "ioredis";
 
 /**
  * 对话管理器类
@@ -33,6 +35,7 @@ export class ConversationManager {
   private gitlabService?: GitLabMCPService;
   private worktreeManager?: WorktreeManager;
   public projectService: ProjectService;
+  private redis?: Redis;
   
   // 使用 LRU 缓存
   private sessionCache: LRUCache<string, ConversationSession>;
@@ -41,19 +44,42 @@ export class ConversationManager {
     storage: IConversationStorage,
     projectService: ProjectService,
     gitlabService?: GitLabMCPService,
-    worktreeManager?: WorktreeManager
+    worktreeManager?: WorktreeManager,
+    redis?: Redis
   ) {
     this.storage = storage;
     this.projectService = projectService;
     this.modeValidator = new ModeValidator();
     this.gitlabService = gitlabService;
     this.worktreeManager = worktreeManager;
+    this.redis = redis;
     
     // 初始化 LRU 缓存
     this.sessionCache = new LRUCache<string, ConversationSession>({
       max: 50, // 最多缓存50个会话
       updateAgeOnGet: true, // 访问时更新使用时间
     });
+  }
+
+  private getRedis(): Redis | null {
+    return this.redis ?? RedisManager.getInstanceSafe();
+  }
+
+  private async invalidateSessionListCache(userId?: string): Promise<void> {
+    if (!userId) return;
+    const redis = this.getRedis();
+    if (!redis) return;
+    try {
+      const currentEnv = process.env.APP_ENV || "local";
+      await redis.del(`sessions:list:${userId}:${currentEnv}`);
+    } catch (error) {
+      console.warn("[ConversationManager] 会话列表缓存清理失败 (Redis 可能达到限制):", error);
+    }
+  }
+
+  private async persistSession(session: ConversationSession): Promise<void> {
+    await this.storage.saveSession(session);
+    await this.invalidateSessionListCache(session.userId);
   }
 
   /**
@@ -137,7 +163,7 @@ export class ConversationManager {
     (this as any).currentProjectId = projectInfo.projectId;
 
     // 初始化上下文
-    const resolvedModel = isNeovateModelSupported(model) ? model!.toLowerCase() : DEFAULT_NEOVATE_MODEL;
+    const resolvedModel = isNeovateModelSupported(model) ? model! : DEFAULT_NEOVATE_MODEL;
     const context: ConversationContext = {
       projectInfo: completeProjectInfo,
       taskDescription: initialPrompt,
@@ -203,7 +229,7 @@ export class ConversationManager {
     session.context = context;
 
     // 保存会话（会自动保存上下文和分支）
-    await this.storage.saveSession(session);
+    await this.persistSession(session);
 
     // console.log(`[ConversationManager] 会话已保存 - 最终项目信息:`, {
     //   projectId: session.context.projectInfo.projectId,
@@ -326,6 +352,25 @@ export class ConversationManager {
      * - 加上该用户创建的所有对话（包括私密的）
      */
   async listSessions(userId?: string): Promise<ConversationSession[]> {
+    const currentEnv = process.env.APP_ENV || "local";
+    const cacheKey = `sessions:list:${userId || "public"}:${currentEnv}`;
+    const redis = this.getRedis();
+    if (redis) {
+      try {
+        const cached = await redis.get(cacheKey);
+        if (cached) {
+          try {
+            return JSON.parse(cached) as ConversationSession[];
+          } catch (error) {
+            console.warn("[ConversationManager] 会话列表缓存解析失败，已忽略");
+          }
+        }
+      } catch (error) {
+        console.warn("[ConversationManager] Redis 查询失败 (可能达到额度限制):", error);
+        // 继续向下走，从数据库读取
+      }
+    }
+
     const rawAll = await this.storage.listSessions();
     const all = rawAll.map((s: any) => ({
       ...s,
@@ -344,12 +389,19 @@ export class ConversationManager {
     );
 
     // 根据 environment 过滤
-    const currentEnv = process.env.APP_ENV || 'local';
     const envFiltered = filtered.filter((s: any) => {
       const vars = s.context?.variables || {};
       const sessionEnv = vars.environment;
       return sessionEnv === currentEnv;
     });
+
+    if (redis) {
+      try {
+        await redis.set(cacheKey, JSON.stringify(envFiltered), "EX", 30);
+      } catch (error) {
+        console.warn("[ConversationManager] Redis 写入失败 (可能达到额度限制):", error);
+      }
+    }
 
     return envFiltered as ConversationSession[];
   }
@@ -418,7 +470,7 @@ export class ConversationManager {
         // 异步保存，不阻塞返回
         Promise.all([
           this.storage.saveMessage(message),
-          this.storage.saveSession(session)
+          this.storage.saveSession(session).then(() => this.invalidateSessionListCache(session.userId))
         ]).then(() => {
           this.clearSessionCache(sessionId);
         }).catch(error => {
@@ -428,7 +480,7 @@ export class ConversationManager {
         // 同步保存
         await Promise.all([
           this.storage.saveMessage(message),
-          this.storage.saveSession(session)
+          this.persistSession(session)
         ]);
         this.clearSessionCache(sessionId);
       }
@@ -511,7 +563,7 @@ export class ConversationManager {
         }
       }
 
-      await this.storage.saveSession(session);
+      await this.persistSession(session);
       
       // 清除缓存
       this.clearSessionCache(sessionId);
@@ -535,7 +587,7 @@ export class ConversationManager {
       session.visibility = visibility;
       session.updatedAt = dayjs().toDate();
 
-      await this.storage.saveSession(session);
+      await this.persistSession(session);
       this.clearSessionCache(sessionId);
     } finally {
       this.releaseLock(sessionId);
@@ -584,7 +636,7 @@ export class ConversationManager {
 
       session.context.variables[key] = value;
       session.updatedAt = dayjs().toDate();
-      await this.storage.saveSession(session);
+      await this.persistSession(session);
     } finally {
       this.releaseLock(sessionId);
     }
@@ -597,7 +649,10 @@ export class ConversationManager {
     await this.acquireLock(sessionId);
 
     try {
+      const session = await this.getSession(sessionId);
       await this.storage.deleteSession(sessionId);
+      await this.invalidateSessionListCache(session?.userId);
+      this.clearSessionCache(sessionId);
     } finally {
       this.releaseLock(sessionId);
     }

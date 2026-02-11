@@ -2,7 +2,7 @@
 
 ## 认证
 
-- POST `/api/auth/login`：登录（用户名）
+- POST `/api/auth/login`：登录（用户名+密码，返回 JWT）
 - GET `/api/auth/verify`：校验登录态
 
 ## 项目
@@ -32,36 +32,6 @@
 - GET `/api/conversations/:sessionId/preview/status`：获取预览状态
 - DELETE `/api/conversations/:sessionId/preview`：停止预览
 
-## Docker Compose
-
-- POST `/api/docker-compose/init`
-- POST `/api/docker-compose/up`
-- POST `/api/docker-compose/down`
-- POST `/api/docker-compose/restart`
-- GET `/api/docker-compose/ps`
-- GET `/api/docker-compose/logs`
-- POST `/api/docker-compose/build`
-- POST `/api/docker-compose/deploy`
-
-## Docker
-
-- GET `/api/docker/containers`
-- GET `/api/docker/containers/:id`
-- POST `/api/docker/containers/:id/start`
-- POST `/api/docker/containers/:id/stop`
-- POST `/api/docker/containers/:id/restart`
-- DELETE `/api/docker/containers/:id`
-- GET `/api/docker/containers/:id/logs`
-- GET `/api/docker/containers/:id/stats`
-- POST `/api/docker/containers/create`
-- GET `/api/docker/images`
-- GET `/api/docker/images/:id`
-- POST `/api/docker/images/pull`
-- DELETE `/api/docker/images/:id`
-- POST `/api/docker/images/build`
-- GET `/api/docker/info`
-
 ## 已知缺口（代码现状）
 
-- 前端调用的 `/api/conversations/:sessionId/status` 未实现
-- 前端调用的 `/api/conversations/:sessionId/messages/:messageId` 未实现
+- 暂无。

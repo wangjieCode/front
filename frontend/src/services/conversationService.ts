@@ -1,12 +1,14 @@
 import {
   ConversationSession,
   ConversationMessage,
-  ConversationStatus,
   ConversationVisibility,
+  ModelConfigResponse,
   PreviewResult,
   PreviewStatusResponse,
   SimplifiedConversation,
 } from '../types/conversation';
+import { DEFAULT_NEOVATE_MODEL, NEOVATE_MODEL_OPTIONS } from '@front/shared';
+import { authUtils } from '../utils/auth';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || '';
 
@@ -27,18 +29,9 @@ const fetchWithAuth = async (url: string, options: RequestInit = {}): Promise<Re
   // 添加认证头
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
+    ...authUtils.getAuthHeaders(),
     ...((options.headers as Record<string, string>) || {}),
   };
-  
-  const userId = localStorage.getItem('user_id');
-  if (userId) {
-    headers['x-user-id'] = userId;
-    
-    const username = localStorage.getItem('username');
-    if (username) {
-      headers['x-username'] = username;
-    }
-  }
 
   const response = await fetch(url, {
     ...options,
@@ -48,8 +41,7 @@ const fetchWithAuth = async (url: string, options: RequestInit = {}): Promise<Re
   // 处理 401 错误
   if (response.status === 401) {
     // 清除本地存储的用户信息
-    localStorage.removeItem('user_id');
-    localStorage.removeItem('username');
+    authUtils.clearUserInfo();
     
     // 触发登录模态框
     if (showLoginModalCallback) {
@@ -63,52 +55,15 @@ const fetchWithAuth = async (url: string, options: RequestInit = {}): Promise<Re
 };
 
 /**
- * 轮询配置
- */
-interface PollingConfig {
-  activeInterval: number;    // 活跃轮询间隔（毫秒）
-  reducedInterval: number;   // 降频轮询间隔（毫秒）
-  inactiveThreshold: number; // 无活动阈值（毫秒）
-  maxRetries: number;        // 最大重试次数
-}
-
-const DEFAULT_POLLING_CONFIG: PollingConfig = {
-  activeInterval: 2000,      // 2 秒
-  reducedInterval: 5000,     // 5 秒
-  inactiveThreshold: 30000,  // 30 秒
-  maxRetries: 3,
-};
-
-/**
- * 会话状态响应
- */
-interface SessionStatusResponse {
-  status: ConversationStatus;
-  lastMessageId: string;
-  hasNewMessages: boolean;
-  pendingQuestion?: {
-    question: string;
-    options?: string[];
-  };
-}
-
-/**
  * 对话服务类
- * 负责与后端对话 API 通信，实现智能轮询策略
+ * 负责与后端对话 API 通信
  */
 class ConversationService {
   private baseUrl: string;
-  private pollingConfig: PollingConfig;
-  private pollingTimers: Map<string, number>;
-  private lastActivityTime: Map<string, number>;
-  private retryCount: Map<string, number>;
+  private modelConfigCache: ModelConfigResponse | null = null;
 
-  constructor(baseUrl: string = API_BASE_URL, config: Partial<PollingConfig> = {}) {
+  constructor(baseUrl: string = API_BASE_URL) {
     this.baseUrl = baseUrl;
-    this.pollingConfig = { ...DEFAULT_POLLING_CONFIG, ...config };
-    this.pollingTimers = new Map();
-    this.lastActivityTime = new Map();
-    this.retryCount = new Map();
   }
 
 
@@ -207,6 +162,39 @@ class ConversationService {
     return result.data;
   }
 
+  async getModelConfig(forceRefresh: boolean = false): Promise<ModelConfigResponse> {
+    if (!forceRefresh && this.modelConfigCache) {
+      return this.modelConfigCache;
+    }
+
+    try {
+      const response = await fetch(`${this.baseUrl}/api/conversations/models`);
+      if (!response.ok) {
+        throw new Error('获取模型配置失败');
+      }
+      const result = await response.json();
+      const data = result?.data;
+      if (!data || !Array.isArray(data.options) || typeof data.defaultModel !== 'string') {
+        throw new Error('模型配置格式不正确');
+      }
+      this.modelConfigCache = {
+        defaultModel: data.defaultModel,
+        options: data.options,
+      };
+      return this.modelConfigCache;
+    } catch (error) {
+      const fallback: ModelConfigResponse = {
+        defaultModel: DEFAULT_NEOVATE_MODEL,
+        options: NEOVATE_MODEL_OPTIONS.map(option => ({
+          ...option,
+          enabled: true,
+        })),
+      };
+      this.modelConfigCache = fallback;
+      return fallback;
+    }
+  }
+
   /**
    * 发送用户消息
    */
@@ -226,10 +214,6 @@ class ConversationService {
     }
 
     const result = await response.json();
-    
-    // 更新最后活动时间
-    this.lastActivityTime.set(sessionId, Date.now());
-    
     return result.data;
   }
 
@@ -258,36 +242,6 @@ class ConversationService {
   }
 
   /**
-   * 获取单条消息详情
-   */
-  async getMessage(sessionId: string, messageId: string): Promise<ConversationMessage> {
-    const response = await fetchWithAuth(
-      `${this.baseUrl}/api/conversations/${sessionId}/messages/${messageId}`
-    );
-
-    if (!response.ok) {
-      throw new Error('获取消息详情失败');
-    }
-
-    const result = await response.json();
-    return result.data;
-  }
-
-  /**
-   * 获取会话当前状态（用于轮询）
-   */
-  async getSessionStatus(sessionId: string): Promise<SessionStatusResponse> {
-    const response = await fetchWithAuth(`${this.baseUrl}/api/conversations/${sessionId}/status`);
-
-    if (!response.ok) {
-      throw new Error('获取会话状态失败');
-    }
-
-    const result = await response.json();
-    return result.data;
-  }
-
-  /**
    * 为会话创建 Merge Request
    */
   async createMergeRequest(sessionId: string): Promise<{ mrUrl: string }> {
@@ -302,138 +256,6 @@ class ConversationService {
 
     const result = await response.json();
     return result.data;
-  }
-
-  /**
-   * 开始轮询会话状态
-   */
-  startPolling(
-    sessionId: string,
-    onUpdate: (status: SessionStatusResponse) => void,
-    onError?: (error: Error) => void
-  ): void {
-    // 如果已经在轮询，先停止
-    this.stopPolling(sessionId);
-
-    // 初始化最后活动时间
-    if (!this.lastActivityTime.has(sessionId)) {
-      this.lastActivityTime.set(sessionId, Date.now());
-    }
-
-    // 初始化重试计数
-    this.retryCount.set(sessionId, 0);
-
-    // 开始轮询
-    this.poll(sessionId, onUpdate, onError);
-  }
-
-  /**
-   * 停止轮询会话状态
-   */
-  stopPolling(sessionId: string): void {
-    const timer = this.pollingTimers.get(sessionId);
-    if (timer) {
-      clearTimeout(timer);
-      this.pollingTimers.delete(sessionId);
-    }
-    this.lastActivityTime.delete(sessionId);
-    this.retryCount.delete(sessionId);
-  }
-
-  /**
-   * 执行轮询
-   */
-  private async poll(
-    sessionId: string,
-    onUpdate: (status: SessionStatusResponse) => void,
-    onError?: (error: Error) => void
-  ): Promise<void> {
-    try {
-      // 获取会话状态
-      const status = await this.getSessionStatus(sessionId);
-
-      // 重置重试计数
-      this.retryCount.set(sessionId, 0);
-
-      // 调用更新回调
-      onUpdate(status);
-
-      // 如果有新消息，更新最后活动时间
-      if (status.hasNewMessages) {
-        this.lastActivityTime.set(sessionId, Date.now());
-      }
-
-      // 根据状态决定是否继续轮询
-      if (this.shouldContinuePolling(status.status)) {
-        const interval = this.getPollingInterval(sessionId);
-        const timer = setTimeout(() => {
-          this.poll(sessionId, onUpdate, onError);
-        }, interval);
-        this.pollingTimers.set(sessionId, timer);
-      } else {
-        // 停止轮询
-        this.stopPolling(sessionId);
-      }
-    } catch (error) {
-      // 处理错误
-      const retryCount = this.retryCount.get(sessionId) || 0;
-      
-      if (retryCount < this.pollingConfig.maxRetries) {
-        // 增加重试计数
-        this.retryCount.set(sessionId, retryCount + 1);
-        
-        // 使用指数退避策略重试
-        const retryDelay = Math.min(
-          this.pollingConfig.activeInterval * Math.pow(2, retryCount),
-          this.pollingConfig.reducedInterval
-        );
-        
-        const timer = setTimeout(() => {
-          this.poll(sessionId, onUpdate, onError);
-        }, retryDelay);
-        this.pollingTimers.set(sessionId, timer);
-      } else {
-        // 达到最大重试次数，停止轮询并通知错误
-        this.stopPolling(sessionId);
-        if (onError) {
-          onError(error instanceof Error ? error : new Error(String(error)));
-        }
-      }
-    }
-  }
-
-  /**
-   * 判断是否应该继续轮询
-   */
-  private shouldContinuePolling(status: ConversationStatus): boolean {
-    // 已归档的会话停止轮询
-    return status !== ConversationStatus.ARCHIVED;
-  }
-
-  /**
-   * 获取轮询间隔
-   */
-  private getPollingInterval(sessionId: string): number {
-    // 检查最后活动时间
-    const lastActivity = this.lastActivityTime.get(sessionId) || Date.now();
-    const timeSinceLastActivity = Date.now() - lastActivity;
-
-    // 如果超过无活动阈值，使用降频轮询间隔
-    if (timeSinceLastActivity > this.pollingConfig.inactiveThreshold) {
-      return this.pollingConfig.reducedInterval;
-    }
-
-    // 否则使用活跃轮询间隔
-    return this.pollingConfig.activeInterval;
-  }
-
-  /**
-   * 清理所有轮询
-   */
-  cleanup(): void {
-    for (const sessionId of this.pollingTimers.keys()) {
-      this.stopPolling(sessionId);
-    }
   }
 
   // ==================== 预览相关 API ====================

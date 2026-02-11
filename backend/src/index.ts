@@ -13,12 +13,14 @@ import {
   validateRequest,
   notFoundHandler,
 } from './api/middleware';
+import type { Request } from 'express';
 
 // 加载环境变量
 dotenv.config();
 
 const app: Express = express();
 const PORT = process.env.PORT || 3001;
+const MOBILE_UA_REGEX = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i;
 
 // 创建 HTTP 服务器
 const server = createServer(app);
@@ -32,6 +34,7 @@ let conversationManager: any;
 let messageRouter: any;
 let conversationAIService: any;
 let executor: any;
+let modelAvailabilityService: any;
 
 import { initializeAllServices } from './services/init';
 
@@ -43,6 +46,7 @@ async function initializeServices() {
     messageRouter = services.messageRouter;
     conversationAIService = services.conversationAIService;
     executor = services.executor;
+    modelAvailabilityService = services.modelAvailabilityService;
     
     console.log('✅ 对话服务已初始化 (存储: Drizzle/Supabase)');
   } catch (error) {
@@ -83,7 +87,10 @@ async function startServer() {
 
   // 对话路由（在服务初始化后注册）
   if (conversationManager && messageRouter && conversationAIService) {
-    app.use('/api/conversations', createConversationRoutes(conversationManager, messageRouter, conversationAIService));
+    app.use(
+      '/api/conversations',
+      createConversationRoutes(conversationManager, messageRouter, conversationAIService, modelAvailabilityService)
+    );
     
     // 预览路由
     const { createPreviewRoutes } = require('./api/previewRoutes');
@@ -92,28 +99,56 @@ async function startServer() {
     app.use('/api/conversations', createPreviewRoutes(previewService));
   }
 
-  // Docker 管理路由
-  const dockerRoutes = require('./api/dockerRoutes').default;
-  app.use('/api/docker', dockerRoutes);
-
-  // Docker Compose 管理路由
-  const { createDockerComposeRoutes } = require('./api/dockerComposeRoutes');
-  const { DockerComposeService } = require('./services/DockerComposeService');
-  const dockerComposeService = new DockerComposeService(executor);
-  app.use('/api/docker-compose', createDockerComposeRoutes(dockerComposeService));
-
   // 静态资源服务
   const publicDir = path.resolve(__dirname, '../public');
   const indexPath = path.join(publicDir, 'index.html');
+  const mobileIndexPath = path.join(publicDir, 'mobile.html');
   if (fs.existsSync(publicDir)) {
-    app.use(express.static(publicDir));
+    app.use(express.static(publicDir, { index: false }));
+    const isMobileRequest = (req: Request) => {
+      const userAgent = req.headers['user-agent'] || '';
+      return MOBILE_UA_REGEX.test(userAgent);
+    };
+
+    const getQuerySuffix = (req: Request) => {
+      const originalUrl = req.originalUrl || '';
+      const queryIndex = originalUrl.indexOf('?');
+      return queryIndex >= 0 ? originalUrl.slice(queryIndex) : '';
+    };
+
+    app.get(/^\/m(\/|$)/, (req, res, next) => {
+      if (req.path.startsWith('/api')) {
+        return next();
+      }
+      if (!fs.existsSync(mobileIndexPath)) {
+        res.setHeader('X-Entry-Route', 'mobile-missing');
+        return next();
+      }
+      if (!isMobileRequest(req)) {
+        const query = getQuerySuffix(req);
+        const desktopPath = req.path.replace(/^\/m/, '') || '/';
+        res.setHeader('X-Entry-Route', 'desktop-redirect');
+        return res.redirect(302, `${desktopPath}${query}`);
+      }
+      res.setHeader('X-Entry-Route', 'mobile-html');
+      return res.sendFile(mobileIndexPath);
+    });
+
     app.get('*', (req, res, next) => {
       if (req.path.startsWith('/api')) {
         return next();
       }
+      if (isMobileRequest(req) && fs.existsSync(mobileIndexPath)) {
+        const query = getQuerySuffix(req);
+        const mobilePath = `/m${req.path === '/' ? '' : req.path}`;
+        res.setHeader('X-Entry-Route', 'mobile-redirect');
+        return res.redirect(302, `${mobilePath}${query}`);
+      }
       if (fs.existsSync(indexPath)) {
+        res.setHeader('X-Entry-Route', 'desktop-html');
         return res.sendFile(indexPath);
       }
+      res.setHeader('X-Entry-Route', 'desktop-missing');
       return next();
     });
   }

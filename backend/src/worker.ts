@@ -22,6 +22,17 @@ async function startDashboard(app: express.Application) {
   createBullBoard({
     queues: [new BullMQAdapter(QueueManager.getQueue())],
     serverAdapter: serverAdapter,
+    options: {
+      uiConfig: {
+        boardTitle: '任务监控后台',
+        // 将轮询间隔设置为 1 小时 (3,600,000 ms)
+        // Bull-board UI 默认 5秒轮询一次，是 Redis 请求消耗的大户
+        pollingInterval: {
+          showSetting: false,
+          forceInterval: 1000 * 60 * 60,
+        },
+      },
+    },
   });
 
   // 添加手动触发接口
@@ -64,23 +75,31 @@ async function startWorker() {
       async (job: Job) => {
         console.log(`[Worker] 收到任务: ${job.name} (ID: ${job.id})`);
 
-        switch (job.name) {
-          case TaskType.ARCHIVE_CONVERSATIONS:
-            const days = job.data.olderThanDays || 1;
-            await runArchiveTask(conversationManager, days, job);
-            break;
-          
-          case TaskType.CLEANUP_WORKTREES:
-            await runCleanupTask(worktreeManager, conversationStorage, job);
-            break;
+        try {
+          switch (job.name) {
+            case TaskType.ARCHIVE_CONVERSATIONS:
+              const days = job.data.olderThanDays || 1;
+              await runArchiveTask(conversationManager, days, job);
+              break;
+            
+            case TaskType.CLEANUP_WORKTREES:
+              await runCleanupTask(worktreeManager, conversationStorage, job);
+              break;
 
-          default:
-            console.warn(`[Worker] 未知任务类型: ${job.name}`);
+            default:
+              console.warn(`[Worker] 未知任务类型: ${job.name}`);
+          }
+        } catch (jobError) {
+          console.error(`[Worker] 任务执行出错: ${job.name}`, jobError);
+          throw jobError; // 重新抛出让 BullMQ 处理重试
         }
       },
       {
         ...getBullOptions(),
         concurrency: 1, // 顺序执行，避免冲突
+        // Upstash 建议：增加 drainDelay 减少轮询频率
+        // 默认为 5秒，增加到 10-30秒 可以显著减少空转时的请求数
+        drainDelay: 30,
       }
     );
 

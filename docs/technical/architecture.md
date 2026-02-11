@@ -2,6 +2,7 @@
 
 ## 总体结构
 
+- Monorepo：pnpm workspace + Turborepo
 - 前端：React + Vite
 - 后端：Express + TypeScript
 - 数据库：PostgreSQL（Drizzle）
@@ -14,7 +15,6 @@
 - Worktree：WorktreeManager
 - 预览部署：ProjectPreviewService（PM2）
 - 项目管理：ProjectService + RepositoryService
-- Docker 管理：DockerService / DockerComposeService
 
 ## 典型链路
 

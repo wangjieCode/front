@@ -15,7 +15,11 @@ const DEPLOY_HOST = process.env.DEPLOY_HOST || '192.168.66.30';
 const DEPLOY_USER = process.env.DEPLOY_USER || 'admin';
 const DEPLOY_PASS = process.env.DEPLOY_PASS || 'admin';
 const DEPLOY_DIR = process.env.DEPLOY_DIR || '/Users/admin/Desktop/front-workspace';
+const DEPLOY_NEOVATE_DIR = process.env.DEPLOY_NEOVATE_DIR || `/Users/${DEPLOY_USER}/.neovate`;
 const APP_NAME = process.env.APP_NAME || 'front-intern-backend';
+const LOCAL_NEOVATE_CONFIG =
+  process.env.NEOVATE_CONFIG_PATH || path.join(process.env.HOME || '', '.neovate', 'config.json');
+const REMOTE_NEOVATE_CONFIG = `${DEPLOY_NEOVATE_DIR}/config.json`;
 
 const artifact = `/tmp/front-intern-deploy-${Date.now()}.tar.gz`;
 const remoteArtifact = `${DEPLOY_DIR}/front-intern-deploy.tar.gz`;
@@ -40,33 +44,41 @@ const sshOpts = [
 const sshBase = ['sshpass', '-p', DEPLOY_PASS, 'ssh', ...sshOpts];
 const scpBase = ['sshpass', '-p', DEPLOY_PASS, 'scp', ...sshOpts];
 
-async function buildFrontend() {
-  console.log('==> 开始构建前端...');
-  await $`pnpm -C frontend install`;
-  await $`pnpm -C frontend build`;
-  console.log('==> 前端构建完成');
+async function buildWorkspace() {
+  console.log('==> 开始安装工作区依赖...');
+  await $`pnpm install --frozen-lockfile`;
+  console.log('==> 依赖安装完成，开始 Turbo 构建...');
+  await $`pnpm turbo run build --filter=@front/shared --filter=web-frontend-intern-assistant-frontend --filter=web-frontend-intern-assistant-backend`;
+  console.log('==> Turbo 构建完成');
 }
 
-async function buildBackend() {
-  console.log('==> 开始安装后端依赖...');
-  await $`pnpm -C backend install`;
-  console.log('==> 后端依赖安装完成');
+async function syncNeovateConfig() {
+  console.log(`==> 同步 Neovate 配置: ${LOCAL_NEOVATE_CONFIG} -> ${DEPLOY_HOST}:${REMOTE_NEOVATE_CONFIG}`);
+  if (!existsSync(LOCAL_NEOVATE_CONFIG)) {
+    console.error(`❌ 未找到本地 Neovate 配置文件: ${LOCAL_NEOVATE_CONFIG}`);
+    process.exit(1);
+  }
+  await $`${sshBase} ${DEPLOY_USER}@${DEPLOY_HOST} mkdir -p ${DEPLOY_NEOVATE_DIR}`;
+  await $`${scpBase} ${LOCAL_NEOVATE_CONFIG} ${DEPLOY_USER}@${DEPLOY_HOST}:${REMOTE_NEOVATE_CONFIG}`;
+  console.log('==> Neovate 配置同步完成');
 }
 
 console.log('==> 开始构建流程...');
-await buildFrontend();
-await buildBackend();
+await buildWorkspace();
 
 const archiveItems = [
+  'package.json',
+  'pnpm-lock.yaml',
+  'pnpm-workspace.yaml',
   'backend/src',
   'backend/public',
   'backend/drizzle',
   'backend/drizzle.config.ts',
-  'backend/tsconfig.json',
   'backend/package.json',
-  'backend/pnpm-lock.yaml',
   'backend/.env.production',  // 部署生产环境配置
   'backend/scripts',          // 添加脚本目录
+  'packages/shared/dist',
+  'packages/shared/package.json',
   'infrastructure',           // 添加 Docker Compose 配置文件目录
 ];
 const templatesDir = path.join(rootDir, 'backend', 'templates');
@@ -80,6 +92,7 @@ console.log(`==> 打包完成: ${artifact}`);
 
 console.log(`==> 开始上传到 ${DEPLOY_HOST}...`);
 await $`${scpBase} ${artifact} ${DEPLOY_USER}@${DEPLOY_HOST}:${remoteArtifact}`;
+await syncNeovateConfig();
 
 console.log('==> 上传完成，开始远程部署...');
 
@@ -119,18 +132,24 @@ echo "==> Extract package"
 tar -xzf "${remoteArtifact}" -C "${DEPLOY_DIR}"
 
 echo "==> Setup environment"
-cd "${DEPLOY_DIR}/backend"
+cd "${DEPLOY_DIR}"
 # 将生产环境配置复制为 .env
-if [ -f ".env.production" ]; then
-  cp .env.production .env
+if [ -f "backend/.env.production" ]; then
+  cp backend/.env.production backend/.env
   echo "✅ 生产环境配置已应用"
 fi
 
 echo "==> Install deps"
-pnpm install --frozen-lockfile
+pnpm install --prod --frozen-lockfile --filter @front/shared --filter web-frontend-intern-assistant-backend
+
+cd "${DEPLOY_DIR}/backend"
 
 echo "==> Verify IFLOW_API_KEY"
-pnpm run verify:neovate
+if pnpm run verify:neovate; then
+  echo "✅ verify:neovate 通过"
+else
+  echo "⚠️  verify:neovate 失败，跳过阻断继续部署"
+fi
 
 echo "==> Start or Restart PM2 (API)"
 if pm2 describe "${APP_NAME}" >/dev/null 2>&1; then

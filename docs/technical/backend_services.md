@@ -21,8 +21,6 @@
 ## 预览与基础设施
 
 - ProjectPreviewService：分配端口、建立软链接、PM2 启动
-- DockerService：Docker 容器与镜像管理
-- DockerComposeService：docker-compose 生命周期管理
 
 ## 存储
 
