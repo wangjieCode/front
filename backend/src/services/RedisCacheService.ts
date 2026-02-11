@@ -6,11 +6,16 @@ import { RedisManager } from '../db/RedisManager';
  */
 export class RedisCacheService {
   private static WARN_INTERVAL_MS = 60 * 1000;
+  private static DEGRADE_WINDOW_MS = 30 * 1000;
   private static lastWarnAt = 0;
+  private static degradedUntil = 0;
 
   constructor(private redis?: Redis | null) {}
 
   private getClient(): Redis | null {
+    if (Date.now() < RedisCacheService.degradedUntil) {
+      return null;
+    }
     return this.redis ?? RedisManager.getInstanceSafe();
   }
 
@@ -24,6 +29,14 @@ export class RedisCacheService {
     console.warn(`[RedisCacheService] ${operation} 失败，已降级为无缓存路径: ${message}`);
   }
 
+  private markDegraded(operation: string, error: unknown): void {
+    RedisCacheService.degradedUntil = Date.now() + RedisCacheService.DEGRADE_WINDOW_MS;
+    this.warn(
+      `${operation}, 熔断 ${RedisCacheService.DEGRADE_WINDOW_MS}ms`,
+      error
+    );
+  }
+
   async getJson<T>(key: string): Promise<T | null> {
     const client = this.getClient();
     if (!client) return null;
@@ -31,9 +44,14 @@ export class RedisCacheService {
     try {
       const raw = await client.get(key);
       if (!raw) return null;
-      return JSON.parse(raw) as T;
+      try {
+        return JSON.parse(raw) as T;
+      } catch (parseError) {
+        this.warn(`getJson(${key}) JSON.parse`, parseError);
+        return null;
+      }
     } catch (error) {
-      this.warn(`getJson(${key})`, error);
+      this.markDegraded(`getJson(${key})`, error);
       return null;
     }
   }
@@ -45,7 +63,7 @@ export class RedisCacheService {
     try {
       await client.set(key, JSON.stringify(value), 'EX', ttlSeconds);
     } catch (error) {
-      this.warn(`setJson(${key})`, error);
+      this.markDegraded(`setJson(${key})`, error);
     }
   }
 
@@ -57,7 +75,7 @@ export class RedisCacheService {
     try {
       await client.del(...keys);
     } catch (error) {
-      this.warn(`del(${keys.length} keys)`, error);
+      this.markDegraded(`del(${keys.length} keys)`, error);
     }
   }
 
@@ -79,7 +97,7 @@ export class RedisCacheService {
 
       return deleted;
     } catch (error) {
-      this.warn(`delByPattern(${pattern})`, error);
+      this.markDegraded(`delByPattern(${pattern})`, error);
       return 0;
     }
   }

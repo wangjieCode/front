@@ -12,6 +12,7 @@ import {
   ValidationResult,
 } from "../types";
 import { IConversationStorage } from "../storage/ConversationStorageAdapter";
+import type { MessageHistoryVersion } from "../storage/DrizzleConversationStorage";
 import { ModeValidator } from "./ModeValidator";
 import { GitLabMCPService } from "./GitLabMCPService";
 import { WorktreeManager } from "./WorktreeManager";
@@ -466,6 +467,10 @@ export class ConversationManager {
     since?: string
   ): Promise<ConversationMessage[]> {
     return await this.storage.loadMessages(sessionId, since);
+  }
+
+  async getMessageHistoryVersion(sessionId: string): Promise<MessageHistoryVersion> {
+    return this.storage.getMessageHistoryVersion(sessionId);
   }
 
   /**

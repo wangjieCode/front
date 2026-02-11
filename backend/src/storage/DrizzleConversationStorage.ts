@@ -28,6 +28,11 @@ export interface ListSessionsOptions {
   environment?: string;
 }
 
+export interface MessageHistoryVersion {
+  total: number;
+  latestTimestamp: Date | null;
+}
+
 /**
  * 基于 Drizzle ORM 的对话存储实现
  */
@@ -545,11 +550,31 @@ export class DrizzleConversationStorage {
     const db = this.getDb();
 
     const result = await db
-      .select()
+      .select({ total: sql<number>`count(*)` })
       .from(messages)
       .where(eq(messages.conversationId, conversationId));
 
-    return result.length;
+    return Number(result[0]?.total || 0);
+  }
+
+  /**
+   * 获取消息历史版本（用于 ETag 快速校验）
+   */
+  async getMessageHistoryVersion(conversationId: string): Promise<MessageHistoryVersion> {
+    const db = this.getDb();
+
+    const [summary] = await db
+      .select({
+        total: sql<number>`count(*)`,
+        latestTimestamp: sql<Date | null>`max(${messages.timestamp})`,
+      })
+      .from(messages)
+      .where(eq(messages.conversationId, conversationId));
+
+    return {
+      total: Number(summary?.total || 0),
+      latestTimestamp: summary?.latestTimestamp || null,
+    };
   }
 
   // ==================== 上下文管理方法 ====================
