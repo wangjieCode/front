@@ -17,6 +17,15 @@
 - `GET /api/conversations/gitlab/branches?projectId=...`
   - 返回：`{ branches: string[], defaultBranch?: string }`
 
+## 可观测性
+
+- 分支查询链路需打印关键日志：
+  - 路由入口参数：`projectId`、`userId`。
+  - 服务层参数：`gitlabProjectId`、项目默认分支。
+  - GitLab 请求结果：分页页码、`status/statusText`、已拉取分支数量、失败响应体片段。
+  - 返回汇总：`branchesCount`、GitLab 默认分支、最终默认分支及其来源（GitLab 或项目配置）。
+- 当 `branches` 为空或 GitLab 默认分支缺失时，需输出 `warn` 日志，明确提示已触发回退。
+
 ## 关键流程
 
 1. 前端根据 `projectId` 拉取 GitLab 分支列表与默认分支。
