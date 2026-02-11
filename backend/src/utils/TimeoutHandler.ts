@@ -91,10 +91,10 @@ export class TimeoutHandler {
         return;
       }
 
-      // 更新会话状态为失败
+      // 简化状态模型仅保留 active/archived，超时后归档会话
       await this.conversationManager.updateSessionStatus(
         sessionId,
-        ConversationStatus.FAILED,
+        ConversationStatus.ARCHIVED,
         'AI 响应超时'
       );
 
@@ -114,8 +114,8 @@ export class TimeoutHandler {
         return;
       }
 
-      // 如果会话处于暂停状态,使用默认选项或标记为需要介入
-      if (session.status === ConversationStatus.PAUSED) {
+      // 简化状态模型下仅处理活跃会话超时
+      if (session.status === ConversationStatus.ACTIVE) {
         const pendingQuestion = await this.messageRouter.getPendingQuestion(sessionId);
 
         if (pendingQuestion && pendingQuestion.options && pendingQuestion.options.length > 0) {
@@ -124,10 +124,10 @@ export class TimeoutHandler {
           await this.messageRouter.resumeExecution(sessionId, defaultOption);
           console.log(`会话 ${sessionId} 用户输入超时,使用默认选项: ${defaultOption}`);
         } else {
-          // 标记为需要用户介入
+          // 无可恢复选项时归档会话
           await this.conversationManager.updateSessionStatus(
             sessionId,
-            ConversationStatus.FAILED,
+            ConversationStatus.ARCHIVED,
             '等待用户输入超时'
           );
           console.error(`会话 ${sessionId} 用户输入超时`);

@@ -5,7 +5,6 @@ import {
   ModelConfigResponse,
   PreviewResult,
   PreviewStatusResponse,
-  SimplifiedConversation,
 } from '../types/conversation';
 import { DEFAULT_NEOVATE_MODEL, NEOVATE_MODEL_OPTIONS } from '@front/shared';
 import { authUtils } from '../utils/auth';
@@ -103,7 +102,7 @@ class ConversationService {
   /**
    * 获取所有对话会话列表
    */
-  async getSessions(): Promise<SimplifiedConversation[]> {
+  async getSessions(): Promise<ConversationSession[]> {
     const response = await fetchWithAuth(`${this.baseUrl}/api/conversations`);
 
     if (!response.ok) {
@@ -117,7 +116,7 @@ class ConversationService {
   /**
    * 获取所有对话会话列表（别名）
    */
-  async listConversations(): Promise<{ success: boolean; data: SimplifiedConversation[] }> {
+  async listConversations(): Promise<{ success: boolean; data: ConversationSession[] }> {
     try {
       const data = await this.getSessions();
       return { success: true, data };

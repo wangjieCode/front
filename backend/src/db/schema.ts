@@ -96,6 +96,7 @@ export const messages = pgTable(
   },
   (table) => ({
     conversationIdIdx: index('idx_messages_conversation_id').on(table.conversationId),
+    conversationTimestampIdx: index('idx_messages_conversation_timestamp').on(table.conversationId, table.timestamp),
     timestampIdx: index('idx_messages_timestamp').on(table.timestamp),
     parentMessageIdIdx: index('idx_messages_parent_message_id').on(table.parentMessageId),
   })

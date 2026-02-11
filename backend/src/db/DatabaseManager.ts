@@ -1,6 +1,7 @@
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
 import * as schema from './schema';
+import { DbQueryLogger } from './DbQueryLogger';
 
 /**
  * 数据库配置接口
@@ -46,7 +47,10 @@ export class DatabaseManager {
     console.log('[DB] Postgres client created');
 
     // 创建 Drizzle 实例
-    this.db = drizzle(this.client, { schema });
+    this.db = drizzle(this.client, {
+      schema,
+      logger: new DbQueryLogger(),
+    });
 
     console.log('Database initialized successfully');
   }

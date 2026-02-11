@@ -38,6 +38,7 @@
 - 消息发送阶段若请求模型或会话模型当前不可用，自动回退到当前默认可用模型
 - 未传 `model` 时使用默认值
 - AI 执行时将 `model` 透传给 Neovate SDK 参数
+- Neovate SDK 需使用运行时动态 `import()` 加载，避免 CommonJS 编译产物退化为 `require()` 导致 ESM 包加载失败
 - 启动阶段执行 Codex 模型最小探测；探测失败时直接将 `codex/*` 标记为不可用（不做回退探测）
 
 ## API

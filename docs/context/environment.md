@@ -6,6 +6,8 @@
 - `HOST`：监听地址（默认 0.0.0.0）
 - `NODE_ENV`：运行环境
 - `APP_ENV`：应用环境（用于会话过滤）
+- `API_SLOW_LOG_MS`：接口慢请求阈值（毫秒，默认 1000）
+- `WORKER_RETRY_DELAY_MS`：Worker 启动失败后的重试间隔（毫秒，默认 30000）
 
 ## 数据库
 
@@ -13,6 +15,12 @@
 - `DB_MAX_CONNECTIONS`：最大连接数
 - `DB_IDLE_TIMEOUT`：空闲超时
 - `DB_CONNECTION_TIMEOUT`：连接超时
+
+## Redis
+
+- `REDIS_URL`：Redis 连接串（队列）
+- `REDIS_PREFIX`：Redis Key 前缀
+- `DISABLE_REDIS`：设为 `true` 时禁用 Redis（仅影响队列/调度相关）
 
 ## Git / Worktree
 
