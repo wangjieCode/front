@@ -299,6 +299,18 @@ export function createConversationRoutes(
         });
       }
 
+      const ifNoneMatch = req.header('if-none-match');
+      if (!since && ifNoneMatch) {
+        const version = await conversationManager.getMessageHistoryVersion(sessionId);
+        const latestMs = version.latestTimestamp ? new Date(version.latestTimestamp).getTime() : 0;
+        const etag = `W/\"msg-${sessionId}-${version.total}-${latestMs}\"`;
+        if (ifNoneMatch === etag) {
+          return res.status(304).end();
+        }
+        res.setHeader('ETag', etag);
+        res.setHeader('Cache-Control', 'private, max-age=0, must-revalidate');
+      }
+
       const messages = await conversationManager.getMessageHistory(sessionId, since);
 
       res.json({
