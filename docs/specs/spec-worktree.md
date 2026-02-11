@@ -37,14 +37,14 @@
 - F2：查询 Worktree 信息可缓存。
 - F3：删除 Worktree 时删除分支。
 - F4：Worktree 清理任务由 BullMQ 后台任务按天调度。
-- F5：Worktree 信息缓存统一存储在 Redis，支持多进程共享读取。
+- F5：Worktree 信息缓存使用进程内 LRU，查询失败时回退实时探测。
 
 ### 非功能需求
 
 - N1：分支名需要可追溯。
 - N2：后台任务对 Redis 的空闲轮询频率统一为 1 天。
-- N3：删除 Worktree 后必须同步清理对应 Redis 缓存键，避免脏读。
-- N4：Redis 不可达时，Worktree 信息查询需降级为实时 Git 检测，不得中断清理流程。
+- N3：删除 Worktree 后必须同步清理对应缓存键，避免脏读。
+- N4：缓存不可用时，Worktree 信息查询需降级为实时 Git 检测，不得中断清理流程。
 
 ## 用户体验
 
@@ -69,3 +69,4 @@
 - 2026-02-11：明确 Worktree 清理为按天调度，并约束后台任务 Redis 空闲轮询频率为 1 天。
 - 2026-02-11：Worktree 查询缓存从进程内 Map 迁移到 Redis，统一缓存层。
 - 2026-02-11：补充 Redis 不可达降级要求，Worktree 读取回退到实时探测。
+- 2026-02-11：Worktree 查询缓存切换为进程内 LRU，移除 Worktree 读取对 Redis 的依赖。

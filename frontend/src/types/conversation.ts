@@ -122,18 +122,6 @@ export interface ConversationContext {
   previewInfo?: PreviewInfo;
 }
 
-export interface SimplifiedConversation {
-  id: string;
-  projectInfo: ProjectInfo;
-  mode: ConversationMode;
-  overview: string;
-  status: ConversationStatus;
-  visibility: ConversationVisibility;
-  createdAt: string;
-  updatedAt: string;
-  title?: string;
-}
-
 export interface ModelOption {
   value: string;
   label: string;

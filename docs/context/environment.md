@@ -18,9 +18,9 @@
 
 ## Redis
 
-- `REDIS_URL`：Redis 连接串（缓存与队列）
+- `REDIS_URL`：Redis 连接串（队列）
 - `REDIS_PREFIX`：Redis Key 前缀
-- `DISABLE_REDIS`：设为 `true` 时禁用 Redis 缓存（系统自动走无缓存降级）
+- `DISABLE_REDIS`：设为 `true` 时禁用 Redis（仅影响队列/调度相关）
 
 ## Git / Worktree
 

@@ -8,13 +8,13 @@ import {
   LockOutlined,
   ReadOutlined,
 } from '@ant-design/icons';
-import { ConversationMode, ConversationVisibility } from '../types/conversation';
+import { ConversationMode, ConversationSession, ConversationVisibility } from '../types/conversation';
 
 type ConversationListProps = {
-  conversations: any[];
+  conversations: ConversationSession[];
   isLoading: boolean;
   activeSessionId: string | null;
-  onConversationClick: (conversation: any) => void;
+  onConversationClick: (conversation: ConversationSession) => void;
   onDeleteConversation: (conversationId: string) => void;
 };
 
@@ -41,10 +41,9 @@ const MobileConversationList: React.FC<ConversationListProps> = ({
     <List
       className="mobile-conversation-list"
       dataSource={conversations}
-      renderItem={(conv: any) => {
-        const mode = conv?.mode || ConversationMode.EDIT;
-        const projectName = conv.projectInfo?.projectName
-          || conv.context?.projectInfo?.projectName
+      renderItem={(conv: ConversationSession) => {
+        const mode = conv?.context?.mode || ConversationMode.EDIT;
+        const projectName = conv.context?.projectInfo?.projectName
           || conv.context?.projectInfo?.name
           || conv.context?.projectInfo?.workDir?.split('/').pop();
         const isActive = activeSessionId === conv.id;
@@ -61,8 +60,8 @@ const MobileConversationList: React.FC<ConversationListProps> = ({
           >
             <div className="mobile-conversation-main">
               <div className="mobile-conversation-title-row">
-                <div className="mobile-conversation-title" title={conv.title || conv.overview || conv.context?.taskDescription || '新对话'}>
-                  {conv.title || conv.overview || conv.context?.taskDescription || '新对话'}
+                <div className="mobile-conversation-title" title={conv.title || conv.context?.taskDescription || '新对话'}>
+                  {conv.title || conv.context?.taskDescription || '新对话'}
                 </div>
                 <span className={`mobile-visibility-pill ${conv.visibility === ConversationVisibility.PUBLIC ? 'public' : 'private'}`}>
                   {conv.visibility === ConversationVisibility.PUBLIC ? <GlobalOutlined /> : <LockOutlined />}

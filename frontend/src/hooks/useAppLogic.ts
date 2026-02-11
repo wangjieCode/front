@@ -3,7 +3,7 @@ import { message } from 'antd';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { conversationService, setLoginModalCallback } from '../services/conversationService';
 import { setLoginModalCallback as setProjectLoginModalCallback } from '../services/projectService';
-import { ConversationMode, ConversationVisibility, ImageAttachment } from '../types/conversation';
+import { ConversationMode, ConversationSession, ConversationVisibility, ImageAttachment } from '../types/conversation';
 import { authUtils } from '../utils/auth';
 
 enum PageType {
@@ -27,7 +27,7 @@ const getPageMeta = (page: PageType) => {
 export const useAppLogic = () => {
   const location = useLocation();
   const navigate = useNavigate();
-  const [conversations, setConversations] = useState<any[]>([]);
+  const [conversations, setConversations] = useState<ConversationSession[]>([]);
   const [isConversationsLoading, setIsConversationsLoading] = useState(true);
   const [mode, setMode] = useState<ConversationMode>(ConversationMode.READONLY);
   const [showLoginModal, setShowLoginModal] = useState(false);
@@ -132,8 +132,8 @@ export const useAppLogic = () => {
     }
   };
 
-  const handleConversationClick = (conversation: any) => {
-    setMode(conversation.mode);
+  const handleConversationClick = (conversation: ConversationSession) => {
+    setMode(conversation.context?.mode || ConversationMode.EDIT);
     navigate(`/chat/${conversation.id}`, { state: { session: conversation } });
   };
 

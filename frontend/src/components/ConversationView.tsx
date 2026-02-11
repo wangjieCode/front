@@ -99,6 +99,19 @@ const ConversationView: React.FC<ConversationViewProps> = ({
   const navigate = useNavigate();
   const location = useLocation();
   const maxImageSize = 5 * 1024 * 1024;
+  const hasCompleteInitialSession = (
+    candidate: ConversationSession | undefined,
+    expectedSessionId: string
+  ): candidate is ConversationSession => {
+    return Boolean(
+      candidate
+      && candidate.id === expectedSessionId
+      && candidate.context
+      && candidate.context.projectInfo
+      && typeof candidate.context.projectInfo.workDir === 'string'
+      && typeof candidate.context.mode === 'string'
+    );
+  };
 
   const examplePrompts = [
     '修改一下文案',
@@ -224,26 +237,31 @@ const ConversationView: React.FC<ConversationViewProps> = ({
   // 加载会话数据
   useEffect(() => {
     if (sessionId) {
+      const canUseInitialSession = hasCompleteInitialSession(initialSession, sessionId);
+
       // 切换会话时清空状态
       setMessages([]);
       lastLoadedMessageTsRef.current = null;
       setSending(false);
       setLoadingMessages(true);
 
-      // If initialSession is provided and matches the current sessionId, use it immediately
-      if (initialSession && initialSession.id === sessionId) {
+      // 仅在 initialSession 为完整会话详情时直接使用
+      if (canUseInitialSession) {
         setSession(initialSession);
         // We only set global loading if we don't have a session to show
         if (!session || session.id !== sessionId) {
           setLoading(false);
         }
       } else {
-        // If no initial session, or it doesn't match, we need to fetch.
+        // 无初始详情或初始数据不完整时，拉取会话详情
         setLoading(true);
         setSession(null);
       }
 
-      const tasks = [loadSession()];
+      const tasks: Array<Promise<void>> = [];
+      if (!canUseInitialSession) {
+        tasks.push(loadSession());
+      }
 
       // Only load messages if NOT in autoSend mode.
       // In autoSend mode, we rely on handleSendMessage to create the first message optimistically.
