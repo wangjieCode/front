@@ -8,8 +8,6 @@ import { ConversationStorageAdapter } from '../storage/ConversationStorageAdapte
 import { initializeDatabase } from '../db/init';
 import { getGitWorkDir, getWorktreeBaseDir } from '../utils/config';
 
-import { RedisManager } from '../db/RedisManager';
-
 let services: {
   conversationManager: any;
   messageRouter: any;
@@ -22,7 +20,6 @@ let services: {
   gitService: GitService;
   codeToolService: CodeToolService;
   modelAvailabilityService: ModelAvailabilityService;
-  redis: any;
 } | null = null;
 
 export async function initializeAllServices() {
@@ -66,8 +63,7 @@ export async function initializeAllServices() {
   const modelAvailabilityService = new ModelAvailabilityService();
   await modelAvailabilityService.initialize(workDir);
   
-  const redis = RedisManager.getInstanceSafe();
-  const conversationManager = new ConversationManager(storageAdapter, projectService, gitlabService, worktreeManager, redis ?? undefined);
+  const conversationManager = new ConversationManager(storageAdapter, projectService, gitlabService, worktreeManager);
   const databaseUrl = process.env.DATABASE_URL || '';
   const neovateAIService = new NeovateAIService(executor, workDir, databaseUrl);
   const conversationAIService = new ConversationAIService(
@@ -79,7 +75,7 @@ export async function initializeAllServices() {
   );
   const messageRouter = new MessageRouter(conversationManager);
 
-  console.log(`[INIT] 对话相关服务初始化完成，Redis ${redis ? '可用' : '不可用，已启用无缓存降级'}`);
+  console.log('[INIT] 对话相关服务初始化完成（业务缓存: 进程内 LRU）');
 
   services = {
     conversationManager,
@@ -92,8 +88,7 @@ export async function initializeAllServices() {
     gitlabService,
     gitService,
     codeToolService,
-    modelAvailabilityService,
-    redis
+    modelAvailabilityService
   };
 
   return services;

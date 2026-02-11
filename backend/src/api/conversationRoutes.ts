@@ -205,31 +205,11 @@ export function createConversationRoutes(
     try {
       const userId = req.userId!;
       const sessions = await conversationManager.listSessions(userId);
-      const simplifiedSessions = sessions.map(session => {
-        const overview = session.context.taskDescription;
-
-        const projectInfo = {
-          projectId: session.context.projectInfo.projectId,
-          projectName: session.context.projectInfo.projectName,
-          workDir: session.context.projectInfo.workDir,
-          gitBranch: session.context.projectInfo.gitBranch,
-        };
-
-        return {
-          id: session.id,
-          projectInfo: projectInfo,
-          mode: session.context.mode,
-          overview: overview,
-          status: session.status,
-          visibility: session.visibility,
-          createdAt: session.createdAt,
-          updatedAt: session.updatedAt,
-        };
-      });
+      const responseSessions = sessions.map(session => sanitizeSessionForResponse(session));
 
       res.json({
         success: true,
-        data: simplifiedSessions,
+        data: responseSessions,
         total: sessions.length,
       });
     } catch (error) {

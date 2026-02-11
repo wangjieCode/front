@@ -31,15 +31,14 @@
 - Dashboard 轮询间隔：`86400000ms`（1 天）。
 - Worker 空闲轮询间隔（drainDelay）：`86400s`（1 天）。
 
-## Redis 缓存
+## 业务缓存
 
-- RedisManager：统一 Redis 连接入口（`getInstanceSafe`），支持禁用与安全降级。
-- RedisCacheService：统一封装 JSON 缓存读写、按模式批量清理。
-- Redis 不可达降级：缓存读写失败时自动回退无缓存路径（数据库直读/实时探测），并进行告警节流。
+- RedisCacheService：统一封装进程内 LRU 缓存读写、按模式批量清理。
 - ConversationManager：缓存会话详情、会话列表、GitLab 分支列表。
 - ProjectService：缓存项目列表与项目详情，写操作后清理对应键。
 - WorktreeManager：缓存 worktree 信息（分支、路径）。
 - DrizzleConversationStorage：缓存会话上下文、消息列表、消息元数据。
+- 缓存异常降级：缓存访问失败时直接回退无缓存路径（数据库直读/实时探测）。
 
 ## 接口观测
 

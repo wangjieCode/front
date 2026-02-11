@@ -31,6 +31,7 @@ import { RedisCacheService } from "./RedisCacheService";
 export class ConversationManager {
   private storage: IConversationStorage;
   private locks: Map<string, boolean> = new Map();
+  private inFlightSessionLoads: Map<string, Promise<ConversationSession | null>> = new Map();
   private modeValidator: ModeValidator;
   private gitlabService?: GitLabMCPService;
   private worktreeManager?: WorktreeManager;
@@ -324,21 +325,33 @@ export class ConversationManager {
       };
     }
 
-    // 从数据库加载
-    const session = await this.storage.loadSession(sessionId);
-    const normalized = session
-      ? {
-          ...session,
-          visibility: session.visibility ?? ConversationVisibility.PRIVATE,
-        }
-      : null;
-    
-    // 更新缓存
-    if (normalized) {
-      await this.cache.setJson(this.getSessionCacheKey(sessionId), normalized, this.sessionCacheTtlSeconds);
+    const inFlight = this.inFlightSessionLoads.get(sessionId);
+    if (inFlight) {
+      return inFlight;
     }
-    
-    return normalized;
+
+    const loadPromise = (async () => {
+      const session = await this.storage.loadSession(sessionId);
+      const normalized = session
+        ? {
+            ...session,
+            visibility: session.visibility ?? ConversationVisibility.PRIVATE,
+          }
+        : null;
+
+      if (normalized) {
+        await this.cache.setJson(this.getSessionCacheKey(sessionId), normalized, this.sessionCacheTtlSeconds);
+      }
+
+      return normalized;
+    })();
+
+    this.inFlightSessionLoads.set(sessionId, loadPromise);
+    try {
+      return await loadPromise;
+    } finally {
+      this.inFlightSessionLoads.delete(sessionId);
+    }
   }
 
   /**

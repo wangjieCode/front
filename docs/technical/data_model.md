@@ -49,7 +49,7 @@
 - work_dir
 - created_at, last_used_at
 
-## Redis 键空间
+## 缓存键空间（进程内 LRU）
 
 - `sessions:detail:{sessionId}`
 - `sessions:list:{userId|public}:{env}`
@@ -58,4 +58,4 @@
 - `projects:detail:{projectId}`
 - `worktree:info:{projectId}:{userId}:{sessionId}`
 - `storage:*`（会话上下文、消息列表、元数据等存储层缓存）
-- 约束：`message_metadata.images` 不写入 Redis（仅落库）。
+- 约束：`message_metadata.images` 不进入缓存（仅落库）。
