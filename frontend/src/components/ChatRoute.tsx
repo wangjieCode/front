@@ -1,7 +1,7 @@
 import React from 'react';
 import { useLocation, useParams } from 'react-router-dom';
 import ConversationView from './ConversationView';
-import { ConversationMode, ConversationVisibility } from '../types/conversation';
+import { ConversationMode, ConversationVisibility, ImageAttachment } from '../types/conversation';
 
 const ChatRoute: React.FC<{
   onNewConversation: (
@@ -9,7 +9,8 @@ const ChatRoute: React.FC<{
     mode: ConversationMode,
     projectId: string,
     baseBranch?: string,
-    model?: string
+    model?: string,
+    initialImages?: ImageAttachment[]
   ) => Promise<void>;
   mode: ConversationMode;
   onModeChange: (mode: ConversationMode) => void;
@@ -26,6 +27,7 @@ const ChatRoute: React.FC<{
       initialPrompt={state?.initialPrompt}
       autoSend={state?.autoSend}
       initialContent={state?.initialContent}
+      initialImages={state?.initialImages}
       onNewConversation={onNewConversation}
       onVisibilityChange={onVisibilityChange}
       mode={mode}

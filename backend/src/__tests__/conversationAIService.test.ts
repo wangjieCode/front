@@ -1,5 +1,6 @@
 import { ConversationAIService } from '../services/ConversationAIService';
 import { ConversationMode } from '../types';
+import { DEFAULT_NEOVATE_MODEL } from '@front/shared';
 
 jest.mock('../services/NeovateSessionManagerDB', () => ({
   NeovateSessionManagerDB: jest.fn().mockImplementation(() => ({
@@ -8,6 +9,23 @@ jest.mock('../services/NeovateSessionManagerDB', () => ({
 }));
 
 describe('ConversationAIService.generateResponseStream', () => {
+  const originalEnv = process.env;
+  const originalFetch = global.fetch;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    process.env = { ...originalEnv };
+    delete process.env.MIDSCENE_MODEL_BASE_URL;
+    delete process.env.MIDSCENE_MODEL_API_KEY;
+    delete process.env.MIDSCENE_MODEL_NAME;
+    global.fetch = originalFetch;
+  });
+
+  afterAll(() => {
+    process.env = originalEnv;
+    global.fetch = originalFetch;
+  });
+
   it('calls AI service with the conversation workDir for streaming', async () => {
     const modifyCodeStream = jest.fn().mockResolvedValue({
       success: true,
@@ -28,11 +46,16 @@ describe('ConversationAIService.generateResponseStream', () => {
 
     const gitlabService = {} as any;
 
+    const conversationManager = {
+      getMessageHistory: jest.fn().mockResolvedValue([]),
+    } as any;
+
     const service = new ConversationAIService(
       neovateService,
       'postgres://user:pass@localhost:5432/db',
       gitService,
-      gitlabService
+      gitlabService,
+      conversationManager
     );
 
     const context = {
@@ -46,12 +69,110 @@ describe('ConversationAIService.generateResponseStream', () => {
 
     await service.generateResponseStream(context, 'hello', 'session-1', onChunk);
 
-    expect(modifyCodeStream).toHaveBeenCalledWith(
-      'hello',
-      'session-1',
-      undefined,
-      '/worktrees/user-1/conversation-session-1',
-      onChunk
+    expect(modifyCodeStream).toHaveBeenCalledTimes(1);
+    const [prompt, sessionId, neovateSessionId, workDir, passedOnChunk, model, signal] = modifyCodeStream.mock.calls[0];
+    expect(prompt).toBe('hello');
+    expect(sessionId).toBe('session-1');
+    expect(neovateSessionId).toBeUndefined();
+    expect(workDir).toBe('/worktrees/user-1/conversation-session-1');
+    expect(passedOnChunk).toBe(onChunk);
+    expect(model).toBe(DEFAULT_NEOVATE_MODEL);
+    expect(signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it('包含图片时会先调用视觉模型并将提炼信息汇总后发送给主AI', async () => {
+    process.env.MIDSCENE_MODEL_BASE_URL = 'https://vision.example/v1';
+    process.env.MIDSCENE_MODEL_API_KEY = 'vision-test-key';
+    process.env.MIDSCENE_MODEL_NAME = 'gpt-4o-mini';
+
+    const fetchMock = jest.fn().mockResolvedValue({
+      ok: true,
+      json: jest.fn().mockResolvedValue({
+        choices: [
+          {
+            message: {
+              content: '图片显示登录表单，包含用户名、密码输入框和登录按钮。',
+            },
+          },
+        ],
+      }),
+    });
+    global.fetch = fetchMock as any;
+
+    const modifyCodeStream = jest.fn().mockResolvedValue({
+      success: true,
+      changes: [],
+      message: 'ok',
+      rawOutput: 'ok',
+    });
+
+    const neovateService = {
+      modifyCodeStream,
+    } as any;
+
+    const gitService = {
+      addAll: jest.fn(),
+      commit: jest.fn(),
+      push: jest.fn(),
+    } as any;
+
+    const gitlabService = {} as any;
+
+    const conversationManager = {
+      getMessageHistory: jest.fn().mockResolvedValue([]),
+    } as any;
+
+    const service = new ConversationAIService(
+      neovateService,
+      'postgres://user:pass@localhost:5432/db',
+      gitService,
+      gitlabService,
+      conversationManager
     );
+
+    const context = {
+      projectInfo: {
+        workDir: '/worktrees/user-1/conversation-session-1',
+      },
+      mode: ConversationMode.EDIT,
+    } as any;
+
+    const onChunk = jest.fn();
+    const images = [
+      {
+        data: 'iVBORw0KGgoAAAANSUhEUgAAAAUA',
+        mimeType: 'image/png',
+      },
+    ] as any;
+
+    await service.generateResponseStream(
+      context,
+      '请根据图片完善登录页校验逻辑',
+      'session-vision',
+      onChunk,
+      undefined,
+      images
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, requestInit] = fetchMock.mock.calls[0];
+    expect(url).toBe('https://vision.example/v1/chat/completions');
+    const requestBody = JSON.parse((requestInit as RequestInit).body as string);
+    expect(requestBody.model).toBe('gpt-4o-mini');
+    expect(requestBody.messages[0].role).toBe('system');
+    expect(requestBody.messages[requestBody.messages.length - 1].role).toBe('user');
+    expect(requestBody.messages[requestBody.messages.length - 1].content).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: 'text' }),
+        expect.objectContaining({ type: 'image_url' }),
+      ])
+    );
+
+    expect(modifyCodeStream).toHaveBeenCalledTimes(1);
+    const mergedPrompt = modifyCodeStream.mock.calls[0][0] as string;
+    expect(mergedPrompt).toContain('【用户原始需求】');
+    expect(mergedPrompt).toContain('请根据图片完善登录页校验逻辑');
+    expect(mergedPrompt).toContain('【图片关键信息（由视觉模型提炼）】');
+    expect(mergedPrompt).toContain('用户名、密码输入框和登录按钮');
   });
 });

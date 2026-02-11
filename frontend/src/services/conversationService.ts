@@ -200,11 +200,12 @@ class ConversationService {
    */
   async sendMessage(
     sessionId: string,
-    content: string
+    content: string,
+    images?: Array<{ data: string; mimeType: string; name?: string }>
   ): Promise<{ userMessage: ConversationMessage; aiMessage?: ConversationMessage }> {
     const response = await fetchWithAuth(`${this.baseUrl}/api/conversations/${sessionId}/messages`, {
       method: 'POST',
-      body: JSON.stringify({ content }),
+      body: JSON.stringify({ content, images }),
     });
 
     if (!response.ok) {

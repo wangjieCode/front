@@ -67,12 +67,20 @@ export function createConversationRoutes(
         });
       }
 
+      console.log(`[API] 获取 GitLab 分支: projectId=${projectId}, userId=${req.userId}`);
+
       const result = await conversationManager.getGitLabBranches(projectId, req.userId!);
+      console.log(
+        `[API] 获取 GitLab 分支完成: projectId=${projectId}, userId=${req.userId}, branchesCount=${result.branches.length}, defaultBranch=${result.defaultBranch || 'N/A'}`
+      );
       res.json({
         success: true,
         data: result,
       });
     } catch (error) {
+      console.error(
+        `[API] 获取 GitLab 分支失败: projectId=${(req.query.projectId as string) || ''}, userId=${req.userId}, error=${error instanceof Error ? error.message : String(error)}`
+      );
       res.status(500).json({
         success: false,
         error: error instanceof Error ? error.message : '获取分支列表失败',
@@ -296,11 +304,18 @@ export function createConversationRoutes(
 
     try {
       const { sessionId } = req.params;
-      const { content, model } = req.body;
+      const { content, model, images } = req.body;
 
-      console.log(`[conversationRoutes] sessionId: ${sessionId}, content 长度: ${content?.length || 0}`);
+      const normalizedImages = Array.isArray(images)
+        ? images.filter(item => item && typeof item.data === 'string' && typeof item.mimeType === 'string')
+        : [];
+      const trimmedContent = typeof content === 'string' ? content.trim() : '';
 
-      if (!content) {
+      console.log(
+        `[conversationRoutes] sessionId: ${sessionId}, content 长度: ${trimmedContent.length}, images: ${normalizedImages.length}`
+      );
+
+      if (!trimmedContent && normalizedImages.length === 0) {
         return res.status(400).json({
           success: false,
           error: '消息内容不能为空',
@@ -346,7 +361,7 @@ export function createConversationRoutes(
       res.setHeader('Connection', 'keep-alive');
       res.setHeader('X-Accel-Buffering', 'no');
 
-      res.write(`data: ${JSON.stringify({ type: 'user_message', content })}\n\n`);
+      res.write(`data: ${JSON.stringify({ type: 'user_message', content: trimmedContent, images: normalizedImages })}\n\n`);
       res.write(`data: ${JSON.stringify({ type: 'thinking', message: 'AI 正在思考中...' })}\n\n`);
       const step2Time = dayjs().valueOf() - step2Start;
       console.log(`[conversationRoutes] 步骤2: SSE 响应头设置完成，耗时 ${step2Time}ms`);
@@ -357,7 +372,13 @@ export function createConversationRoutes(
       (async () => {
         try {
           const step3aStart = dayjs().valueOf();
-          messageRouter.handleUserMessage(sessionId, content, session, true).catch(error => {
+          messageRouter.handleUserMessage(
+            sessionId,
+            trimmedContent,
+            normalizedImages.length > 0 ? { images: normalizedImages } : undefined,
+            session,
+            true
+          ).catch(error => {
             console.error(`[conversationRoutes] 异步保存用户消息失败:`, error);
           });
           const step3aTime = dayjs().valueOf() - step3aStart;
@@ -370,13 +391,14 @@ export function createConversationRoutes(
 
           const aiResponse = await aiService.generateResponseStream(
             session.context,
-            content,
+            trimmedContent,
             sessionId,
             (chunk: string) => {
               fullContent += chunk;
               res.write(`data: ${JSON.stringify({ type: 'chunk', content: chunk })}\n\n`);
             },
-            resolvedModel
+            resolvedModel,
+            normalizedImages
           );
 
           const step3bTime = dayjs().valueOf() - step3bStart;

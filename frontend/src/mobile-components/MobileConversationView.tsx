@@ -10,6 +10,7 @@ import {
   ConversationMode,
   ConversationStatus,
   ConversationVisibility,
+  ImageAttachment,
   PreviewStatus,
 } from '../types/conversation';
 import { Project } from '../types/project';
@@ -25,7 +26,15 @@ interface ConversationViewProps {
   sessionId?: string;
   initialPrompt?: string;
   initialSession?: ConversationSession;
-  onNewConversation?: (prompt: string, mode: ConversationMode, projectId: string, baseBranch?: string, model?: string) => Promise<void>;
+  initialImages?: ImageAttachment[];
+  onNewConversation?: (
+    prompt: string,
+    mode: ConversationMode,
+    projectId: string,
+    baseBranch?: string,
+    model?: string,
+    initialImages?: ImageAttachment[]
+  ) => Promise<void>;
   onVisibilityChange?: (sessionId: string, visibility: ConversationVisibility) => void;
   mode?: ConversationMode;
   onModeChange?: (mode: ConversationMode) => void;
@@ -50,6 +59,7 @@ const MobileConversationView: React.FC<ConversationViewProps> = ({
   onModeChange,
   autoSend,
   initialContent,
+  initialImages = [],
 }) => {
   const [session, setSession] = useState<ConversationSession | null>(initialSession || null);
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
@@ -201,22 +211,27 @@ const MobileConversationView: React.FC<ConversationViewProps> = ({
 
   // 处理自动发送消息
   useEffect(() => {
-    if (autoSend && initialContent && sessionId && !hasAutoSentRef.current) {
+    const pendingImages: ImageAttachment[] = Array.isArray(location.state?.initialImages)
+      ? location.state.initialImages
+      : initialImages;
+    const hasPendingContent = typeof initialContent === 'string' && initialContent.length > 0;
+    const hasPendingImages = pendingImages.length > 0;
+    if (autoSend && sessionId && !hasAutoSentRef.current && (hasPendingContent || hasPendingImages)) {
       hasAutoSentRef.current = true;
       suppressInitialLoadRef.current = true;
-      if (location.state?.autoSend || location.state?.initialContent) {
+      if (location.state?.autoSend || location.state?.initialContent || location.state?.initialImages) {
         navigate(location.pathname, {
           replace: true,
-          state: { ...location.state, autoSend: false, initialContent: undefined },
+          state: { ...location.state, autoSend: false, initialContent: undefined, initialImages: undefined },
         });
       }
       const initialModel = location.state?.model || session?.context?.variables?.model || chatModel;
       // 延迟一点点发送，避免组件挂载期的状态竞争
       setTimeout(() => {
-        handleSendMessage(initialContent, initialModel);
+        handleSendMessage(initialContent || '', { modelOverride: initialModel, images: pendingImages });
       }, 50);
     }
-  }, [sessionId, autoSend, initialContent, location.pathname, location.state, navigate, session?.context?.variables?.model, chatModel]);
+  }, [sessionId, autoSend, initialContent, initialImages, location.pathname, location.state, navigate, session?.context?.variables?.model, chatModel]);
 
   // 自动滚动到最新消息
   useEffect(() => {
@@ -297,8 +312,12 @@ const MobileConversationView: React.FC<ConversationViewProps> = ({
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
-  const handleSendMessage = async (content: string, modelOverride?: string) => {
+  const handleSendMessage = async (
+    content: string,
+    options?: { images?: ImageAttachment[]; modelOverride?: string }
+  ) => {
     if (!sessionId) return;
+    const images = options?.images || [];
     
     // 检查是否已归档
     if (isArchived) {
@@ -316,6 +335,7 @@ const MobileConversationView: React.FC<ConversationViewProps> = ({
       branchId: session?.context?.gitBranch || 'main',
       role: 'user' as any,
       content,
+      metadata: images.length > 0 ? { images } : undefined,
       timestamp: new Date().toISOString(),
     };
     // 创建临时 AI 消息用于流式更新，显示"正在思考"状态
@@ -336,7 +356,8 @@ const MobileConversationView: React.FC<ConversationViewProps> = ({
     setTimeout(scrollToBottom, 100);
 
     try {
-      const modelToSend = modelOverride || chatModel;
+      const modelToSend = options?.modelOverride || chatModel;
+      const normalizedModel = modelToSend?.toLowerCase();
       const abortController = new AbortController();
       streamAbortRef.current = abortController;
       const response = await fetch(`/api/conversations/${sessionId}/messages`, {
@@ -348,7 +369,8 @@ const MobileConversationView: React.FC<ConversationViewProps> = ({
         signal: abortController.signal,
         body: JSON.stringify({
           content,
-          ...(modelToSend && isNeovateModelSupported(modelToSend) ? { model: modelToSend } : {}),
+          ...(images.length > 0 ? { images } : {}),
+          ...(normalizedModel && isNeovateModelSupported(normalizedModel) ? { model: normalizedModel } : {}),
         }),
       });
 
@@ -871,7 +893,7 @@ const MobileConversationView: React.FC<ConversationViewProps> = ({
                 }
                 setSending(true);
                 try {
-                  await onNewConversation(prompt, mode, selectedProjectId, baseBranch, selectedModel);
+                  await onNewConversation(prompt, mode, selectedProjectId, baseBranch, selectedModel, []);
                 } finally {
                   setSending(false);
                 }
@@ -919,7 +941,7 @@ const MobileConversationView: React.FC<ConversationViewProps> = ({
                 if (onNewConversation) {
                   setSending(true);
                   try {
-                    await onNewConversation(prompt, mode, selectedProjectId, baseBranch, selectedModel);
+                    await onNewConversation(prompt, mode, selectedProjectId, baseBranch, selectedModel, []);
                   } finally {
                     setSending(false);
                   }

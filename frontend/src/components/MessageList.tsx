@@ -163,6 +163,20 @@ const MessageList: React.FC<MessageListProps> = ({
     );
   };
 
+  const renderImages = (images: Array<{ data: string; name?: string }>) => {
+    if (!images || images.length === 0) return null;
+
+    return (
+      <div className="message-images">
+        {images.map((image, index) => (
+          <div className="message-image" key={`${image.name || 'image'}-${index}`}>
+            <img src={image.data} alt={image.name || `image-${index + 1}`} />
+          </div>
+        ))}
+      </div>
+    );
+  };
+
   /**
    * 渲染工具调用卡片
    */
@@ -401,6 +415,10 @@ const MessageList: React.FC<MessageListProps> = ({
           {/* 代码变更展示 */}
           {message.metadata?.codeChanges &&
             renderCodeChanges(message.metadata.codeChanges)}
+
+          {/* 图片附件 */}
+          {message.metadata?.images && message.metadata.images.length > 0 &&
+            renderImages(message.metadata.images)}
 
           {/* 问题选项 */}
           {message.metadata?.questionOptions &&

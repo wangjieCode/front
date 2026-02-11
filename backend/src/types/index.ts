@@ -251,10 +251,20 @@ export interface MessageMetadata {
   isInvalid?: boolean;        // 是否已失效(如代码变更被回滚)
   gitBranch?: string;         // 关联的 Git 分支
   mrUrl?: string;             // 关联的 MR URL
+  images?: ImageAttachment[]; // 图片附件（base64 或 data URL）
   operationDenied?: {         // 操作被拒绝的信息
     operation: OperationType;
     reason: string;
   };
+}
+
+/**
+ * 图片附件接口
+ */
+export interface ImageAttachment {
+  data: string;               // base64 字符串或 data URL
+  mimeType: string;           // MIME 类型
+  name?: string;              // 文件名（可选）
 }
 
 /**

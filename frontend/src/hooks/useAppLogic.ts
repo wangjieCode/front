@@ -3,7 +3,7 @@ import { message } from 'antd';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { conversationService, setLoginModalCallback } from '../services/conversationService';
 import { setLoginModalCallback as setProjectLoginModalCallback } from '../services/projectService';
-import { ConversationMode, ConversationVisibility } from '../types/conversation';
+import { ConversationMode, ConversationVisibility, ImageAttachment } from '../types/conversation';
 import { authUtils } from '../utils/auth';
 
 enum PageType {
@@ -86,7 +86,8 @@ export const useAppLogic = () => {
     conversationMode: ConversationMode,
     projectId?: string,
     baseBranch?: string,
-    model?: string
+    model?: string,
+    initialImages?: ImageAttachment[]
   ) => {
     if (!promptText.trim()) {
       message.warning('请输入你的需求');
@@ -120,6 +121,8 @@ export const useAppLogic = () => {
             autoSend: true,
             initialContent: promptText,
             initialPrompt: promptText,
+            initialImages: initialImages || [],
+            model,
           },
         });
       }
