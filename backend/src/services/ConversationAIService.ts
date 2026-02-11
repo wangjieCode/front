@@ -6,13 +6,10 @@ import {
   ToolCall,
   CodeChange,
   ImageAttachment,
-  MessageRole,
 } from '../types';
 import { NeovateAIService, NeovateAIResult } from './NeovateAIService';
 import { NeovateSessionManagerDB } from './NeovateSessionManagerDB';
 import { GitService } from './GitService';
-import { GitLabMCPService } from './GitLabMCPService';
-import { ConversationManager } from './ConversationManager';
 import dayjs from 'dayjs';
 import { DEFAULT_NEOVATE_MODEL } from '@front/shared';
 
@@ -26,8 +23,6 @@ export class ConversationAIService {
   private neovateService: NeovateAIService;
   private sessionManager: NeovateSessionManagerDB;
   private gitService: GitService;
-  private gitlabService: GitLabMCPService;
-  private conversationManager: ConversationManager;
   private activeAbortControllers: Map<string, AbortController> = new Map();
 
   private hasVisionModelConfig(): boolean {
@@ -35,7 +30,6 @@ export class ConversationAIService {
   }
 
   private async buildPromptWithVisionInsights(
-    sessionId: string,
     userMessage: string,
     images?: ImageAttachment[],
     modelOverride?: string,
@@ -50,8 +44,6 @@ export class ConversationAIService {
     }
 
     const visionInsights = (await this.generateVisionResponse(
-      sessionId,
-      userMessage,
       images,
       modelOverride,
       abortSignal
@@ -79,15 +71,11 @@ export class ConversationAIService {
   constructor(
     neovateService: NeovateAIService,
     databaseUrl: string,
-    gitService: GitService,
-    gitlabService: GitLabMCPService,
-    conversationManager: ConversationManager
+    gitService: GitService
   ) {
     this.neovateService = neovateService;
     this.sessionManager = new NeovateSessionManagerDB(databaseUrl);
     this.gitService = gitService;
-    this.gitlabService = gitlabService;
-    this.conversationManager = conversationManager;
   }
 
   /**
@@ -107,7 +95,6 @@ export class ConversationAIService {
       this.activeAbortControllers.set(sessionId, abortController);
 
       const promptWithVisionInsights = await this.buildPromptWithVisionInsights(
-        sessionId,
         userMessage,
         images,
         modelOverride,
@@ -217,7 +204,6 @@ export class ConversationAIService {
       }
 
       const promptWithVisionInsights = await this.buildPromptWithVisionInsights(
-        sessionId,
         userMessage,
         images,
         modelOverride
@@ -355,8 +341,6 @@ export class ConversationAIService {
   }
 
   private async generateVisionResponse(
-    sessionId: string,
-    userMessage: string,
     images: ImageAttachment[],
     modelOverride?: string,
     abortSignal?: AbortSignal
@@ -369,45 +353,15 @@ export class ConversationAIService {
       throw new Error('未配置 MIDSCENE_MODEL_BASE_URL 或 MIDSCENE_MODEL_API_KEY');
     }
 
-    const history = await this.conversationManager.getMessageHistory(sessionId);
-    const recent = history.slice(-8);
-    const messages = recent.map(message => {
-      if (message.role === MessageRole.USER) {
-        const contentParts: Array<{ type: 'text' | 'image_url'; text?: string; image_url?: { url: string } }> = [];
-        if (message.content) {
-          contentParts.push({ type: 'text', text: message.content });
-        }
-        if (message.metadata?.images) {
-          for (const image of message.metadata.images) {
-            contentParts.push({ type: 'image_url', image_url: { url: this.normalizeImageData(image) } });
-          }
-        }
-        return { role: 'user', content: contentParts.length > 0 ? contentParts : message.content };
-      }
-      return { role: message.role, content: message.content };
-    });
-
-    const lastMessage = history[history.length - 1];
-    const shouldAppend =
-      !lastMessage ||
-      lastMessage.role !== MessageRole.USER ||
-      lastMessage.content !== userMessage ||
-      (lastMessage.metadata?.images?.length || 0) !== images.length;
-
-    if (shouldAppend) {
-      const contentParts: Array<{ type: 'text' | 'image_url'; text?: string; image_url?: { url: string } }> = [];
-      if (userMessage) {
-        contentParts.push({ type: 'text', text: userMessage });
-      }
-      for (const image of images) {
-        contentParts.push({ type: 'image_url', image_url: { url: this.normalizeImageData(image) } });
-      }
-      messages.push({ role: 'user', content: contentParts });
-    }
+    const messages: Array<{ role: 'system' | 'user'; content: string | Array<{ type: 'image_url'; image_url: { url: string } }> }> = [];
 
     messages.unshift({
       role: 'system',
       content: '你是图片内容提炼助手。只输出与用户需求相关的图片关键信息，简洁分点，不要输出代码块。'
+    });
+    messages.push({
+      role: 'user',
+      content: images.map(image => ({ type: 'image_url', image_url: { url: this.normalizeImageData(image) } })),
     });
 
     const url = new URL('chat/completions', baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`).toString();

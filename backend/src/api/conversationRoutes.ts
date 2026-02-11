@@ -34,6 +34,25 @@ export function createConversationRoutes(
     }
     return model;
   };
+  const sanitizeProjectInfoForResponse = (projectInfo: any) => {
+    if (!projectInfo || typeof projectInfo !== 'object') {
+      return projectInfo;
+    }
+    const { gitRepositoryUrl: _gitRepositoryUrl, ...safeProjectInfo } = projectInfo;
+    return safeProjectInfo;
+  };
+  const sanitizeSessionForResponse = (session: any) => {
+    if (!session || !session.context || !session.context.projectInfo) {
+      return session;
+    }
+    return {
+      ...session,
+      context: {
+        ...session.context,
+        projectInfo: sanitizeProjectInfoForResponse(session.context.projectInfo),
+      },
+    };
+  };
 
   router.get('/models', async (_req, res: Response) => {
     const defaultModel = modelAvailabilityService?.resolveDefaultModel() || DEFAULT_NEOVATE_MODEL;
@@ -167,7 +186,7 @@ export function createConversationRoutes(
       
       res.status(201).json({
         success: true,
-        data: session,
+        data: sanitizeSessionForResponse(session),
       });
 
     } catch (error) {
@@ -186,32 +205,11 @@ export function createConversationRoutes(
     try {
       const userId = req.userId!;
       const sessions = await conversationManager.listSessions(userId);
-      const simplifiedSessions = sessions.map(session => {
-        const overview = session.context.taskDescription;
-
-        const projectInfo = {
-          projectId: session.context.projectInfo.projectId,
-          projectName: session.context.projectInfo.projectName,
-          gitRepositoryUrl: session.context.projectInfo.gitRepositoryUrl,
-          workDir: session.context.projectInfo.workDir,
-          gitBranch: session.context.projectInfo.gitBranch,
-        };
-
-        return {
-          id: session.id,
-          projectInfo: projectInfo,
-          mode: session.context.mode,
-          overview: overview,
-          status: session.status,
-          visibility: session.visibility,
-          createdAt: session.createdAt,
-          updatedAt: session.updatedAt,
-        };
-      });
+      const responseSessions = sessions.map(session => sanitizeSessionForResponse(session));
 
       res.json({
         success: true,
-        data: simplifiedSessions,
+        data: responseSessions,
         total: sessions.length,
       });
     } catch (error) {
@@ -247,7 +245,7 @@ export function createConversationRoutes(
 
       res.json({
         success: true,
-        data: session,
+        data: sanitizeSessionForResponse(session),
       });
     } catch (error) {
       res.status(500).json({
@@ -262,10 +260,30 @@ export function createConversationRoutes(
    * 获取会话消息历史
    */
   router.get('/:sessionId/messages', requireAuth, async (req: AuthRequest, res: Response) => {
+    const requestStart = process.hrtime.bigint();
+    const slowThresholdMs = Number(process.env.MESSAGE_HISTORY_SLOW_LOG_MS || 1000);
+    let stepSessionMs = 0;
+    let stepVersionMs = 0;
+    let stepMessagesMs = 0;
+    let messagesStart: bigint | null = null;
+    let messageCount = 0;
+    let etagStatus: 'skip' | 'miss' | 'hit304' = 'skip';
+
     try {
       const { sessionId } = req.params;
+      const since = typeof req.query.since === 'string' ? req.query.since : undefined;
+      const ifNoneMatch = req.header('if-none-match');
+      const shouldParallelLoadMessages = !(!since && ifNoneMatch);
 
-      const session = await conversationManager.getSession(sessionId);
+      let messagesPromise: Promise<any[]> | null = null;
+      if (shouldParallelLoadMessages) {
+        messagesStart = process.hrtime.bigint();
+        messagesPromise = conversationManager.getMessageHistory(sessionId, since);
+      }
+
+      const sessionStart = process.hrtime.bigint();
+      const session = await conversationManager.getSessionAccessInfo(sessionId);
+      stepSessionMs = Number(process.hrtime.bigint() - sessionStart) / 1_000_000;
       if (!session) {
         return res.status(404).json({
           success: false,
@@ -280,13 +298,70 @@ export function createConversationRoutes(
         });
       }
 
-      const messages = await conversationManager.getMessageHistory(sessionId);
+      if (!since && ifNoneMatch) {
+        const versionStart = process.hrtime.bigint();
+        const version = await conversationManager.getMessageHistoryVersion(sessionId);
+        stepVersionMs = Number(process.hrtime.bigint() - versionStart) / 1_000_000;
+        const latestMs = version.latestTimestamp ? new Date(version.latestTimestamp).getTime() : 0;
+        const etag = `W/\"msg-${sessionId}-${version.total}-${latestMs}\"`;
+        if (ifNoneMatch === etag) {
+          etagStatus = 'hit304';
+          return res.status(304).end();
+        }
+        etagStatus = 'miss';
+        res.setHeader('ETag', etag);
+        res.setHeader('Cache-Control', 'private, max-age=0, must-revalidate');
+      }
+
+      if (!messagesPromise) {
+        messagesStart = process.hrtime.bigint();
+        messagesPromise = conversationManager.getMessageHistory(sessionId, since);
+      }
+      const messages = await messagesPromise;
+      if (messagesStart) {
+        stepMessagesMs = Number(process.hrtime.bigint() - messagesStart) / 1_000_000;
+      }
+      messageCount = messages.length;
 
       res.json({
         success: true,
         data: messages,
       });
+
+      const totalMs = Number(process.hrtime.bigint() - requestStart) / 1_000_000;
+      const baseLog = [
+        '[API][messages]',
+        `sessionId=${sessionId}`,
+        `since=${since || 'none'}`,
+        `etag=${etagStatus}`,
+        `count=${messageCount}`,
+        `t_session=${stepSessionMs.toFixed(2)}ms`,
+        `t_version=${stepVersionMs.toFixed(2)}ms`,
+        `t_messages=${stepMessagesMs.toFixed(2)}ms`,
+        `total=${totalMs.toFixed(2)}ms`,
+      ].join(' ');
+
+      if (totalMs >= slowThresholdMs) {
+        console.warn(`${baseLog} slow_threshold=${slowThresholdMs}ms`);
+      } else {
+        console.log(baseLog);
+      }
     } catch (error) {
+      const totalMs = Number(process.hrtime.bigint() - requestStart) / 1_000_000;
+      const { sessionId } = req.params;
+      const since = typeof req.query.since === 'string' ? req.query.since : undefined;
+      console.error(
+        [
+          '[API][messages][error]',
+          `sessionId=${sessionId}`,
+          `since=${since || 'none'}`,
+          `t_session=${stepSessionMs.toFixed(2)}ms`,
+          `t_version=${stepVersionMs.toFixed(2)}ms`,
+          `t_messages=${stepMessagesMs.toFixed(2)}ms`,
+          `total=${totalMs.toFixed(2)}ms`,
+          `error=${error instanceof Error ? error.message : String(error)}`,
+        ].join(' ')
+      );
       res.status(500).json({
         success: false,
         error: error instanceof Error ? error.message : '获取消息历史失败',

@@ -9,13 +9,13 @@ import {
   MessageOutlined,
   ReadOutlined,
 } from '@ant-design/icons';
-import { ConversationMode, ConversationVisibility } from '../types/conversation';
+import { ConversationMode, ConversationSession, ConversationVisibility } from '../types/conversation';
 
 type ConversationListProps = {
-  conversations: any[];
+  conversations: ConversationSession[];
   isLoading: boolean;
   activeSessionId: string | null;
-  onConversationClick: (conversation: any) => void;
+  onConversationClick: (conversation: ConversationSession) => void;
   onDeleteConversation: (conversationId: string) => void;
 };
 
@@ -37,10 +37,9 @@ const ConversationList: React.FC<ConversationListProps> = ({
   return (
     <List
       dataSource={conversations}
-      renderItem={(conv: any) => {
-        const mode = conv?.mode || ConversationMode.EDIT;
-        const projectName = conv.projectInfo?.projectName
-          || conv.context?.projectInfo?.projectName
+      renderItem={(conv: ConversationSession) => {
+        const mode = conv?.context?.mode || ConversationMode.EDIT;
+        const projectName = conv.context?.projectInfo?.projectName
           || conv.context?.projectInfo?.name
           || conv.context?.projectInfo?.workDir?.split('/').pop();
         const isActive = activeSessionId === conv.id;
@@ -66,13 +65,13 @@ const ConversationList: React.FC<ConversationListProps> = ({
               </div>
 
               <div className="conversation-content">
-                <div className="conversation-title" title={conv.title || conv.overview || conv.context?.taskDescription || '新对话'}>
+                <div className="conversation-title" title={conv.title || conv.context?.taskDescription || '新对话'}>
                   {conv.visibility === ConversationVisibility.PUBLIC ? (
                     <GlobalOutlined style={{ marginRight: 6, color: '#52c41a' }} />
                   ) : (
                     <LockOutlined style={{ marginRight: 6, color: '#999' }} />
                   )}
-                  {conv.title || conv.overview || conv.context?.taskDescription || '新对话'}
+                  {conv.title || conv.context?.taskDescription || '新对话'}
                 </div>
 
                 <div className="conversation-footer">

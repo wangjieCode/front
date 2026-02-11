@@ -1,5 +1,4 @@
-import { Queue, Worker, Job, QueueEvents } from 'bullmq';
-import { RedisManager } from '../db/RedisManager';
+import { Queue } from 'bullmq';
 
 /**
  * 任务类型枚举

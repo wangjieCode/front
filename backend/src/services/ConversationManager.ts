@@ -1,4 +1,3 @@
-import { LRUCache } from "lru-cache";
 import {
   ConversationSession,
   ConversationMessage,
@@ -13,6 +12,7 @@ import {
   ValidationResult,
 } from "../types";
 import { IConversationStorage } from "../storage/ConversationStorageAdapter";
+import type { MessageHistoryVersion, SessionAccessInfo } from "../storage/DrizzleConversationStorage";
 import { ModeValidator } from "./ModeValidator";
 import { GitLabMCPService } from "./GitLabMCPService";
 import { WorktreeManager } from "./WorktreeManager";
@@ -21,8 +21,8 @@ import { newId } from "../utils/id";
 import { getWorktreeBaseDir } from "../utils/config";
 import dayjs from "dayjs";
 import { DEFAULT_NEOVATE_MODEL, isNeovateModelSupported } from "@front/shared";
-import { RedisManager } from "../db/RedisManager";
 import type Redis from "ioredis";
+import { RedisCacheService } from "./RedisCacheService";
 
 /**
  * 对话管理器类
@@ -31,14 +31,15 @@ import type Redis from "ioredis";
 export class ConversationManager {
   private storage: IConversationStorage;
   private locks: Map<string, boolean> = new Map();
+  private inFlightSessionLoads: Map<string, Promise<ConversationSession | null>> = new Map();
   private modeValidator: ModeValidator;
   private gitlabService?: GitLabMCPService;
   private worktreeManager?: WorktreeManager;
   public projectService: ProjectService;
-  private redis?: Redis;
-  
-  // 使用 LRU 缓存
-  private sessionCache: LRUCache<string, ConversationSession>;
+  private cache: RedisCacheService;
+  private sessionCacheTtlSeconds = 120;
+  private sessionListCacheTtlSeconds = 30;
+  private gitlabBranchesCacheTtlSeconds = 120;
 
   constructor(
     storage: IConversationStorage,
@@ -52,26 +53,29 @@ export class ConversationManager {
     this.modeValidator = new ModeValidator();
     this.gitlabService = gitlabService;
     this.worktreeManager = worktreeManager;
-    this.redis = redis;
-    
-    // 初始化 LRU 缓存
-    this.sessionCache = new LRUCache<string, ConversationSession>({
-      max: 50, // 最多缓存50个会话
-      updateAgeOnGet: true, // 访问时更新使用时间
-    });
+    this.cache = new RedisCacheService(redis);
   }
 
-  private getRedis(): Redis | null {
-    return this.redis ?? RedisManager.getInstanceSafe();
+  private getCurrentEnv(): string {
+    return process.env.APP_ENV || "local";
+  }
+
+  private getSessionCacheKey(sessionId: string): string {
+    return `sessions:detail:${sessionId}`;
+  }
+
+  private getSessionAccessCacheKey(sessionId: string): string {
+    return `sessions:access:${sessionId}`;
+  }
+
+  private getSessionListCacheKey(userId?: string): string {
+    return `sessions:list:${userId || "public"}:${this.getCurrentEnv()}`;
   }
 
   private async invalidateSessionListCache(userId?: string): Promise<void> {
     if (!userId) return;
-    const redis = this.getRedis();
-    if (!redis) return;
     try {
-      const currentEnv = process.env.APP_ENV || "local";
-      await redis.del(`sessions:list:${userId}:${currentEnv}`);
+      await this.cache.delByPattern(`sessions:list:*:${this.getCurrentEnv()}`);
     } catch (error) {
       console.warn("[ConversationManager] 会话列表缓存清理失败 (Redis 可能达到限制):", error);
     }
@@ -79,6 +83,16 @@ export class ConversationManager {
 
   private async persistSession(session: ConversationSession): Promise<void> {
     await this.storage.saveSession(session);
+    await this.cache.setJson(this.getSessionCacheKey(session.id), session, this.sessionCacheTtlSeconds);
+    await this.cache.setJson(
+      this.getSessionAccessCacheKey(session.id),
+      {
+        id: session.id,
+        userId: session.userId,
+        visibility: session.visibility ?? ConversationVisibility.PRIVATE,
+      } as SessionAccessInfo,
+      this.sessionCacheTtlSeconds
+    );
     await this.invalidateSessionListCache(session.userId);
   }
 
@@ -316,34 +330,70 @@ export class ConversationManager {
    * 获取对话会话（带缓存）
    */
   async getSession(sessionId: string): Promise<ConversationSession | null> {
-    // 检查缓存
-    const cached = this.sessionCache.get(sessionId);
+    const cached = await this.cache.getJson<ConversationSession>(this.getSessionCacheKey(sessionId));
     if (cached) {
-      return cached;
+      return {
+        ...cached,
+        visibility: cached.visibility ?? ConversationVisibility.PRIVATE,
+      };
     }
 
-    // 从数据库加载
-    const session = await this.storage.loadSession(sessionId);
-    const normalized = session
-      ? {
-          ...session,
-          visibility: session.visibility ?? ConversationVisibility.PRIVATE,
-        }
-      : null;
-    
-    // 更新缓存
-    if (normalized) {
-      this.sessionCache.set(sessionId, normalized);
+    const inFlight = this.inFlightSessionLoads.get(sessionId);
+    if (inFlight) {
+      return inFlight;
     }
-    
+
+    const loadPromise = (async () => {
+      const session = await this.storage.loadSession(sessionId);
+      const normalized = session
+        ? {
+            ...session,
+            visibility: session.visibility ?? ConversationVisibility.PRIVATE,
+          }
+        : null;
+
+      if (normalized) {
+        await this.cache.setJson(this.getSessionCacheKey(sessionId), normalized, this.sessionCacheTtlSeconds);
+      }
+
+      return normalized;
+    })();
+
+    this.inFlightSessionLoads.set(sessionId, loadPromise);
+    try {
+      return await loadPromise;
+    } finally {
+      this.inFlightSessionLoads.delete(sessionId);
+    }
+  }
+
+  async getSessionAccessInfo(sessionId: string): Promise<SessionAccessInfo | null> {
+    const cached = await this.cache.getJson<SessionAccessInfo>(this.getSessionAccessCacheKey(sessionId));
+    if (cached) {
+      return {
+        ...cached,
+        visibility: cached.visibility ?? ConversationVisibility.PRIVATE,
+      };
+    }
+
+    const sessionAccess = await this.storage.loadSessionAccessInfo(sessionId);
+    if (!sessionAccess) {
+      return null;
+    }
+
+    const normalized = {
+      ...sessionAccess,
+      visibility: sessionAccess.visibility ?? ConversationVisibility.PRIVATE,
+    };
+    await this.cache.setJson(this.getSessionAccessCacheKey(sessionId), normalized, this.sessionCacheTtlSeconds);
     return normalized;
   }
 
   /**
    * 清除会话缓存
    */
-  private clearSessionCache(sessionId: string): void {
-    this.sessionCache.delete(sessionId);
+  private async clearSessionCache(sessionId: string): Promise<void> {
+    await this.cache.del(this.getSessionCacheKey(sessionId), this.getSessionAccessCacheKey(sessionId));
   }
 
    /**
@@ -352,58 +402,24 @@ export class ConversationManager {
      * - 加上该用户创建的所有对话（包括私密的）
      */
   async listSessions(userId?: string): Promise<ConversationSession[]> {
-    const currentEnv = process.env.APP_ENV || "local";
-    const cacheKey = `sessions:list:${userId || "public"}:${currentEnv}`;
-    const redis = this.getRedis();
-    if (redis) {
-      try {
-        const cached = await redis.get(cacheKey);
-        if (cached) {
-          try {
-            return JSON.parse(cached) as ConversationSession[];
-          } catch (error) {
-            console.warn("[ConversationManager] 会话列表缓存解析失败，已忽略");
-          }
-        }
-      } catch (error) {
-        console.warn("[ConversationManager] Redis 查询失败 (可能达到额度限制):", error);
-        // 继续向下走，从数据库读取
-      }
+    const cacheKey = this.getSessionListCacheKey(userId);
+
+    const cached = await this.cache.getJson<ConversationSession[]>(cacheKey);
+    if (cached) {
+      return cached;
     }
 
-    const rawAll = await this.storage.listSessions();
-    const all = rawAll.map((s: any) => ({
+    const rawSessions = await this.storage.listSessions({
+      userId,
+      environment: this.getCurrentEnv(),
+    });
+    const sessions = rawSessions.map((s: any) => ({
       ...s,
       visibility: s.visibility ?? 'private',
     }));
-    
-    if (!userId) {
-      // 未登录用户只能看到公开对话
-      const filtered = all.filter((s: any) => s.visibility === ConversationVisibility.PUBLIC);
-      return filtered as ConversationSession[];
-    }
-    
-    // 登录用户：公开对话 + 自己创建的对话
-    const filtered = all.filter((s: any) => 
-      s.visibility === ConversationVisibility.PUBLIC || s.userId === userId
-    );
 
-    // 根据 environment 过滤
-    const envFiltered = filtered.filter((s: any) => {
-      const vars = s.context?.variables || {};
-      const sessionEnv = vars.environment;
-      return sessionEnv === currentEnv;
-    });
-
-    if (redis) {
-      try {
-        await redis.set(cacheKey, JSON.stringify(envFiltered), "EX", 30);
-      } catch (error) {
-        console.warn("[ConversationManager] Redis 写入失败 (可能达到额度限制):", error);
-      }
-    }
-
-    return envFiltered as ConversationSession[];
+    await this.cache.setJson(cacheKey, sessions, this.sessionListCacheTtlSeconds);
+    return sessions as ConversationSession[];
   }
 
   /**
@@ -472,7 +488,7 @@ export class ConversationManager {
           this.storage.saveMessage(message),
           this.storage.saveSession(session).then(() => this.invalidateSessionListCache(session.userId))
         ]).then(() => {
-          this.clearSessionCache(sessionId);
+          void this.clearSessionCache(sessionId);
         }).catch(error => {
           console.error(`[ConversationManager] 异步保存消息失败:`, error);
         });
@@ -482,7 +498,7 @@ export class ConversationManager {
           this.storage.saveMessage(message),
           this.persistSession(session)
         ]);
-        this.clearSessionCache(sessionId);
+        await this.clearSessionCache(sessionId);
       }
 
       return message;
@@ -495,9 +511,14 @@ export class ConversationManager {
    * 获取对话历史
    */
   async getMessageHistory(
-    sessionId: string
+    sessionId: string,
+    since?: string
   ): Promise<ConversationMessage[]> {
-    return await this.storage.loadMessages(sessionId);
+    return await this.storage.loadMessages(sessionId, since);
+  }
+
+  async getMessageHistoryVersion(sessionId: string): Promise<MessageHistoryVersion> {
+    return this.storage.getMessageHistoryVersion(sessionId);
   }
 
   /**
@@ -566,7 +587,7 @@ export class ConversationManager {
       await this.persistSession(session);
       
       // 清除缓存
-      this.clearSessionCache(sessionId);
+      await this.clearSessionCache(sessionId);
     } finally {
       this.releaseLock(sessionId);
     }
@@ -588,7 +609,7 @@ export class ConversationManager {
       session.updatedAt = dayjs().toDate();
 
       await this.persistSession(session);
-      this.clearSessionCache(sessionId);
+      await this.clearSessionCache(sessionId);
     } finally {
       this.releaseLock(sessionId);
     }
@@ -652,7 +673,7 @@ export class ConversationManager {
       const session = await this.getSession(sessionId);
       await this.storage.deleteSession(sessionId);
       await this.invalidateSessionListCache(session?.userId);
-      this.clearSessionCache(sessionId);
+      await this.clearSessionCache(sessionId);
     } finally {
       this.releaseLock(sessionId);
     }
@@ -930,6 +951,12 @@ export class ConversationManager {
       throw new Error(projectResult.error || '项目不存在');
     }
 
+    const branchesCacheKey = `gitlab:branches:${projectId}:${projectResult.project.gitBranch || 'none'}`;
+    const cachedBranches = await this.cache.getJson<{ branches: string[]; defaultBranch?: string }>(branchesCacheKey);
+    if (cachedBranches) {
+      return cachedBranches;
+    }
+
     const gitlabProjectId = projectResult.project.gitlabProjectId || undefined;
     if (!gitlabProjectId) {
       throw new Error('项目未配置 gitlab_project_id');
@@ -963,9 +990,13 @@ export class ConversationManager {
       );
     }
 
-    return {
+    const result = {
       branches,
       defaultBranch: resolvedDefaultBranch,
     };
+
+    await this.cache.setJson(branchesCacheKey, result, this.gitlabBranchesCacheTtlSeconds);
+
+    return result;
   }
 }

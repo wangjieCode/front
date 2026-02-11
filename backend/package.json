@@ -2,10 +2,10 @@
   "name": "web-frontend-intern-assistant-backend",
   "version": "1.0.0",
   "description": "Web 前端实习生助手系统 - 后端服务",
-  "main": "src/index.ts",
+  "main": "dist/index.js",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "node --import tsx scripts/build.ts",
+    "build": "tsc -p tsconfig.json",
     "start": "node --import tsx src/index.ts",
     "start:worker": "node --import tsx src/worker.ts",
     "test": "jest",

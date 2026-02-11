@@ -130,3 +130,22 @@ describe('ConversationManager.createSession', () => {
     expect(session.context.gitBranch).toBe('main');
   });
 });
+
+describe('ConversationManager.listSessions', () => {
+  it('pushes user and environment filters to storage query', async () => {
+    const storage = createStorage();
+    storage.listSessions.mockResolvedValue([]);
+    const projectService = {
+      getProject: jest.fn(),
+      executor: {},
+    } as any;
+
+    const manager = new ConversationManager(storage as any, projectService);
+    await manager.listSessions('user-1');
+
+    expect(storage.listSessions).toHaveBeenCalledWith({
+      userId: 'user-1',
+      environment: process.env.APP_ENV || 'local',
+    });
+  });
+});

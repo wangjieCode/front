@@ -1,11 +1,10 @@
-import { eq, and, desc, asc, lt } from 'drizzle-orm';
+import { eq, and, desc, asc, lt, gt, inArray, or, sql } from 'drizzle-orm';
 import { DatabaseManager } from '../db/DatabaseManager';
 import {
   conversations,
   conversationContexts,
   messages,
   messageMetadata,
-  projects,
   type Conversation,
   type NewConversation,
   type Message,
@@ -14,7 +13,7 @@ import {
 import { newId } from '../utils/id';
 import dayjs from 'dayjs';
 import { convertToStoredPath, resolveStoredPath, BasePathType } from '../utils/PathUtils';
-import path from 'path';
+import { RedisCacheService } from '../services/RedisCacheService';
 
 /**
  * 分页选项
@@ -24,14 +23,39 @@ export interface PaginationOptions {
   offset?: number;
 }
 
+export interface ListSessionsOptions {
+  userId?: string;
+  environment?: string;
+}
+
+export interface MessageHistoryVersion {
+  total: number;
+  latestTimestamp: Date | null;
+}
+
+export interface SessionAccessInfo {
+  id: string;
+  userId: string;
+  visibility: string;
+}
+
 /**
  * 基于 Drizzle ORM 的对话存储实现
  */
 export class DrizzleConversationStorage {
-  private cache: Map<string, any>;
+  private cache = new RedisCacheService();
+  private cacheTtlSeconds = 60;
+  private messageQuerySlowLogMs = Number(process.env.MESSAGE_QUERY_SLOW_LOG_MS || 800);
+  private messageHistoryVersionCacheTtlSeconds = Number(process.env.MESSAGE_VERSION_CACHE_TTL_SECONDS || 30);
 
-  constructor() {
-    this.cache = new Map();
+  private hasImagePayload(metadata: any): boolean {
+    if (!metadata) return false;
+    const images = metadata.images;
+    return Array.isArray(images) ? images.length > 0 : Boolean(images);
+  }
+
+  private hasImagesInCombinedMessages(messagesWithMetadata: any[]): boolean {
+    return messagesWithMetadata.some(item => this.hasImagePayload(item?.metadata));
   }
 
   /**
@@ -44,29 +68,29 @@ export class DrizzleConversationStorage {
   /**
    * 清除缓存
    */
-  clearCache(): void {
-    this.cache.clear();
+  async clearCache(): Promise<void> {
+    await this.cache.delByPattern('storage:*');
   }
 
   /**
    * 从缓存获取数据
    */
-  private getCached<T>(key: string): T | undefined {
-    return this.cache.get(key);
+  private async getCached<T>(key: string): Promise<T | null> {
+    return this.cache.getJson<T>(`storage:${key}`);
   }
 
   /**
    * 设置缓存
    */
-  private setCache<T>(key: string, value: T): void {
-    this.cache.set(key, value);
+  private async setCache<T>(key: string, value: T, ttlSeconds: number = this.cacheTtlSeconds): Promise<void> {
+    await this.cache.setJson(`storage:${key}`, value, ttlSeconds);
   }
 
   /**
    * 删除缓存
    */
-  private deleteCache(key: string): void {
-    this.cache.delete(key);
+  private async deleteCache(key: string): Promise<void> {
+    await this.cache.del(`storage:${key}`);
   }
 
   // ==================== 会话管理方法 ====================
@@ -120,9 +144,11 @@ export class DrizzleConversationStorage {
     }
 
     // 清除相关缓存
-    this.deleteCache(`session:${session.id}`);
-    this.deleteCache(`session:${session.sessionId || session.id}`);
-    this.deleteCache('sessions:list');
+    await Promise.all([
+      this.deleteCache(`session:${session.id}`),
+      this.deleteCache(`session:${session.sessionId || session.id}`),
+      this.deleteCache('sessions:list'),
+    ]);
   }
 
   /**
@@ -130,51 +156,73 @@ export class DrizzleConversationStorage {
    */
   async loadSession(sessionId: string): Promise<Conversation | null> {
     const db = this.getDb();
+    const [sessionRows, contextRows] = await Promise.all([
+      db
+        .select()
+        .from(conversations)
+        .where(eq(conversations.id, sessionId))
+        .limit(1),
+      db
+        .select()
+        .from(conversationContexts)
+        .where(eq(conversationContexts.conversationId, sessionId))
+        .limit(1),
+    ]);
 
-    // Join with projects table to get project details
+    const rawSession = sessionRows[0];
+    if (!rawSession) {
+      return null;
+    }
+
+    const rawContext = contextRows[0] || null;
+    const context = rawContext
+      ? {
+          projectInfo: {
+            workDir: resolveStoredPath(rawContext.workDir),
+            worktreePath: rawContext.worktreePath
+              ? resolveStoredPath(rawContext.worktreePath, BasePathType.WORKTREE_BASE_DIR)
+              : null,
+            gitBranch: rawContext.gitBranch,
+            relevantFiles: rawContext.relevantFiles || [],
+          },
+          taskDescription: rawContext.taskDescription,
+          messageHistory: [],
+          variables: rawContext.variables || {},
+          mode: rawContext.mode || 'edit',
+          gitBranch: rawContext.contextGitBranch,
+          mrUrl: rawContext.mrUrl,
+          previewInfo: rawContext.previewInfo,
+        }
+      : null;
+
+    return {
+      ...rawSession,
+      context: context || null,
+    } as unknown as Conversation;
+  }
+
+  /**
+   * 加载会话访问控制所需最小字段（用于权限校验热路径）
+   */
+  async loadSessionAccessInfo(sessionId: string): Promise<SessionAccessInfo | null> {
+    const db = this.getDb();
     const result = await db
       .select({
-        conversation: conversations,
-        projectRepoUrl: projects.gitRepositoryUrl,
-        projectNameJoined: projects.name,
+        id: conversations.id,
+        userId: conversations.userId,
+        visibility: conversations.visibility,
       })
       .from(conversations)
-      .leftJoin(projects, eq(conversations.projectId, projects.id))
       .where(eq(conversations.id, sessionId))
       .limit(1);
 
     const row = result[0];
-
-    if (row) {
-      const rawSession = row.conversation;
-      // Attach joined data to session object (as non-enumerable or just properties)
-      // We cast to any to avoid type issues, but ideally we should extend the type
-      const sessionWithExtra = {
-        ...rawSession,
-        projectRepoUrl: row.projectRepoUrl,
-        projectNameJoined: row.projectNameJoined,
-        projectName: rawSession.projectName || row.projectNameJoined || null, // Use joined name if saved name is missing
-      };
-
-      // 加载关联的上下文
-      const context = await this.loadContext(sessionId);
-      if (context) {
-        // 创建一个新的session对象，确保包含context字段
-        const session = {
-          ...sessionWithExtra,
-          context: context
-        };
-        return session as unknown as Conversation;
-      } else {
-        const session = {
-          ...sessionWithExtra,
-          context: null
-        };
-        return session as unknown as Conversation;
-      }
-    } else {
-      return null;
-    }
+    if (!row) return null;
+    return {
+      id: row.id,
+      userId: row.userId,
+      visibility: row.visibility || 'private',
+    };
   }
 
   /**
@@ -182,7 +230,7 @@ export class DrizzleConversationStorage {
    */
   async loadSessionByAgentSessionId(agentSessionId: string): Promise<Conversation | null> {
     // 检查缓存
-    const cached = this.getCached<Conversation>(`agent-session:${agentSessionId}`);
+    const cached = await this.getCached<Conversation>(`agent-session:${agentSessionId}`);
     if (cached) {
       return cached;
     }
@@ -199,8 +247,10 @@ export class DrizzleConversationStorage {
 
     // 缓存结果
     if (session) {
-      this.setCache(`agent-session:${agentSessionId}`, session);
-      this.setCache(`session:${session.id}`, session);
+      await Promise.all([
+        this.setCache(`agent-session:${agentSessionId}`, session),
+        this.setCache(`session:${session.id}`, session),
+      ]);
     }
 
     return session;
@@ -209,54 +259,91 @@ export class DrizzleConversationStorage {
    /**
     * 列出所有会话
     */
-  async listSessions(): Promise<any[]> {
+  async listSessions(options: ListSessionsOptions = {}): Promise<any[]> {
     const db = this.getDb();
+    const { userId, environment } = options;
+    const visibilityScope = userId
+      ? or(eq(conversations.userId, userId), eq(conversations.visibility, 'public'))
+      : undefined;
 
-    const results = await db
+    const sessionQuery = db
       .select({
         id: conversations.id,
         userId: conversations.userId,
         visibility: conversations.visibility,
         status: conversations.status,
         title: conversations.title,
+        summary: conversations.summary,
         projectId: conversations.projectId,
         projectName: conversations.projectName,
         createdAt: conversations.createdAt,
         updatedAt: conversations.updatedAt,
-        projectNameJoined: projects.name,
+      })
+      .from(conversations)
+      .orderBy(desc(conversations.createdAt));
+    const sessionRows = visibilityScope
+      ? await sessionQuery.where(visibilityScope)
+      : await sessionQuery;
+
+    if (sessionRows.length === 0) {
+      return [];
+    }
+
+    const sessionIds = sessionRows.map(row => row.id);
+    const contextFilters = [inArray(conversationContexts.conversationId, sessionIds)];
+    if (environment) {
+      contextFilters.push(
+        sql`${conversationContexts.variables} ->> 'environment' = ${environment}`
+      );
+    }
+
+    const contextRows = await db
+      .select({
+        conversationId: conversationContexts.conversationId,
         mode: conversationContexts.mode,
         taskDescription: conversationContexts.taskDescription,
         workDir: conversationContexts.workDir,
-        variables: conversationContexts.variables,
+        environment: sql<string | null>`${conversationContexts.variables} ->> 'environment'`,
       })
-      .from(conversations)
-      .leftJoin(projects, eq(conversations.projectId, projects.id))
-      .leftJoin(conversationContexts, eq(conversations.id, conversationContexts.conversationId))
-      .orderBy(desc(conversations.createdAt));
+      .from(conversationContexts)
+      .where(and(...contextFilters));
 
-    return results.map(row => ({
-      id: row.id,
-      userId: row.userId,
-      visibility: row.visibility || 'private',
-      status: row.status,
-      title: row.title,
-      projectName: row.projectName || row.projectNameJoined || null,
-      createdAt: row.createdAt,
-      updatedAt: row.updatedAt,
-      context: {
-        mode: row.mode || 'edit',
-        taskDescription: row.taskDescription || '',
-        variables: row.variables || {}, // 确保变量始终是一个对象
-        projectInfo: {
-          workDir: resolveStoredPath(row.workDir),
-          projectId: row.projectId || null,
-          projectName: row.projectName || row.projectNameJoined || null,
-          gitRepositoryUrl: '',
-          gitBranch: null,
-          relevantFiles: [],
+    const contextByConversationId = new Map(
+      contextRows.map(row => [row.conversationId, row])
+    );
+
+    return sessionRows
+      .filter(row => contextByConversationId.has(row.id))
+      .map(row => {
+      const contextRow = contextByConversationId.get(row.id);
+
+      return {
+        id: row.id,
+        userId: row.userId,
+        visibility: row.visibility || 'private',
+        status: row.status,
+        title: row.title,
+        summary: row.summary,
+        projectName: row.projectName || null,
+        createdAt: row.createdAt,
+        updatedAt: row.updatedAt,
+        context: {
+          mode: contextRow?.mode || 'edit',
+          taskDescription: contextRow?.taskDescription || '',
+          variables: {
+            environment: contextRow?.environment || null,
+          },
+          projectInfo: {
+            workDir: resolveStoredPath(contextRow?.workDir || null),
+            projectId: row.projectId || null,
+            projectName: row.projectName || null,
+            gitRepositoryUrl: '',
+            gitBranch: null,
+            relevantFiles: [],
+          }
         }
-      }
-    }));
+      };
+    });
   }
 
   /**
@@ -294,8 +381,10 @@ export class DrizzleConversationStorage {
       .where(eq(conversations.id, sessionId));
 
     // 清除相关缓存
-    this.deleteCache(`session:${sessionId}`);
-    this.deleteCache('sessions:list');
+    await Promise.all([
+      this.deleteCache(`session:${sessionId}`),
+      this.deleteCache('sessions:list'),
+    ]);
   }
 
   /**
@@ -327,7 +416,7 @@ export class DrizzleConversationStorage {
     });
 
     // 清除所有相关缓存
-    this.clearCache();
+    await this.clearCache();
   }
 
   // ==================== 消息管理方法 ====================
@@ -340,8 +429,11 @@ export class DrizzleConversationStorage {
 
     await db.insert(messages).values(message);
 
-    this.deleteCache(`messages:${message.conversationId}`);
-    this.deleteCache(`messages_with_metadata:${message.conversationId}`);
+    await Promise.all([
+      this.deleteCache(`messages:${message.conversationId}`),
+      this.deleteCache(`messages_with_metadata:${message.conversationId}`),
+      this.deleteCache(`message_history_version:${message.conversationId}`),
+    ]);
   }
 
   /**
@@ -355,7 +447,7 @@ export class DrizzleConversationStorage {
 
     // 检查缓存（仅当没有分页时）
     if (!options) {
-      const cached = this.getCached<Message[]>(cacheKey);
+      const cached = await this.getCached<Message[]>(cacheKey);
       if (cached) {
         return cached;
       }
@@ -381,7 +473,7 @@ export class DrizzleConversationStorage {
 
     // 缓存结果（仅当没有分页时）
     if (!options) {
-      this.setCache(cacheKey, result);
+      await this.setCache(cacheKey, result);
     }
 
     return result;
@@ -391,34 +483,122 @@ export class DrizzleConversationStorage {
    * 加载带元数据的消息列表（高性能版，单次查询）
    */
   async loadMessagesWithMetadata(
-    conversationId: string
+    conversationId: string,
+    since?: string
   ): Promise<any[]> {
+    const sinceDate = since ? new Date(since) : null;
+    const hasValidSince = !!sinceDate && !Number.isNaN(sinceDate.getTime());
     const cacheKey = `messages_with_metadata:${conversationId}`;
 
-    const cached = this.getCached<any[]>(cacheKey);
-    if (cached) {
-      return cached;
+    if (!hasValidSince) {
+      const cached = await this.getCached<any[]>(cacheKey);
+      if (cached) {
+        // 历史缓存可能包含图片 payload，发现后立即清理并回源数据库
+        if (this.hasImagesInCombinedMessages(cached)) {
+          await this.deleteCache(cacheKey);
+        } else {
+          return cached;
+        }
+      }
     }
 
     const db = this.getDb();
 
-    // 使用 LEFT JOIN 一次性查出消息和元数据
-    const results = await db
+    const messageWhere = hasValidSince
+      ? and(
+          eq(messages.conversationId, conversationId),
+          gt(messages.timestamp, sinceDate as Date)
+        )
+      : eq(messages.conversationId, conversationId);
+
+    const queryStart = process.hrtime.bigint();
+    const rows = await db
       .select({
-        message: messages,
-        metadata: messageMetadata,
+        id: messages.id,
+        conversationId: messages.conversationId,
+        role: messages.role,
+        content: messages.content,
+        isComplete: messages.isComplete,
+        timestamp: messages.timestamp,
+        parentMessageId: messages.parentMessageId,
+        metadataId: messageMetadata.id,
+        metadataMessageId: messageMetadata.messageId,
+        metadataToolCalls: messageMetadata.toolCalls,
+        metadataCodeChanges: messageMetadata.codeChanges,
+        metadataThinking: messageMetadata.thinking,
+        metadataIsQuestion: messageMetadata.isQuestion,
+        metadataQuestionOptions: messageMetadata.questionOptions,
+        metadataRequiresResponse: messageMetadata.requiresResponse,
+        metadataMessageReferences: messageMetadata.messageReferences,
+        metadataIsInvalid: messageMetadata.isInvalid,
+        metadataGitBranch: messageMetadata.gitBranch,
+        metadataMrUrl: messageMetadata.mrUrl,
+        metadataImages: messageMetadata.images,
+        metadataOperationDenied: messageMetadata.operationDenied,
+        metadataCreatedAt: messageMetadata.createdAt,
       })
       .from(messages)
-      .leftJoin(messageMetadata, eq(messages.id, messageMetadata.messageId))
-      .where(eq(messages.conversationId, conversationId))
+      .leftJoin(messageMetadata, eq(messageMetadata.messageId, messages.id))
+      .where(messageWhere)
       .orderBy(asc(messages.timestamp));
+    const queryMs = Number(process.hrtime.bigint() - queryStart) / 1_000_000;
 
-    const combined = results.map(row => ({
-      ...row.message,
-      metadata: row.metadata,
+    const queryLog = [
+      '[Storage][loadMessagesWithMetadata]',
+      `conversationId=${conversationId}`,
+      `since=${hasValidSince ? (since as string) : 'none'}`,
+      `rows=${rows.length}`,
+      `query=${queryMs.toFixed(2)}ms`,
+    ].join(' ');
+    if (queryMs >= this.messageQuerySlowLogMs) {
+      console.warn(`${queryLog} slow_threshold=${this.messageQuerySlowLogMs}ms`);
+    } else {
+      console.log(queryLog);
+    }
+
+    if (rows.length === 0) {
+      if (!hasValidSince) {
+        await this.setCache(cacheKey, []);
+      }
+      return [];
+    }
+
+    const combined = rows.map(row => ({
+      id: row.id,
+      conversationId: row.conversationId,
+      role: row.role,
+      content: row.content,
+      isComplete: row.isComplete,
+      timestamp: row.timestamp,
+      parentMessageId: row.parentMessageId,
+      metadata: row.metadataId
+        ? {
+            id: row.metadataId,
+            messageId: row.metadataMessageId,
+            toolCalls: row.metadataToolCalls,
+            codeChanges: row.metadataCodeChanges,
+            thinking: row.metadataThinking,
+            isQuestion: row.metadataIsQuestion,
+            questionOptions: row.metadataQuestionOptions,
+            requiresResponse: row.metadataRequiresResponse,
+            messageReferences: row.metadataMessageReferences,
+            isInvalid: row.metadataIsInvalid,
+            gitBranch: row.metadataGitBranch,
+            mrUrl: row.metadataMrUrl,
+            images: row.metadataImages,
+            operationDenied: row.metadataOperationDenied,
+            createdAt: row.metadataCreatedAt,
+          }
+        : null,
     }));
 
-    this.setCache(cacheKey, combined);
+    // 图片附件体积大且含二进制/BASE64，不写入 Redis 缓存
+    if (!hasValidSince && !this.hasImagesInCombinedMessages(combined)) {
+      await this.setCache(cacheKey, combined);
+    } else if (!hasValidSince) {
+      await this.deleteCache(cacheKey);
+    }
+
     return combined;
   }
 
@@ -468,8 +648,11 @@ export class DrizzleConversationStorage {
 
     // 清除精确缓存而不是 clearCache()
     if (conversationId) {
-      this.deleteCache(`messages:${conversationId}`);
-      this.deleteCache(`messages_with_metadata:${conversationId}`);
+      await Promise.all([
+        this.deleteCache(`messages:${conversationId}`),
+        this.deleteCache(`messages_with_metadata:${conversationId}`),
+        this.deleteCache(`message_history_version:${conversationId}`),
+      ]);
     }
   }
 
@@ -480,11 +663,38 @@ export class DrizzleConversationStorage {
     const db = this.getDb();
 
     const result = await db
-      .select()
+      .select({ total: sql<number>`count(*)` })
       .from(messages)
       .where(eq(messages.conversationId, conversationId));
 
-    return result.length;
+    return Number(result[0]?.total || 0);
+  }
+
+  /**
+   * 获取消息历史版本（用于 ETag 快速校验）
+   */
+  async getMessageHistoryVersion(conversationId: string): Promise<MessageHistoryVersion> {
+    const db = this.getDb();
+    const cacheKey = `message_history_version:${conversationId}`;
+    const cached = await this.getCached<MessageHistoryVersion>(cacheKey);
+    if (cached) {
+      return cached;
+    }
+
+    const [summary] = await db
+      .select({
+        total: sql<number>`count(*)`,
+        latestTimestamp: sql<Date | null>`max(${messages.timestamp})`,
+      })
+      .from(messages)
+      .where(eq(messages.conversationId, conversationId));
+
+    const version = {
+      total: Number(summary?.total || 0),
+      latestTimestamp: summary?.latestTimestamp || null,
+    };
+    await this.setCache(cacheKey, version, this.messageHistoryVersionCacheTtlSeconds);
+    return version;
   }
 
   // ==================== 上下文管理方法 ====================
@@ -538,7 +748,7 @@ export class DrizzleConversationStorage {
     }
 
     // 清除缓存
-    this.deleteCache(`context:${conversationId}`);
+    await this.deleteCache(`context:${conversationId}`);
   }
 
   /**
@@ -546,7 +756,7 @@ export class DrizzleConversationStorage {
    */
   async loadContext(conversationId: string): Promise<any | null> {
     // 检查缓存
-    const cached = this.getCached(`context:${conversationId}`);
+    const cached = await this.getCached(`context:${conversationId}`);
     if (cached) {
       return cached;
     }
@@ -583,7 +793,7 @@ export class DrizzleConversationStorage {
     };
 
     // 缓存结果
-    this.setCache(`context:${conversationId}`, context);
+    await this.setCache(`context:${conversationId}`, context);
 
     return context;
   }
@@ -628,9 +838,9 @@ export class DrizzleConversationStorage {
     }
 
     // 清除精确缓存
-    this.deleteCache(`metadata:${messageId}`);
+    await this.deleteCache(`metadata:${messageId}`);
     if (conversationId) {
-      this.deleteCache(`messages_with_metadata:${conversationId}`);
+      await this.deleteCache(`messages_with_metadata:${conversationId}`);
     }
   }
 
@@ -639,9 +849,13 @@ export class DrizzleConversationStorage {
    */
   async loadMessageMetadata(messageId: string): Promise<any | null> {
     // 检查缓存
-    const cached = this.getCached(`metadata:${messageId}`);
+    const cached = await this.getCached(`metadata:${messageId}`);
     if (cached) {
-      return cached;
+      if (this.hasImagePayload(cached)) {
+        await this.deleteCache(`metadata:${messageId}`);
+      } else {
+        return cached;
+      }
     }
 
     const db = this.getDb();
@@ -655,8 +869,8 @@ export class DrizzleConversationStorage {
     const metadata = result[0] || null;
 
     // 缓存结果
-    if (metadata) {
-      this.setCache(`metadata:${messageId}`, metadata);
+    if (metadata && !this.hasImagePayload(metadata)) {
+      await this.setCache(`metadata:${messageId}`, metadata);
     }
 
     return metadata;
@@ -687,7 +901,7 @@ export class DrizzleConversationStorage {
     }
 
     // 清除缓存
-    this.clearCache();
+    await this.clearCache();
 
     return count;
   }
@@ -714,7 +928,7 @@ export class DrizzleConversationStorage {
     }
 
     // 清除缓存
-    this.clearCache();
+    await this.clearCache();
 
     return count;
   }

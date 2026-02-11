@@ -1,4 +1,9 @@
 import { DrizzleConversationStorage } from './DrizzleConversationStorage';
+import type {
+  ListSessionsOptions,
+  MessageHistoryVersion,
+  SessionAccessInfo,
+} from './DrizzleConversationStorage';
 import {
   ConversationSession,
   ConversationMessage,
@@ -14,9 +19,11 @@ import {
 export interface IConversationStorage {
   saveSession(session: ConversationSession): Promise<void>;
   loadSession(sessionId: string): Promise<ConversationSession | null>;
-  listSessions(): Promise<ConversationSession[]>;
+  loadSessionAccessInfo(sessionId: string): Promise<SessionAccessInfo | null>;
+  listSessions(options?: ListSessionsOptions): Promise<ConversationSession[]>;
+  getMessageHistoryVersion(sessionId: string): Promise<MessageHistoryVersion>;
   saveMessage(message: ConversationMessage): Promise<void>;
-  loadMessages(sessionId: string): Promise<ConversationMessage[]>;
+  loadMessages(sessionId: string, since?: string): Promise<ConversationMessage[]>;
   loadMessage(sessionId: string, messageId: string): Promise<ConversationMessage | null>;
   saveContext(sessionId: string, context: ConversationContext): Promise<void>;
   loadContext(sessionId: string): Promise<ConversationContext | null>;
@@ -96,9 +103,9 @@ export class ConversationStorageAdapter implements IConversationStorage {
       const existingContext = (dbSession as any).context as ConversationContext;
       const worktreePath = existingContext.projectInfo?.worktreePath;
       const projectInfo = {
-        projectId: dbSession.projectId || existingContext.projectInfo?.projectId,
-        projectName: dbSession.projectName || (dbSession as any).projectNameJoined || existingContext.projectInfo?.projectName || '',
-        gitRepositoryUrl: (dbSession as any).projectRepoUrl || existingContext.projectInfo?.gitRepositoryUrl || '',
+        projectId: dbSession.projectId || existingContext.projectInfo?.projectId || '',
+        projectName: dbSession.projectName || existingContext.projectInfo?.projectName || '',
+        gitRepositoryUrl: existingContext.projectInfo?.gitRepositoryUrl || '',
         workDir: worktreePath || existingContext.projectInfo?.workDir || '',
         worktreePath,
         gitBranch: existingContext.projectInfo?.gitBranch || undefined,
@@ -130,8 +137,9 @@ export class ConversationStorageAdapter implements IConversationStorage {
     const worktreePath = dbContext.projectInfo?.worktreePath;
     const context: ConversationContext = {
       projectInfo: {
-        projectId: dbSession.projectId || undefined,
+        projectId: dbSession.projectId || '',
         projectName: dbSession.projectName || '',
+        gitRepositoryUrl: '',
         workDir: worktreePath || dbContext.projectInfo?.workDir || '',
         worktreePath,
         gitBranch: dbContext.gitBranch || undefined,
@@ -162,12 +170,16 @@ export class ConversationStorageAdapter implements IConversationStorage {
     };
   }
 
+  async loadSessionAccessInfo(sessionId: string): Promise<SessionAccessInfo | null> {
+    return this.storage.loadSessionAccessInfo(sessionId);
+  }
+
   /**
    * 获取所有会话列表
    */
-  async listSessions(): Promise<ConversationSession[]> {
+  async listSessions(options?: ListSessionsOptions): Promise<ConversationSession[]> {
     try {
-      const dbSessions = await this.storage.listSessions();
+      const dbSessions = await this.storage.listSessions(options);
 
       const sessions: ConversationSession[] = dbSessions.map(dbSession => ({
         id: dbSession.id,
@@ -234,8 +246,8 @@ export class ConversationStorageAdapter implements IConversationStorage {
   /**
    * 加载消息列表
    */
-  async loadMessages(sessionId: string): Promise<ConversationMessage[]> {
-    const dbMessagesWithMetadata = await this.storage.loadMessagesWithMetadata(sessionId);
+  async loadMessages(sessionId: string, since?: string): Promise<ConversationMessage[]> {
+    const dbMessagesWithMetadata = await this.storage.loadMessagesWithMetadata(sessionId, since);
     
     return dbMessagesWithMetadata.map(dbMsg => {
       const message: ConversationMessage = {
@@ -267,6 +279,10 @@ export class ConversationStorageAdapter implements IConversationStorage {
 
       return message;
     });
+  }
+
+  async getMessageHistoryVersion(sessionId: string): Promise<MessageHistoryVersion> {
+    return this.storage.getMessageHistoryVersion(sessionId);
   }
 
   /**
@@ -342,10 +358,10 @@ export class ConversationStorageAdapter implements IConversationStorage {
 
     const context: ConversationContext = {
       projectInfo: {
-        projectId: dbSession.projectId || undefined,
+        projectId: dbSession.projectId || '',
         projectName: dbSession.projectName || '',
         workDir: dbContext.workDir,
-        gitRepositoryUrl: (dbSession as any).projectRepoUrl || '',
+        gitRepositoryUrl: '',
         gitBranch: dbContext.gitBranch || undefined,
         relevantFiles: dbContext.relevantFiles || [],
       },

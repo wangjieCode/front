@@ -105,7 +105,7 @@ export interface ConversationMessage {
 export interface ProjectInfo {
   projectId: string;
   projectName: string;
-  gitRepositoryUrl: string;
+  gitRepositoryUrl?: string;
   workDir: string;
   gitBranch?: string;
   relevantFiles?: string[];
@@ -120,18 +120,6 @@ export interface ConversationContext {
   gitBranch?: string;
   mrUrl?: string;
   previewInfo?: PreviewInfo;
-}
-
-export interface SimplifiedConversation {
-  id: string;
-  projectInfo: ProjectInfo;
-  mode: ConversationMode;
-  overview: string;
-  status: ConversationStatus;
-  visibility: ConversationVisibility;
-  createdAt: string;
-  updatedAt: string;
-  title?: string;
 }
 
 export interface ModelOption {
