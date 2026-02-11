@@ -59,6 +59,10 @@
 - N13：`GET /api/conversations/:sessionId` 的会话基础信息与上下文读取必须并行执行，禁止串行等待导致时延叠加。
 - N14：同一进程内并发读取同一 `sessionId` 详情时，必须合并为单次存储层读取，禁止重复查询数据库。
 - N15：`GET /api/conversations` 必须返回会话页首屏所需的完整会话字段（脱敏后），前端进入会话页时应直接复用该数据，禁止首屏重复请求 `GET /api/conversations/:sessionId`。
+- N16：`GET /api/conversations/:sessionId/messages` 的消息与元数据读取必须使用单次 SQL（`messages` + `message_metadata` 左连接）并依赖 `(conversation_id, timestamp)` 复合索引，禁止先查消息再二次 `IN` 查询元数据。
+- N17：`GET /api/conversations/:sessionId/messages` 必须输出分阶段耗时日志（会话校验、版本校验、消息读取、总耗时）与结果规模（消息条数），便于线上慢请求定位。
+- N18：`GET /api/conversations/:sessionId/messages` 的权限校验必须走轻量会话访问查询（仅 `id/user_id/visibility`），禁止为鉴权加载完整会话上下文。
+- N19：数据库访问层必须提供统一 SQL 日志出口（至少包含 SQL 文本摘要与参数规模），用于跨接口性能排查与问题回放。
 
 ## 用户体验
 
@@ -132,3 +136,7 @@
 - 2026-02-11：会话缓存从 Redis 切回进程内 LRU，移除 Redis 依赖，降低 Redis 抖动对会话链路的影响。
 - 2026-02-11：会话详情读取新增同 `sessionId` 并发请求合并，减少重复数据库访问。
 - 2026-02-11：会话列表接口返回可用于会话页首屏渲染的完整会话字段，前端复用该数据并移除首屏重复详情请求。
+- 2026-02-11：消息历史查询改为单次左连接读取消息与元数据，并补充 `(conversation_id, timestamp)` 复合索引。
+- 2026-02-11：消息历史接口新增分阶段耗时日志与存储层查询耗时日志，支持慢请求链路定位。
+- 2026-02-11：消息历史接口会话鉴权改为轻量访问查询（仅 `id/user_id/visibility`），降低 `t_session`。
+- 2026-02-11：数据库层接入统一 SQL 日志（Drizzle 全局 logger），支持后续跨接口性能排查。

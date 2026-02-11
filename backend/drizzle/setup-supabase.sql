@@ -84,6 +84,7 @@ CREATE INDEX IF NOT EXISTS "idx_branches_is_active" ON "branches" USING btree ("
 
 -- messages 表索引
 CREATE INDEX IF NOT EXISTS "idx_messages_conversation_id" ON "messages" USING btree ("conversation_id");
+CREATE INDEX IF NOT EXISTS "idx_messages_conversation_timestamp" ON "messages" USING btree ("conversation_id","timestamp");
 CREATE INDEX IF NOT EXISTS "idx_messages_branch_id" ON "messages" USING btree ("branch_id");
 CREATE INDEX IF NOT EXISTS "idx_messages_timestamp" ON "messages" USING btree ("timestamp");
 CREATE INDEX IF NOT EXISTS "idx_messages_parent_message_id" ON "messages" USING btree ("parent_message_id");

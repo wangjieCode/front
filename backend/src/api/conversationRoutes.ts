@@ -260,11 +260,30 @@ export function createConversationRoutes(
    * 获取会话消息历史
    */
   router.get('/:sessionId/messages', requireAuth, async (req: AuthRequest, res: Response) => {
+    const requestStart = process.hrtime.bigint();
+    const slowThresholdMs = Number(process.env.MESSAGE_HISTORY_SLOW_LOG_MS || 1000);
+    let stepSessionMs = 0;
+    let stepVersionMs = 0;
+    let stepMessagesMs = 0;
+    let messagesStart: bigint | null = null;
+    let messageCount = 0;
+    let etagStatus: 'skip' | 'miss' | 'hit304' = 'skip';
+
     try {
       const { sessionId } = req.params;
       const since = typeof req.query.since === 'string' ? req.query.since : undefined;
+      const ifNoneMatch = req.header('if-none-match');
+      const shouldParallelLoadMessages = !(!since && ifNoneMatch);
 
-      const session = await conversationManager.getSession(sessionId);
+      let messagesPromise: Promise<any[]> | null = null;
+      if (shouldParallelLoadMessages) {
+        messagesStart = process.hrtime.bigint();
+        messagesPromise = conversationManager.getMessageHistory(sessionId, since);
+      }
+
+      const sessionStart = process.hrtime.bigint();
+      const session = await conversationManager.getSessionAccessInfo(sessionId);
+      stepSessionMs = Number(process.hrtime.bigint() - sessionStart) / 1_000_000;
       if (!session) {
         return res.status(404).json({
           success: false,
@@ -279,25 +298,70 @@ export function createConversationRoutes(
         });
       }
 
-      const ifNoneMatch = req.header('if-none-match');
       if (!since && ifNoneMatch) {
+        const versionStart = process.hrtime.bigint();
         const version = await conversationManager.getMessageHistoryVersion(sessionId);
+        stepVersionMs = Number(process.hrtime.bigint() - versionStart) / 1_000_000;
         const latestMs = version.latestTimestamp ? new Date(version.latestTimestamp).getTime() : 0;
         const etag = `W/\"msg-${sessionId}-${version.total}-${latestMs}\"`;
         if (ifNoneMatch === etag) {
+          etagStatus = 'hit304';
           return res.status(304).end();
         }
+        etagStatus = 'miss';
         res.setHeader('ETag', etag);
         res.setHeader('Cache-Control', 'private, max-age=0, must-revalidate');
       }
 
-      const messages = await conversationManager.getMessageHistory(sessionId, since);
+      if (!messagesPromise) {
+        messagesStart = process.hrtime.bigint();
+        messagesPromise = conversationManager.getMessageHistory(sessionId, since);
+      }
+      const messages = await messagesPromise;
+      if (messagesStart) {
+        stepMessagesMs = Number(process.hrtime.bigint() - messagesStart) / 1_000_000;
+      }
+      messageCount = messages.length;
 
       res.json({
         success: true,
         data: messages,
       });
+
+      const totalMs = Number(process.hrtime.bigint() - requestStart) / 1_000_000;
+      const baseLog = [
+        '[API][messages]',
+        `sessionId=${sessionId}`,
+        `since=${since || 'none'}`,
+        `etag=${etagStatus}`,
+        `count=${messageCount}`,
+        `t_session=${stepSessionMs.toFixed(2)}ms`,
+        `t_version=${stepVersionMs.toFixed(2)}ms`,
+        `t_messages=${stepMessagesMs.toFixed(2)}ms`,
+        `total=${totalMs.toFixed(2)}ms`,
+      ].join(' ');
+
+      if (totalMs >= slowThresholdMs) {
+        console.warn(`${baseLog} slow_threshold=${slowThresholdMs}ms`);
+      } else {
+        console.log(baseLog);
+      }
     } catch (error) {
+      const totalMs = Number(process.hrtime.bigint() - requestStart) / 1_000_000;
+      const { sessionId } = req.params;
+      const since = typeof req.query.since === 'string' ? req.query.since : undefined;
+      console.error(
+        [
+          '[API][messages][error]',
+          `sessionId=${sessionId}`,
+          `since=${since || 'none'}`,
+          `t_session=${stepSessionMs.toFixed(2)}ms`,
+          `t_version=${stepVersionMs.toFixed(2)}ms`,
+          `t_messages=${stepMessagesMs.toFixed(2)}ms`,
+          `total=${totalMs.toFixed(2)}ms`,
+          `error=${error instanceof Error ? error.message : String(error)}`,
+        ].join(' ')
+      );
       res.status(500).json({
         success: false,
         error: error instanceof Error ? error.message : '获取消息历史失败',

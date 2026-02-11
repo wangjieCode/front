@@ -2,6 +2,7 @@ import { DrizzleConversationStorage } from './DrizzleConversationStorage';
 import type {
   ListSessionsOptions,
   MessageHistoryVersion,
+  SessionAccessInfo,
 } from './DrizzleConversationStorage';
 import {
   ConversationSession,
@@ -18,6 +19,7 @@ import {
 export interface IConversationStorage {
   saveSession(session: ConversationSession): Promise<void>;
   loadSession(sessionId: string): Promise<ConversationSession | null>;
+  loadSessionAccessInfo(sessionId: string): Promise<SessionAccessInfo | null>;
   listSessions(options?: ListSessionsOptions): Promise<ConversationSession[]>;
   getMessageHistoryVersion(sessionId: string): Promise<MessageHistoryVersion>;
   saveMessage(message: ConversationMessage): Promise<void>;
@@ -166,6 +168,10 @@ export class ConversationStorageAdapter implements IConversationStorage {
       completedAt: dbSession.completedAt || undefined,
       error: dbSession.error || undefined,
     };
+  }
+
+  async loadSessionAccessInfo(sessionId: string): Promise<SessionAccessInfo | null> {
+    return this.storage.loadSessionAccessInfo(sessionId);
   }
 
   /**

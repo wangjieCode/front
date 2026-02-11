@@ -33,12 +33,19 @@ export interface MessageHistoryVersion {
   latestTimestamp: Date | null;
 }
 
+export interface SessionAccessInfo {
+  id: string;
+  userId: string;
+  visibility: string;
+}
+
 /**
  * 基于 Drizzle ORM 的对话存储实现
  */
 export class DrizzleConversationStorage {
   private cache = new RedisCacheService();
   private cacheTtlSeconds = 60;
+  private messageQuerySlowLogMs = Number(process.env.MESSAGE_QUERY_SLOW_LOG_MS || 800);
 
   private hasImagePayload(metadata: any): boolean {
     if (!metadata) return false;
@@ -191,6 +198,30 @@ export class DrizzleConversationStorage {
       ...rawSession,
       context: context || null,
     } as unknown as Conversation;
+  }
+
+  /**
+   * 加载会话访问控制所需最小字段（用于权限校验热路径）
+   */
+  async loadSessionAccessInfo(sessionId: string): Promise<SessionAccessInfo | null> {
+    const db = this.getDb();
+    const result = await db
+      .select({
+        id: conversations.id,
+        userId: conversations.userId,
+        visibility: conversations.visibility,
+      })
+      .from(conversations)
+      .where(eq(conversations.id, sessionId))
+      .limit(1);
+
+    const row = result[0];
+    if (!row) return null;
+    return {
+      id: row.id,
+      userId: row.userId,
+      visibility: row.visibility || 'private',
+    };
   }
 
   /**
@@ -478,32 +509,85 @@ export class DrizzleConversationStorage {
         )
       : eq(messages.conversationId, conversationId);
 
-    const messageRows = await db
-      .select()
+    const queryStart = process.hrtime.bigint();
+    const rows = await db
+      .select({
+        id: messages.id,
+        conversationId: messages.conversationId,
+        role: messages.role,
+        content: messages.content,
+        isComplete: messages.isComplete,
+        timestamp: messages.timestamp,
+        parentMessageId: messages.parentMessageId,
+        metadataId: messageMetadata.id,
+        metadataMessageId: messageMetadata.messageId,
+        metadataToolCalls: messageMetadata.toolCalls,
+        metadataCodeChanges: messageMetadata.codeChanges,
+        metadataThinking: messageMetadata.thinking,
+        metadataIsQuestion: messageMetadata.isQuestion,
+        metadataQuestionOptions: messageMetadata.questionOptions,
+        metadataRequiresResponse: messageMetadata.requiresResponse,
+        metadataMessageReferences: messageMetadata.messageReferences,
+        metadataIsInvalid: messageMetadata.isInvalid,
+        metadataGitBranch: messageMetadata.gitBranch,
+        metadataMrUrl: messageMetadata.mrUrl,
+        metadataImages: messageMetadata.images,
+        metadataOperationDenied: messageMetadata.operationDenied,
+        metadataCreatedAt: messageMetadata.createdAt,
+      })
       .from(messages)
+      .leftJoin(messageMetadata, eq(messageMetadata.messageId, messages.id))
       .where(messageWhere)
       .orderBy(asc(messages.timestamp));
+    const queryMs = Number(process.hrtime.bigint() - queryStart) / 1_000_000;
 
-    if (messageRows.length === 0) {
+    const queryLog = [
+      '[Storage][loadMessagesWithMetadata]',
+      `conversationId=${conversationId}`,
+      `since=${hasValidSince ? (since as string) : 'none'}`,
+      `rows=${rows.length}`,
+      `query=${queryMs.toFixed(2)}ms`,
+    ].join(' ');
+    if (queryMs >= this.messageQuerySlowLogMs) {
+      console.warn(`${queryLog} slow_threshold=${this.messageQuerySlowLogMs}ms`);
+    } else {
+      console.log(queryLog);
+    }
+
+    if (rows.length === 0) {
       if (!hasValidSince) {
         await this.setCache(cacheKey, []);
       }
       return [];
     }
 
-    const messageIds = messageRows.map(row => row.id);
-    const metadataRows = await db
-      .select()
-      .from(messageMetadata)
-      .where(inArray(messageMetadata.messageId, messageIds));
-
-    const metadataByMessageId = new Map(
-      metadataRows.map(row => [row.messageId, row])
-    );
-
-    const combined = messageRows.map(row => ({
-      ...row,
-      metadata: metadataByMessageId.get(row.id) || null,
+    const combined = rows.map(row => ({
+      id: row.id,
+      conversationId: row.conversationId,
+      role: row.role,
+      content: row.content,
+      isComplete: row.isComplete,
+      timestamp: row.timestamp,
+      parentMessageId: row.parentMessageId,
+      metadata: row.metadataId
+        ? {
+            id: row.metadataId,
+            messageId: row.metadataMessageId,
+            toolCalls: row.metadataToolCalls,
+            codeChanges: row.metadataCodeChanges,
+            thinking: row.metadataThinking,
+            isQuestion: row.metadataIsQuestion,
+            questionOptions: row.metadataQuestionOptions,
+            requiresResponse: row.metadataRequiresResponse,
+            messageReferences: row.metadataMessageReferences,
+            isInvalid: row.metadataIsInvalid,
+            gitBranch: row.metadataGitBranch,
+            mrUrl: row.metadataMrUrl,
+            images: row.metadataImages,
+            operationDenied: row.metadataOperationDenied,
+            createdAt: row.metadataCreatedAt,
+          }
+        : null,
     }));
 
     // 图片附件体积大且含二进制/BASE64，不写入 Redis 缓存

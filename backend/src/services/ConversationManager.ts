@@ -12,7 +12,7 @@ import {
   ValidationResult,
 } from "../types";
 import { IConversationStorage } from "../storage/ConversationStorageAdapter";
-import type { MessageHistoryVersion } from "../storage/DrizzleConversationStorage";
+import type { MessageHistoryVersion, SessionAccessInfo } from "../storage/DrizzleConversationStorage";
 import { ModeValidator } from "./ModeValidator";
 import { GitLabMCPService } from "./GitLabMCPService";
 import { WorktreeManager } from "./WorktreeManager";
@@ -64,6 +64,10 @@ export class ConversationManager {
     return `sessions:detail:${sessionId}`;
   }
 
+  private getSessionAccessCacheKey(sessionId: string): string {
+    return `sessions:access:${sessionId}`;
+  }
+
   private getSessionListCacheKey(userId?: string): string {
     return `sessions:list:${userId || "public"}:${this.getCurrentEnv()}`;
   }
@@ -80,6 +84,15 @@ export class ConversationManager {
   private async persistSession(session: ConversationSession): Promise<void> {
     await this.storage.saveSession(session);
     await this.cache.setJson(this.getSessionCacheKey(session.id), session, this.sessionCacheTtlSeconds);
+    await this.cache.setJson(
+      this.getSessionAccessCacheKey(session.id),
+      {
+        id: session.id,
+        userId: session.userId,
+        visibility: session.visibility ?? ConversationVisibility.PRIVATE,
+      } as SessionAccessInfo,
+      this.sessionCacheTtlSeconds
+    );
     await this.invalidateSessionListCache(session.userId);
   }
 
@@ -354,11 +367,33 @@ export class ConversationManager {
     }
   }
 
+  async getSessionAccessInfo(sessionId: string): Promise<SessionAccessInfo | null> {
+    const cached = await this.cache.getJson<SessionAccessInfo>(this.getSessionAccessCacheKey(sessionId));
+    if (cached) {
+      return {
+        ...cached,
+        visibility: cached.visibility ?? ConversationVisibility.PRIVATE,
+      };
+    }
+
+    const sessionAccess = await this.storage.loadSessionAccessInfo(sessionId);
+    if (!sessionAccess) {
+      return null;
+    }
+
+    const normalized = {
+      ...sessionAccess,
+      visibility: sessionAccess.visibility ?? ConversationVisibility.PRIVATE,
+    };
+    await this.cache.setJson(this.getSessionAccessCacheKey(sessionId), normalized, this.sessionCacheTtlSeconds);
+    return normalized;
+  }
+
   /**
    * 清除会话缓存
    */
   private async clearSessionCache(sessionId: string): Promise<void> {
-    await this.cache.del(this.getSessionCacheKey(sessionId));
+    await this.cache.del(this.getSessionCacheKey(sessionId), this.getSessionAccessCacheKey(sessionId));
   }
 
    /**
