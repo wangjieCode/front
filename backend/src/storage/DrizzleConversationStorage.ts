@@ -46,6 +46,7 @@ export class DrizzleConversationStorage {
   private cache = new RedisCacheService();
   private cacheTtlSeconds = 60;
   private messageQuerySlowLogMs = Number(process.env.MESSAGE_QUERY_SLOW_LOG_MS || 800);
+  private messageHistoryVersionCacheTtlSeconds = Number(process.env.MESSAGE_VERSION_CACHE_TTL_SECONDS || 30);
 
   private hasImagePayload(metadata: any): boolean {
     if (!metadata) return false;
@@ -431,6 +432,7 @@ export class DrizzleConversationStorage {
     await Promise.all([
       this.deleteCache(`messages:${message.conversationId}`),
       this.deleteCache(`messages_with_metadata:${message.conversationId}`),
+      this.deleteCache(`message_history_version:${message.conversationId}`),
     ]);
   }
 
@@ -649,6 +651,7 @@ export class DrizzleConversationStorage {
       await Promise.all([
         this.deleteCache(`messages:${conversationId}`),
         this.deleteCache(`messages_with_metadata:${conversationId}`),
+        this.deleteCache(`message_history_version:${conversationId}`),
       ]);
     }
   }
@@ -672,6 +675,11 @@ export class DrizzleConversationStorage {
    */
   async getMessageHistoryVersion(conversationId: string): Promise<MessageHistoryVersion> {
     const db = this.getDb();
+    const cacheKey = `message_history_version:${conversationId}`;
+    const cached = await this.getCached<MessageHistoryVersion>(cacheKey);
+    if (cached) {
+      return cached;
+    }
 
     const [summary] = await db
       .select({
@@ -681,10 +689,12 @@ export class DrizzleConversationStorage {
       .from(messages)
       .where(eq(messages.conversationId, conversationId));
 
-    return {
+    const version = {
       total: Number(summary?.total || 0),
       latestTimestamp: summary?.latestTimestamp || null,
     };
+    await this.setCache(cacheKey, version, this.messageHistoryVersionCacheTtlSeconds);
+    return version;
   }
 
   // ==================== 上下文管理方法 ====================
