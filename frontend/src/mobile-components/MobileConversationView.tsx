@@ -104,19 +104,6 @@ const MobileConversationView: React.FC<ConversationViewProps> = ({
     '看一下页面的功能',
     '看一下某接口调用使用了哪些返回值',
   ];
-  const hasCompleteInitialSession = (
-    candidate: ConversationSession | undefined,
-    expectedSessionId: string
-  ): candidate is ConversationSession => {
-    return Boolean(
-      candidate
-      && candidate.id === expectedSessionId
-      && candidate.context
-      && candidate.context.projectInfo
-      && typeof candidate.context.projectInfo.workDir === 'string'
-      && typeof candidate.context.mode === 'string'
-    );
-  };
 
   const loadBranches = async (projectId: string, fallbackBranch: string, canceled?: { value: boolean }) => {
     if (loadingBranches) return;
@@ -182,29 +169,26 @@ const MobileConversationView: React.FC<ConversationViewProps> = ({
   // 加载会话数据
   useEffect(() => {
     if (sessionId) {
-      const canUseInitialSession = hasCompleteInitialSession(initialSession, sessionId);
-
       // 切换会话时清空状态
       setMessages([]);
       lastLoadedMessageTsRef.current = null;
       setSending(false);
       setLoadingMessages(true);
 
-      // 仅在 initialSession 为完整会话详情时直接使用
-      if (canUseInitialSession) {
+      if (initialSession && initialSession.id === sessionId) {
         setSession(initialSession);
         // We only set global loading if we don't have a session to show
         if (!session || session.id !== sessionId) {
           setLoading(false);
         }
       } else {
-        // 无初始详情或初始数据不完整时，拉取会话详情
+        // 无初始会话时，拉取会话详情
         setLoading(true);
         setSession(null);
       }
 
       const tasks: Array<Promise<void>> = [];
-      if (!canUseInitialSession) {
+      if (!initialSession || initialSession.id !== sessionId) {
         tasks.push(loadSession());
       }
 
