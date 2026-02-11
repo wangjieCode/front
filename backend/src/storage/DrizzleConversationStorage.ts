@@ -148,19 +148,45 @@ export class DrizzleConversationStorage {
    */
   async loadSession(sessionId: string): Promise<Conversation | null> {
     const db = this.getDb();
+    const [sessionRows, contextRows] = await Promise.all([
+      db
+        .select()
+        .from(conversations)
+        .where(eq(conversations.id, sessionId))
+        .limit(1),
+      db
+        .select()
+        .from(conversationContexts)
+        .where(eq(conversationContexts.conversationId, sessionId))
+        .limit(1),
+    ]);
 
-    const result = await db
-      .select()
-      .from(conversations)
-      .where(eq(conversations.id, sessionId))
-      .limit(1);
-
-    const rawSession = result[0];
+    const rawSession = sessionRows[0];
     if (!rawSession) {
       return null;
     }
 
-    const context = await this.loadContext(sessionId);
+    const rawContext = contextRows[0] || null;
+    const context = rawContext
+      ? {
+          projectInfo: {
+            workDir: resolveStoredPath(rawContext.workDir),
+            worktreePath: rawContext.worktreePath
+              ? resolveStoredPath(rawContext.worktreePath, BasePathType.WORKTREE_BASE_DIR)
+              : null,
+            gitBranch: rawContext.gitBranch,
+            relevantFiles: rawContext.relevantFiles || [],
+          },
+          taskDescription: rawContext.taskDescription,
+          messageHistory: [],
+          variables: rawContext.variables || {},
+          mode: rawContext.mode || 'edit',
+          gitBranch: rawContext.contextGitBranch,
+          mrUrl: rawContext.mrUrl,
+          previewInfo: rawContext.previewInfo,
+        }
+      : null;
+
     return {
       ...rawSession,
       context: context || null,
