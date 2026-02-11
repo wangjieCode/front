@@ -67,12 +67,20 @@ export function createConversationRoutes(
         });
       }
 
+      console.log(`[API] 获取 GitLab 分支: projectId=${projectId}, userId=${req.userId}`);
+
       const result = await conversationManager.getGitLabBranches(projectId, req.userId!);
+      console.log(
+        `[API] 获取 GitLab 分支完成: projectId=${projectId}, userId=${req.userId}, branchesCount=${result.branches.length}, defaultBranch=${result.defaultBranch || 'N/A'}`
+      );
       res.json({
         success: true,
         data: result,
       });
     } catch (error) {
+      console.error(
+        `[API] 获取 GitLab 分支失败: projectId=${(req.query.projectId as string) || ''}, userId=${req.userId}, error=${error instanceof Error ? error.message : String(error)}`
+      );
       res.status(500).json({
         success: false,
         error: error instanceof Error ? error.message : '获取分支列表失败',
