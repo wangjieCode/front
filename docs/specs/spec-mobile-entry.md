@@ -18,6 +18,7 @@
 - 桌面入口：`index.html` -> `src/main.tsx` -> `App`。
 - 移动入口：`mobile.html` -> `src/mobile.tsx` -> `AppMobile`。
 - 移动端路由基准为 `/m`，确保所有内部导航一致。
+- 移动入口内置 eruda CDN 调试面板（`https://cdn.jsdelivr.net/npm/eruda`），页面加载即初始化，便于移动端联调。
 
 ### 后端分流
 
