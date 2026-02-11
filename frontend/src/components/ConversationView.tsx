@@ -73,6 +73,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const hasAutoSentRef = useRef(false);
   const suppressInitialLoadRef = useRef(false);
+  const lastLoadedMessageTsRef = useRef<string | null>(null);
   const currentUserId = authUtils.getUserId();
 
   // New conversation state
@@ -225,6 +226,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
     if (sessionId) {
       // 切换会话时清空状态
       setMessages([]);
+      lastLoadedMessageTsRef.current = null;
       setSending(false);
       setLoadingMessages(true);
 
@@ -247,7 +249,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
       // In autoSend mode, we rely on handleSendMessage to create the first message optimistically.
       // Fetching messages immediately would return empty and overwrite the optimistic message.
       if (!autoSend && !suppressInitialLoadRef.current) {
-        tasks.push(loadMessages());
+        tasks.push(loadMessages(false));
       }
 
       Promise.all(tasks).finally(() => {
@@ -380,11 +382,35 @@ const ConversationView: React.FC<ConversationViewProps> = ({
     }
   };
 
-  const loadMessages = async () => {
+  const loadMessages = async (incremental: boolean = false) => {
     if (!sessionId) return;
     try {
-      const messages = await conversationService.getMessages(sessionId);
-      setMessages(messages);
+      const since = incremental ? lastLoadedMessageTsRef.current || undefined : undefined;
+      const nextMessages = await conversationService.getMessages(sessionId, since);
+
+      if (incremental && since) {
+        if (nextMessages.length === 0) {
+          return;
+        }
+
+        setMessages(prev => {
+          const messageMap = new Map(prev.map(item => [item.id, item]));
+          for (const msg of nextMessages) {
+            messageMap.set(msg.id, msg);
+          }
+          const merged = Array.from(messageMap.values()).sort(
+            (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+          );
+          const last = merged[merged.length - 1];
+          lastLoadedMessageTsRef.current = last?.timestamp || lastLoadedMessageTsRef.current;
+          return merged;
+        });
+        return;
+      }
+
+      setMessages(nextMessages);
+      const last = nextMessages[nextMessages.length - 1];
+      lastLoadedMessageTsRef.current = last?.timestamp || null;
     } catch (error) {
       console.error('加载消息失败:', error);
     }
@@ -489,7 +515,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
         console.log('[ConversationView] 流式传输完成，将在 2500ms 后加载消息以获取元数据');
         setTimeout(() => {
           console.log('[ConversationView] 开始加载消息以获取元数据...');
-          loadMessages().then(() => {
+          loadMessages(true).then(() => {
             console.log('[ConversationView] 消息加载完成');
           });
         }, 2500);

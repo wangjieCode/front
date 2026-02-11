@@ -1,5 +1,4 @@
 import { Request, Response, NextFunction } from 'express';
-import dayjs from 'dayjs';
 
 /**
  * 错误处理中间件
@@ -26,14 +25,29 @@ export function requestLogger(
   res: Response,
   next: NextFunction
 ): void {
-  const start = dayjs().valueOf();
+  const requestStart = process.hrtime.bigint();
+  const slowThresholdMs = Number(process.env.API_SLOW_LOG_MS || 1000);
+  const requestUrl = req.originalUrl || req.url;
+  const isApiRequest = requestUrl.startsWith('/api');
+  let hasLogged = false;
 
-  res.on('finish', () => {
-    const duration = dayjs().valueOf() - start;
-    console.log(
-      `${req.method} ${req.path} ${res.statusCode} - ${duration}ms`
-    );
-  });
+  const logRequest = (event: 'finish' | 'close') => {
+    if (!isApiRequest || hasLogged) return;
+    hasLogged = true;
+
+    const durationMs = Number(process.hrtime.bigint() - requestStart) / 1_000_000;
+    const durationText = `${durationMs.toFixed(2)}ms`;
+    const baseLog = `[API] ${req.method} ${requestUrl} status=${res.statusCode} duration=${durationText} event=${event}`;
+
+    if (durationMs >= slowThresholdMs) {
+      console.warn(`${baseLog} slow_threshold=${slowThresholdMs}ms`);
+    } else {
+      console.log(baseLog);
+    }
+  };
+
+  res.on('finish', () => logRequest('finish'));
+  res.on('close', () => logRequest('close'));
 
   next();
 }

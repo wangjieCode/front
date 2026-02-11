@@ -16,7 +16,7 @@ export interface IConversationStorage {
   loadSession(sessionId: string): Promise<ConversationSession | null>;
   listSessions(): Promise<ConversationSession[]>;
   saveMessage(message: ConversationMessage): Promise<void>;
-  loadMessages(sessionId: string): Promise<ConversationMessage[]>;
+  loadMessages(sessionId: string, since?: string): Promise<ConversationMessage[]>;
   loadMessage(sessionId: string, messageId: string): Promise<ConversationMessage | null>;
   saveContext(sessionId: string, context: ConversationContext): Promise<void>;
   loadContext(sessionId: string): Promise<ConversationContext | null>;
@@ -235,8 +235,8 @@ export class ConversationStorageAdapter implements IConversationStorage {
   /**
    * 加载消息列表
    */
-  async loadMessages(sessionId: string): Promise<ConversationMessage[]> {
-    const dbMessagesWithMetadata = await this.storage.loadMessagesWithMetadata(sessionId);
+  async loadMessages(sessionId: string, since?: string): Promise<ConversationMessage[]> {
+    const dbMessagesWithMetadata = await this.storage.loadMessagesWithMetadata(sessionId, since);
     
     return dbMessagesWithMetadata.map(dbMsg => {
       const message: ConversationMessage = {

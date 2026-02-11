@@ -66,8 +66,8 @@ export async function initializeAllServices() {
   const modelAvailabilityService = new ModelAvailabilityService();
   await modelAvailabilityService.initialize(workDir);
   
-  const redis = RedisManager.getInstance();
-  const conversationManager = new ConversationManager(storageAdapter, projectService, gitlabService, worktreeManager, redis);
+  const redis = RedisManager.getInstanceSafe();
+  const conversationManager = new ConversationManager(storageAdapter, projectService, gitlabService, worktreeManager, redis ?? undefined);
   const databaseUrl = process.env.DATABASE_URL || '';
   const neovateAIService = new NeovateAIService(executor, workDir, databaseUrl);
   const conversationAIService = new ConversationAIService(
@@ -79,7 +79,7 @@ export async function initializeAllServices() {
   );
   const messageRouter = new MessageRouter(conversationManager);
 
-  console.log('[INIT] 对话相关服务初始化完成，Redis 已连接');
+  console.log(`[INIT] 对话相关服务初始化完成，Redis ${redis ? '可用' : '不可用，已启用无缓存降级'}`);
 
   services = {
     conversationManager,

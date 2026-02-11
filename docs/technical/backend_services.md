@@ -4,6 +4,7 @@
 
 - ConversationManager：会话创建、状态维护、上下文持久化
 - MessageRouter：消息入库、AI 响应入库、提问等待
+- 会话消息历史接口支持 `since` 增量查询，前端在流式完成后走增量刷新，降低全量读压力。
 
 ## AI 与 Git
 
@@ -21,6 +22,29 @@
 ## 预览与基础设施
 
 - ProjectPreviewService：分配端口、建立软链接、PM2 启动
+- 生产 API 进程使用 PM2 集群双实例（固定 `2`），发布时使用 `pm2 reload` 逐实例滚动重载；Worker 保持单实例。
+
+## 队列与调度
+
+- QueueManager：注册 BullMQ 可重复任务（归档、清理）。
+- Worker：消费队列任务并执行归档/清理逻辑；Redis 不可达时不再退出进程，按 `WORKER_RETRY_DELAY_MS` 周期重试连接。
+- Dashboard 轮询间隔：`86400000ms`（1 天）。
+- Worker 空闲轮询间隔（drainDelay）：`86400s`（1 天）。
+
+## Redis 缓存
+
+- RedisManager：统一 Redis 连接入口（`getInstanceSafe`），支持禁用与安全降级。
+- RedisCacheService：统一封装 JSON 缓存读写、按模式批量清理。
+- Redis 不可达降级：缓存读写失败时自动回退无缓存路径（数据库直读/实时探测），并进行告警节流。
+- ConversationManager：缓存会话详情、会话列表、GitLab 分支列表。
+- ProjectService：缓存项目列表与项目详情，写操作后清理对应键。
+- WorktreeManager：缓存 worktree 信息（分支、路径）。
+- DrizzleConversationStorage：缓存会话上下文、消息列表、消息元数据。
+
+## 接口观测
+
+- requestLogger：统一记录 `/api` 接口响应耗时（方法、路径、状态码、耗时）。
+- 慢请求阈值：`API_SLOW_LOG_MS`（默认 `1000ms`），超过阈值使用 `warn` 日志输出。
 
 ## 存储
 

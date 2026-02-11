@@ -282,6 +282,7 @@ export function createConversationRoutes(
   router.get('/:sessionId/messages', requireAuth, async (req: AuthRequest, res: Response) => {
     try {
       const { sessionId } = req.params;
+      const since = typeof req.query.since === 'string' ? req.query.since : undefined;
 
       const session = await conversationManager.getSession(sessionId);
       if (!session) {
@@ -298,7 +299,7 @@ export function createConversationRoutes(
         });
       }
 
-      const messages = await conversationManager.getMessageHistory(sessionId);
+      const messages = await conversationManager.getMessageHistory(sessionId, since);
 
       res.json({
         success: true,
