@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Spin, Typography, Button, Input, message, Modal, Descriptions, Tag, Tooltip, Select, Dropdown } from 'antd';
-import { ThunderboltOutlined, SendOutlined, RocketOutlined, CheckOutlined, WarningOutlined, StopOutlined, GitlabOutlined, ClockCircleOutlined, LinkOutlined, LockOutlined, InboxOutlined, GlobalOutlined, EllipsisOutlined } from '@ant-design/icons';
+import { ThunderboltOutlined, SendOutlined, RocketOutlined, CheckOutlined, WarningOutlined, StopOutlined, GitlabOutlined, ClockCircleOutlined, LinkOutlined, LockOutlined, InboxOutlined, GlobalOutlined, EllipsisOutlined, PictureOutlined, CloseOutlined } from '@ant-design/icons';
 import ModeSelector from './ModeSelector';
 import ProjectSelector from './ProjectSelector';
 import {
@@ -10,6 +10,7 @@ import {
   ConversationMode,
   ConversationStatus,
   ConversationVisibility,
+  ImageAttachment,
   PreviewStatus,
 } from '../types/conversation';
 import MessageInput from './MessageInput';
@@ -24,7 +25,15 @@ interface ConversationViewProps {
   sessionId?: string;
   initialPrompt?: string;
   initialSession?: ConversationSession;
-  onNewConversation?: (prompt: string, mode: ConversationMode, projectId: string, baseBranch?: string, model?: string) => Promise<void>;
+  initialImages?: ImageAttachment[];
+  onNewConversation?: (
+    prompt: string,
+    mode: ConversationMode,
+    projectId: string,
+    baseBranch?: string,
+    model?: string,
+    initialImages?: ImageAttachment[]
+  ) => Promise<void>;
   onVisibilityChange?: (sessionId: string, visibility: ConversationVisibility) => void;
   mode?: ConversationMode;
   onModeChange?: (mode: ConversationMode) => void;
@@ -49,6 +58,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
   onModeChange,
   autoSend,
   initialContent,
+  initialImages = [],
 }) => {
   const [session, setSession] = useState<ConversationSession | null>(initialSession || null);
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
@@ -67,6 +77,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
 
   // New conversation state
   const [prompt, setPrompt] = useState('');
+  const [createAttachments, setCreateAttachments] = useState<ImageAttachment[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState<string>('');
   const [baseBranch, setBaseBranch] = useState<string>('');
   const [branchOptions, setBranchOptions] = useState<string[]>([]);
@@ -83,14 +94,70 @@ const ConversationView: React.FC<ConversationViewProps> = ({
 
   const lastSentMessageRef = useRef('');
   const streamAbortRef = useRef<AbortController | null>(null);
+  const createFileInputRef = useRef<HTMLInputElement | null>(null);
   const navigate = useNavigate();
   const location = useLocation();
+  const maxImageSize = 5 * 1024 * 1024;
 
   const examplePrompts = [
     '修改一下文案',
     '看一下页面的功能',
     '看一下某接口调用使用了哪些返回值',
   ];
+
+  const readFileAsDataUrl = (file: File): Promise<string> => new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+
+  const appendCreateAttachmentsFromFiles = async (files: File[]) => {
+    if (files.length === 0) return;
+
+    const nextAttachments: ImageAttachment[] = [];
+
+    for (const file of files) {
+      if (!file.type.startsWith('image/')) {
+        continue;
+      }
+      if (file.size > maxImageSize) {
+        continue;
+      }
+      const dataUrl = await readFileAsDataUrl(file);
+      nextAttachments.push({
+        data: dataUrl,
+        mimeType: file.type || 'image/png',
+        name: file.name,
+      });
+    }
+
+    if (nextAttachments.length > 0) {
+      setCreateAttachments(prev => [...prev, ...nextAttachments]);
+    }
+  };
+
+  const handleCreateFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files || []);
+    event.target.value = '';
+    await appendCreateAttachmentsFromFiles(files);
+  };
+
+  const handleCreatePaste = async (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    if (sending) {
+      return;
+    }
+
+    const files = Array.from(event.clipboardData.items)
+      .filter(item => item.kind === 'file' && item.type.startsWith('image/'))
+      .map(item => item.getAsFile())
+      .filter((file): file is File => file !== null);
+
+    if (files.length === 0) return;
+
+    event.preventDefault();
+    await appendCreateAttachmentsFromFiles(files);
+  };
 
   const loadBranches = async (projectId: string, canceled?: { value: boolean }) => {
     if (loadingBranches) return;
@@ -192,6 +259,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
       setSession(null);
       setMessages([]);
       setPrompt('');
+      setCreateAttachments([]);
       setSending(false);
     }
   }, [sessionId, initialSession, autoSend]);
@@ -199,22 +267,27 @@ const ConversationView: React.FC<ConversationViewProps> = ({
 
   // 处理自动发送消息
   useEffect(() => {
-    if (autoSend && initialContent && sessionId && !hasAutoSentRef.current) {
+    const pendingImages: ImageAttachment[] = Array.isArray(location.state?.initialImages)
+      ? location.state.initialImages
+      : initialImages;
+    const hasPendingContent = typeof initialContent === 'string' && initialContent.length > 0;
+    const hasPendingImages = pendingImages.length > 0;
+    if (autoSend && sessionId && !hasAutoSentRef.current && (hasPendingContent || hasPendingImages)) {
       hasAutoSentRef.current = true;
       suppressInitialLoadRef.current = true;
-      if (location.state?.autoSend || location.state?.initialContent) {
+      if (location.state?.autoSend || location.state?.initialContent || location.state?.initialImages) {
         navigate(location.pathname, {
           replace: true,
-          state: { ...location.state, autoSend: false, initialContent: undefined },
+          state: { ...location.state, autoSend: false, initialContent: undefined, initialImages: undefined },
         });
       }
       const initialModel = location.state?.model || session?.context?.variables?.model || chatModel;
       // 延迟一点点发送，避免组件挂载期的状态竞争
       setTimeout(() => {
-        handleSendMessage(initialContent, initialModel);
+        handleSendMessage(initialContent || '', { modelOverride: initialModel, images: pendingImages });
       }, 50);
     }
-  }, [sessionId, autoSend, initialContent, location.pathname, location.state, navigate, session?.context?.variables?.model, chatModel]);
+  }, [sessionId, autoSend, initialContent, initialImages, location.pathname, location.state, navigate, session?.context?.variables?.model, chatModel]);
 
   // 自动滚动到最新消息
   useEffect(() => {
@@ -271,6 +344,32 @@ const ConversationView: React.FC<ConversationViewProps> = ({
     }
   };
 
+  const handleRemoveCreateAttachment = (index: number) => {
+    setCreateAttachments(prev => prev.filter((_, idx) => idx !== index));
+  };
+
+  const handleSubmitCreateConversation = async () => {
+    if (!onNewConversation) return;
+    if (!selectedProjectId) {
+      message.warning('请先选择项目');
+      return;
+    }
+    if (!baseBranch) {
+      message.warning('请先选择基线分支');
+      return;
+    }
+    if (!prompt.trim()) {
+      message.warning('请输入你的需求');
+      return;
+    }
+    setSending(true);
+    try {
+      await onNewConversation(prompt, mode, selectedProjectId, baseBranch, selectedModel, createAttachments);
+    } finally {
+      setSending(false);
+    }
+  };
+
   const loadSession = async () => {
     if (!sessionId) return;
     try {
@@ -295,8 +394,12 @@ const ConversationView: React.FC<ConversationViewProps> = ({
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
-  const handleSendMessage = async (content: string, modelOverride?: string) => {
+  const handleSendMessage = async (
+    content: string,
+    options?: { images?: ImageAttachment[]; modelOverride?: string }
+  ) => {
     if (!sessionId) return;
+    const images = options?.images || [];
     
     // 检查是否已归档
     if (isArchived) {
@@ -314,6 +417,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
       branchId: session?.context?.gitBranch || 'main',
       role: 'user' as any,
       content,
+      metadata: images.length > 0 ? { images } : undefined,
       timestamp: new Date().toISOString(),
     };
     // 创建临时 AI 消息用于流式更新，显示"正在思考"状态
@@ -334,7 +438,8 @@ const ConversationView: React.FC<ConversationViewProps> = ({
     setTimeout(scrollToBottom, 100);
 
     try {
-      const modelToSend = modelOverride || chatModel;
+      const modelToSend = options?.modelOverride || chatModel;
+      const normalizedModel = modelToSend?.toLowerCase();
       const abortController = new AbortController();
       streamAbortRef.current = abortController;
       const response = await fetch(`/api/conversations/${sessionId}/messages`, {
@@ -346,7 +451,8 @@ const ConversationView: React.FC<ConversationViewProps> = ({
         signal: abortController.signal,
         body: JSON.stringify({
           content,
-          ...(modelToSend && isNeovateModelSupported(modelToSend) ? { model: modelToSend } : {}),
+          ...(images.length > 0 ? { images } : {}),
+          ...(normalizedModel && isNeovateModelSupported(normalizedModel) ? { model: normalizedModel } : {}),
         }),
       });
 
@@ -747,46 +853,23 @@ const ConversationView: React.FC<ConversationViewProps> = ({
    };
 
   const renderLandingContent = () => (
-    <div style={{
-      maxWidth: 800,
-      margin: '0 auto',
-      paddingTop: '5vh',
-      animation: 'fadeIn 0.6s ease-in'
-    }}>
-      <style>
-        {`
-          @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(20px); }
-            to { opacity: 1; transform: translateY(0); }
-          }
-        `}
-      </style>
-
+    <div className="create-landing">
       {/* 欢迎标题 */}
-      <div style={{ textAlign: 'center', marginBottom: 48 }}>
-        <Title level={1} style={{ marginBottom: 16, fontSize: 42, fontWeight: 800 }}>
+      <div className="create-landing-header">
+        <Title level={1} className="create-landing-title">
           有什么可以帮你的？
         </Title>
-        <Paragraph style={{ color: '#666', fontSize: 18 }}>
+        <Paragraph className="create-landing-subtitle">
           <ThunderboltOutlined style={{ color: '#faad14' }} /> 你的智能前端开发助手
         </Paragraph>
       </div>
 
       {/* 输入卡片 */}
-      <div
-        className="glass-card"
-        style={{
-          borderRadius: 24,
-          border: '1px solid #f0f0f0',
-          padding: '36px',
-          background: '#fff',
-          boxShadow: '0 4px 20px rgba(0,0,0,0.05)'
-        }}
-      >
-        <div style={{ marginBottom: 24, display: 'flex', gap: 20, flexWrap: 'nowrap', alignItems: 'stretch' }}>
+      <div className="create-conversation-card">
+        <div className="create-form-row">
           {/* 项目选择器 */}
-          <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }}>
-            <Text type="secondary" style={{ fontSize: 14, marginBottom: 6, minHeight: 20, display: 'block' }}>
+          <div className="create-field">
+            <Text type="secondary" className="create-field-label">
               选择项目 <span style={{ color: '#ff4d4f' }}>*</span>
             </Text>
             <ProjectSelector
@@ -800,8 +883,8 @@ const ConversationView: React.FC<ConversationViewProps> = ({
           </div>
 
           {/* 基线分支选择 */}
-          <div style={{ width: 200, flexShrink: 0, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }}>
-            <Text type="secondary" style={{ fontSize: 14, marginBottom: 6, minHeight: 20, display: 'block' }}>
+          <div className="create-field create-field-branch">
+            <Text type="secondary" className="create-field-label">
               基线分支 <span style={{ color: '#ff4d4f' }}>*</span>
             </Text>
             <Select
@@ -811,7 +894,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
               disabled={!selectedProjectId}
               showSearch
               size="large"
-              style={{ width: '100%' }}
+              className="create-branch-select"
               onChange={(value) => setBaseBranch(value)}
               onDropdownVisibleChange={(open) => {
                 if (open && selectedProjectId) {
@@ -823,62 +906,74 @@ const ConversationView: React.FC<ConversationViewProps> = ({
           </div>
 
           {/* 模式选择器 */}
-          <div style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }}>
-            <Text type="secondary" style={{ fontSize: 14, marginBottom: 6, minHeight: 20, display: 'block' }}>
+          <div className="create-field create-field-mode">
+            <Text type="secondary" className="create-field-label">
               对话模式
             </Text>
             <ModeSelector value={mode} onChange={onModeChange || (() => { })} />
           </div>
         </div>
 
-        <div className="main-input-wrapper" style={{ borderRadius: 12, padding: '4px', background: '#f5f5f5', marginBottom: 16 }}>
+        <div className="create-input-wrapper">
+          {createAttachments.length > 0 && (
+            <div className="create-input-attachments">
+              {createAttachments.map((attachment, index) => (
+                <div key={`${attachment.name || 'image'}-${index}`} className="create-input-attachment">
+                  <img
+                    src={attachment.data}
+                    alt={attachment.name || '上传图片'}
+                  />
+                  <Button
+                    type="text"
+                    size="small"
+                    icon={<CloseOutlined />}
+                    onClick={() => handleRemoveCreateAttachment(index)}
+                    className="create-input-attachment-remove"
+                  />
+                </div>
+              ))}
+            </div>
+          )}
           <TextArea
-            className="main-input-area"
+            className="create-prompt-textarea"
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
+            onPaste={handleCreatePaste}
             placeholder="描述你想要的功能，例如：在首页添加一个搜索框..."
             autoSize={{ minRows: 4, maxRows: 8 }}
-            style={{
-              fontSize: 16,
-              background: 'transparent',
-              border: 'none',
-              resize: 'none'
-            }}
             onPressEnter={async (e) => {
               if ((e.ctrlKey || e.metaKey) && onNewConversation) {
-                if (!selectedProjectId) {
-                  message.warning('请先选择项目');
-                  return;
-                }
-                if (!baseBranch) {
-                  message.warning('请先选择基线分支');
-                  return;
-                }
-                setSending(true);
-                try {
-                  await onNewConversation(prompt, mode, selectedProjectId, baseBranch, selectedModel);
-                } finally {
-                  setSending(false);
-                }
+                await handleSubmitCreateConversation();
               }
             }}
           />
         </div>
 
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
-          <Text type="secondary" style={{ fontSize: 12 }}>
-            按 Ctrl/Cmd + Enter 发送
+        <div className="create-toolbar">
+          <Text type="secondary" className="create-toolbar-hint">
+            按 Ctrl/Cmd + Enter 创建对话
           </Text>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div className="create-toolbar-actions">
+            <input
+              ref={createFileInputRef}
+              type="file"
+              accept="image/*"
+              multiple
+              hidden
+              onChange={handleCreateFileChange}
+              disabled={sending}
+            />
+            <Button
+              type="text"
+              icon={<PictureOutlined />}
+              onClick={() => createFileInputRef.current?.click()}
+              disabled={sending}
+              className="create-upload-button"
+            />
             <Select
               value={selectedModel}
               size="middle"
-              style={{
-                width: 210,
-                background: '#f7f7f7',
-                borderRadius: 8,
-                opacity: 0.85,
-              }}
+              className="create-model-select"
               dropdownStyle={{ minWidth: 240 }}
               variant="filled"
               onChange={(value) => setSelectedModel(value)}
@@ -892,54 +987,23 @@ const ConversationView: React.FC<ConversationViewProps> = ({
               type="primary"
               size="large"
               icon={<SendOutlined />}
-              onClick={async () => {
-                if (!selectedProjectId) {
-                  message.warning('请先选择项目');
-                  return;
-                }
-                if (!baseBranch) {
-                  message.warning('请先选择基线分支');
-                  return;
-                }
-                if (onNewConversation) {
-                  setSending(true);
-                  try {
-                    await onNewConversation(prompt, mode, selectedProjectId, baseBranch, selectedModel);
-                  } finally {
-                    setSending(false);
-                  }
-                }
-              }}
+              onClick={handleSubmitCreateConversation}
               loading={sending}
-              style={{
-                height: 48,
-                padding: '0 32px',
-                fontSize: 16,
-                borderRadius: 24,
-                background: 'linear-gradient(135deg, #7c5cff 0%, #6b4ce0 100%)',
-                border: 'none',
-                boxShadow: '0 4px 12px rgba(124, 92, 255, 0.3)'
-              }}
+              className="create-send-button"
+              disabled={sending}
             >
-              {sending ? '正在思考...' : '发送'}
+              {sending ? '创建中...' : '创建对话'}
             </Button>
           </div>
         </div>
       </div>
 
       {/* 示例提示 */}
-      <div style={{ marginTop: 48, display: 'flex', flexWrap: 'wrap', gap: 12, justifyContent: 'center' }}>
+      <div className="create-example-list">
         {examplePrompts.map((example, index) => (
           <Button
             key={index}
-            style={{
-              borderRadius: 20,
-              background: '#fff',
-              border: '1px solid #eee',
-              color: '#666',
-              padding: '4px 16px',
-              height: 'auto'
-            }}
+            className="create-example-chip"
             onClick={() => setPrompt(example)}
           >
             {example}

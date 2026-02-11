@@ -10,3 +10,4 @@
 - Merge Request：`spec-merge-request.md`
 - 移动端入口与分流：`spec-mobile-entry.md`
 - Monorepo 工作区：`spec-monorepo-workspace.md`
+- 视觉模型提供方验证：`spec-vision-model-verify.md`

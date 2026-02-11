@@ -86,13 +86,13 @@ export class GitLabMCPService {
       });
 
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
+        const errorData = (await response.json().catch(() => ({}))) as { message?: string };
         throw new Error(
           `创建 MR 失败 (${response.status}): ${errorData.message || response.statusText}`
         );
       }
 
-      const data: GitLabMRResponse = await response.json();
+      const data = (await response.json()) as GitLabMRResponse;
 
       return createMergeRequest(
         data.iid,
@@ -156,7 +156,7 @@ export class GitLabMCPService {
         return null;
       }
 
-      const data: GitLabMRResponse[] = await response.json();
+      const data = (await response.json()) as GitLabMRResponse[];
 
       if (data.length > 0) {
         const mr = data[0];
@@ -198,7 +198,7 @@ export class GitLabMCPService {
         return null;
       }
 
-      const data: GitLabMRResponse = await response.json();
+      const data = (await response.json()) as GitLabMRResponse;
 
       return createMergeRequest(
         data.iid,
@@ -279,6 +279,7 @@ export class GitLabMCPService {
         console.error('[GitLabMCPService] getProjectInfo 失败：未提供项目 ID');
         return null;
       }
+      console.log(`[GitLabMCPService] 开始获取项目信息: projectId=${projectId}`);
       const url = `${this.baseUrl}/projects/${encodeURIComponent(projectId)}`;
 
       const response = await fetch(url, {
@@ -287,11 +288,29 @@ export class GitLabMCPService {
       });
 
       if (!response.ok) {
+        const errorBody = await response.text().catch(() => '');
+        console.warn(
+          `[GitLabMCPService] getProjectInfo 请求失败: projectId=${projectId}, status=${response.status}, statusText=${response.statusText}, body=${errorBody.slice(0, 300) || 'EMPTY'}`
+        );
         return null;
       }
 
-      return await response.json();
+      const projectInfo = (await response.json()) as {
+        id: number;
+        name: string;
+        web_url: string;
+        default_branch: string;
+      };
+
+      console.log(
+        `[GitLabMCPService] 获取项目信息成功: projectId=${projectId}, defaultBranch=${projectInfo.default_branch || 'N/A'}`
+      );
+
+      return projectInfo;
     } catch (error) {
+      console.error(
+        `[GitLabMCPService] getProjectInfo 异常: projectId=${projectId || ''}, error=${error instanceof Error ? error.message : String(error)}`
+      );
       return null;
     }
   }
@@ -302,6 +321,7 @@ export class GitLabMCPService {
         console.error('[GitLabMCPService] listBranches 失败：未提供项目 ID');
         return [];
       }
+      console.log(`[GitLabMCPService] 开始拉取分支列表: projectId=${projectId}`);
       const branches: string[] = [];
       const perPage = 100;
       let page = 1;
@@ -315,13 +335,20 @@ export class GitLabMCPService {
         });
 
         if (!response.ok) {
+          const errorBody = await response.text().catch(() => '');
+          console.warn(
+            `[GitLabMCPService] listBranches 请求失败: projectId=${projectId}, page=${page}, status=${response.status}, statusText=${response.statusText}, currentCount=${branches.length}, body=${errorBody.slice(0, 300) || 'EMPTY'}`
+          );
           return branches;
         }
 
-        const data: GitLabBranchResponse[] = await response.json();
+        const data = (await response.json()) as GitLabBranchResponse[];
         branches.push(...data.map(branch => branch.name));
 
         const nextPage = response.headers.get('x-next-page');
+        console.log(
+          `[GitLabMCPService] listBranches 分页结果: projectId=${projectId}, page=${page}, fetched=${data.length}, total=${branches.length}, nextPage=${nextPage || 'none'}`
+        );
         if (nextPage && nextPage.trim()) {
           page = Number(nextPage);
         } else {
@@ -329,8 +356,12 @@ export class GitLabMCPService {
         }
       }
 
+      console.log(`[GitLabMCPService] 拉取分支列表完成: projectId=${projectId}, total=${branches.length}`);
       return branches;
     } catch (error) {
+      console.error(
+        `[GitLabMCPService] listBranches 异常: projectId=${projectId || ''}, error=${error instanceof Error ? error.message : String(error)}`
+      );
       return [];
     }
   }

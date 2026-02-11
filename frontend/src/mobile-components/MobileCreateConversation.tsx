@@ -1,9 +1,9 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Button, Input, Select, Typography, message } from 'antd';
-import { SendOutlined } from '@ant-design/icons';
+import { SendOutlined, PictureOutlined, CloseOutlined } from '@ant-design/icons';
 import MobileModeSelector from './MobileModeSelector';
 import MobileProjectSelector from './MobileProjectSelector';
-import { ConversationMode } from '../types/conversation';
+import { ConversationMode, ImageAttachment } from '../types/conversation';
 import { Project } from '../types/project';
 import { conversationService } from '../services/conversationService';
 import { DEFAULT_NEOVATE_MODEL } from '@front/shared';
@@ -21,7 +21,8 @@ type MobileCreateConversationProps = {
     mode: ConversationMode,
     projectId: string,
     baseBranch?: string,
-    model?: string
+    model?: string,
+    initialImages?: ImageAttachment[]
   ) => Promise<void>;
 };
 
@@ -37,8 +38,18 @@ const MobileCreateConversation: React.FC<MobileCreateConversationProps> = ({
   const [branchOptions, setBranchOptions] = useState<string[]>([]);
   const [loadingBranches, setLoadingBranches] = useState(false);
   const [selectedModel, setSelectedModel] = useState(DEFAULT_NEOVATE_MODEL);
+  const [attachments, setAttachments] = useState<ImageAttachment[]>([]);
   const { modelOptions, defaultModel } = useModelOptions();
   const [submitting, setSubmitting] = useState(false);
+  const maxImageSize = 5 * 1024 * 1024;
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const readFileAsDataUrl = (file: File): Promise<string> => new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
 
   useEffect(() => {
     const enabledModels = new Set(modelOptions.filter(option => option.enabled !== false).map(option => option.value));
@@ -99,10 +110,39 @@ const MobileCreateConversation: React.FC<MobileCreateConversationProps> = ({
     }
     setSubmitting(true);
     try {
-      await onNewConversation(prompt, mode, selectedProjectId, baseBranch, selectedModel);
+      await onNewConversation(prompt, mode, selectedProjectId, baseBranch, selectedModel, attachments);
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files || []);
+    event.target.value = '';
+    if (files.length === 0) return;
+
+    const validFiles = files.filter(file => file.type.startsWith('image/'));
+    const nextAttachments: ImageAttachment[] = [];
+
+    for (const file of validFiles) {
+      if (file.size > maxImageSize) {
+        continue;
+      }
+      const dataUrl = await readFileAsDataUrl(file);
+      nextAttachments.push({
+        data: dataUrl,
+        mimeType: file.type || 'image/png',
+        name: file.name,
+      });
+    }
+
+    if (nextAttachments.length > 0) {
+      setAttachments(prev => [...prev, ...nextAttachments]);
+    }
+  };
+
+  const handleRemoveAttachment = (index: number) => {
+    setAttachments(prev => prev.filter((_, idx) => idx !== index));
   };
 
   return (
@@ -168,6 +208,42 @@ const MobileCreateConversation: React.FC<MobileCreateConversationProps> = ({
             placeholder="描述你想要的功能，例如：在首页添加一个搜索框..."
             autoSize={{ minRows: 4, maxRows: 8 }}
           />
+        </div>
+
+        {attachments.length > 0 && (
+          <div className="mobile-create-attachments">
+            {attachments.map((attachment, index) => (
+              <div className="mobile-create-attachment" key={`${attachment.name || 'image'}-${index}`}>
+                <img src={attachment.data} alt={attachment.name || '上传图片'} />
+                <Button
+                  type="text"
+                  size="small"
+                  icon={<CloseOutlined />}
+                  className="mobile-create-attachment-remove"
+                  onClick={() => handleRemoveAttachment(index)}
+                />
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div className="mobile-create-upload">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            multiple
+            hidden
+            onChange={handleFileChange}
+            disabled={submitting}
+          />
+          <Button
+            icon={<PictureOutlined />}
+            onClick={() => fileInputRef.current?.click()}
+            disabled={submitting}
+          >
+            添加图片
+          </Button>
         </div>
 
         <Button

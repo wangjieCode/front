@@ -141,6 +141,7 @@ export const messageMetadata = pgTable(
     isInvalid: boolean('is_invalid').default(false),
     gitBranch: varchar('git_branch', { length: 255 }), // 关联的 Git 分支
     mrUrl: text('mr_url'), // 关联的 MR URL
+    images: jsonb('images'), // 图片附件
     operationDenied: jsonb('operation_denied'), // 操作被拒绝的信息
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },

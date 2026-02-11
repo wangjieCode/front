@@ -919,6 +919,8 @@ export class ConversationManager {
     projectId: string,
     userId: string
   ): Promise<{ branches: string[]; defaultBranch?: string }> {
+    console.log(`[ConversationManager] 开始获取 GitLab 分支: projectId=${projectId}, userId=${userId}`);
+
     if (!this.gitlabService) {
       throw new Error('GitLab 服务未初始化');
     }
@@ -933,14 +935,37 @@ export class ConversationManager {
       throw new Error('项目未配置 gitlab_project_id');
     }
 
+    console.log(
+      `[ConversationManager] GitLab 分支查询参数: projectId=${projectId}, gitlabProjectId=${gitlabProjectId}, projectDefaultBranch=${projectResult.project.gitBranch}`
+    );
+
     const [branches, projectInfo] = await Promise.all([
       this.gitlabService.listBranches(gitlabProjectId),
       this.gitlabService.getProjectInfo(gitlabProjectId),
     ]);
 
+    const resolvedDefaultBranch = projectInfo?.default_branch || projectResult.project.gitBranch;
+    const defaultBranchSource = projectInfo?.default_branch ? 'gitlab.default_branch' : 'project.gitBranch';
+
+    console.log(
+      `[ConversationManager] GitLab 分支查询结果: projectId=${projectId}, gitlabProjectId=${gitlabProjectId}, branchesCount=${branches.length}, gitlabDefaultBranch=${projectInfo?.default_branch || 'N/A'}, resolvedDefaultBranch=${resolvedDefaultBranch || 'N/A'}, source=${defaultBranchSource}`
+    );
+
+    if (branches.length === 0) {
+      console.warn(
+        `[ConversationManager] GitLab 分支列表为空: projectId=${projectId}, gitlabProjectId=${gitlabProjectId}，请检查 GitLab 项目权限、projectId 或 token 配置`
+      );
+    }
+
+    if (!projectInfo?.default_branch) {
+      console.warn(
+        `[ConversationManager] GitLab 默认分支为空，已回退到项目默认分支: projectId=${projectId}, gitlabProjectId=${gitlabProjectId}, fallback=${projectResult.project.gitBranch}`
+      );
+    }
+
     return {
       branches,
-      defaultBranch: projectInfo?.default_branch || projectResult.project.gitBranch,
+      defaultBranch: resolvedDefaultBranch,
     };
   }
 }

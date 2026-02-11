@@ -225,6 +225,7 @@ export class ConversationStorageAdapter implements IConversationStorage {
         isInvalid: message.metadata.isInvalid || null,
         gitBranch: message.metadata.gitBranch || null,
         mrUrl: message.metadata.mrUrl || null,
+        images: message.metadata.images || null,
         operationDenied: message.metadata.operationDenied || null,
       });
     }
@@ -259,6 +260,7 @@ export class ConversationStorageAdapter implements IConversationStorage {
           isInvalid: dbMetadata.isInvalid || undefined,
           gitBranch: dbMetadata.gitBranch || undefined,
           mrUrl: dbMetadata.mrUrl || undefined,
+          images: dbMetadata.images || undefined,
           operationDenied: dbMetadata.operationDenied || undefined,
         };
       }
@@ -299,6 +301,7 @@ export class ConversationStorageAdapter implements IConversationStorage {
         isInvalid: dbMetadata.isInvalid || undefined,
         gitBranch: dbMetadata.gitBranch || undefined,
         mrUrl: dbMetadata.mrUrl || undefined,
+        images: dbMetadata.images || undefined,
         operationDenied: dbMetadata.operationDenied || undefined,
       };
     }

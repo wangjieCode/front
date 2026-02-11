@@ -11,6 +11,7 @@
     "test": "jest",
     "test:watch": "jest --watch",
     "verify:neovate": "node scripts/verify-neovate-sdk.mjs",
+    "verify:vision": "node scripts/verify-vision-model.mjs",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push",
