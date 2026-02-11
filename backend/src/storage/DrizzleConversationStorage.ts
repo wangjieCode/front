@@ -1,4 +1,4 @@
-import { eq, and, desc, asc, lt, gt, inArray } from 'drizzle-orm';
+import { eq, and, desc, asc, lt, gt, inArray, or, sql } from 'drizzle-orm';
 import { DatabaseManager } from '../db/DatabaseManager';
 import {
   conversations,
@@ -21,6 +21,11 @@ import { RedisCacheService } from '../services/RedisCacheService';
 export interface PaginationOptions {
   limit?: number;
   offset?: number;
+}
+
+export interface ListSessionsOptions {
+  userId?: string;
+  environment?: string;
 }
 
 /**
@@ -191,10 +196,14 @@ export class DrizzleConversationStorage {
    /**
     * 列出所有会话
     */
-  async listSessions(): Promise<any[]> {
+  async listSessions(options: ListSessionsOptions = {}): Promise<any[]> {
     const db = this.getDb();
+    const { userId, environment } = options;
+    const visibilityScope = userId
+      ? or(eq(conversations.userId, userId), eq(conversations.visibility, 'public'))
+      : undefined;
 
-    const sessionRows = await db
+    const sessionQuery = db
       .select({
         id: conversations.id,
         userId: conversations.userId,
@@ -209,28 +218,40 @@ export class DrizzleConversationStorage {
       })
       .from(conversations)
       .orderBy(desc(conversations.createdAt));
+    const sessionRows = visibilityScope
+      ? await sessionQuery.where(visibilityScope)
+      : await sessionQuery;
 
     if (sessionRows.length === 0) {
       return [];
     }
 
     const sessionIds = sessionRows.map(row => row.id);
+    const contextFilters = [inArray(conversationContexts.conversationId, sessionIds)];
+    if (environment) {
+      contextFilters.push(
+        sql`${conversationContexts.variables} ->> 'environment' = ${environment}`
+      );
+    }
+
     const contextRows = await db
       .select({
         conversationId: conversationContexts.conversationId,
         mode: conversationContexts.mode,
         taskDescription: conversationContexts.taskDescription,
         workDir: conversationContexts.workDir,
-        variables: conversationContexts.variables,
+        environment: sql<string | null>`${conversationContexts.variables} ->> 'environment'`,
       })
       .from(conversationContexts)
-      .where(inArray(conversationContexts.conversationId, sessionIds));
+      .where(and(...contextFilters));
 
     const contextByConversationId = new Map(
       contextRows.map(row => [row.conversationId, row])
     );
 
-    return sessionRows.map(row => {
+    return sessionRows
+      .filter(row => contextByConversationId.has(row.id))
+      .map(row => {
       const contextRow = contextByConversationId.get(row.id);
 
       return {
@@ -246,7 +267,9 @@ export class DrizzleConversationStorage {
         context: {
           mode: contextRow?.mode || 'edit',
           taskDescription: contextRow?.taskDescription || '',
-          variables: contextRow?.variables || {},
+          variables: {
+            environment: contextRow?.environment || null,
+          },
           projectInfo: {
             workDir: resolveStoredPath(contextRow?.workDir || null),
             projectId: row.projectId || null,

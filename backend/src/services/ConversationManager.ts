@@ -353,7 +353,6 @@ export class ConversationManager {
      * - 加上该用户创建的所有对话（包括私密的）
      */
   async listSessions(userId?: string): Promise<ConversationSession[]> {
-    const currentEnv = this.getCurrentEnv();
     const cacheKey = this.getSessionListCacheKey(userId);
 
     const cached = await this.cache.getJson<ConversationSession[]>(cacheKey);
@@ -361,34 +360,17 @@ export class ConversationManager {
       return cached;
     }
 
-    const rawAll = await this.storage.listSessions();
-    const all = rawAll.map((s: any) => ({
+    const rawSessions = await this.storage.listSessions({
+      userId,
+      environment: this.getCurrentEnv(),
+    });
+    const sessions = rawSessions.map((s: any) => ({
       ...s,
       visibility: s.visibility ?? 'private',
     }));
-    
-    if (!userId) {
-      // 未登录用户只能看到公开对话
-      const filtered = all.filter((s: any) => s.visibility === ConversationVisibility.PUBLIC);
-      await this.cache.setJson(cacheKey, filtered, this.sessionListCacheTtlSeconds);
-      return filtered as ConversationSession[];
-    }
-    
-    // 登录用户：公开对话 + 自己创建的对话
-    const filtered = all.filter((s: any) => 
-      s.visibility === ConversationVisibility.PUBLIC || s.userId === userId
-    );
 
-    // 根据 environment 过滤
-    const envFiltered = filtered.filter((s: any) => {
-      const vars = s.context?.variables || {};
-      const sessionEnv = vars.environment;
-      return sessionEnv === currentEnv;
-    });
-
-    await this.cache.setJson(cacheKey, envFiltered, this.sessionListCacheTtlSeconds);
-
-    return envFiltered as ConversationSession[];
+    await this.cache.setJson(cacheKey, sessions, this.sessionListCacheTtlSeconds);
+    return sessions as ConversationSession[];
   }
 
   /**

@@ -157,7 +157,15 @@ async function loadNeovateSdk(): Promise<{
   createSession: typeof import('@neovate/code').createSession;
   resumeSession: typeof import('@neovate/code').resumeSession;
 }> {
-  return import('@neovate/code');
+  const dynamicImport = new Function(
+    'specifier',
+    'return import(specifier)'
+  ) as (specifier: string) => Promise<{
+    createSession: typeof import('@neovate/code').createSession;
+    resumeSession: typeof import('@neovate/code').resumeSession;
+  }>;
+
+  return dynamicImport('@neovate/code');
 }
 
 export function getNeovateSdkVersion(): string | null {

@@ -1,4 +1,5 @@
 import { DrizzleConversationStorage } from './DrizzleConversationStorage';
+import type { ListSessionsOptions } from './DrizzleConversationStorage';
 import {
   ConversationSession,
   ConversationMessage,
@@ -14,7 +15,7 @@ import {
 export interface IConversationStorage {
   saveSession(session: ConversationSession): Promise<void>;
   loadSession(sessionId: string): Promise<ConversationSession | null>;
-  listSessions(): Promise<ConversationSession[]>;
+  listSessions(options?: ListSessionsOptions): Promise<ConversationSession[]>;
   saveMessage(message: ConversationMessage): Promise<void>;
   loadMessages(sessionId: string, since?: string): Promise<ConversationMessage[]>;
   loadMessage(sessionId: string, messageId: string): Promise<ConversationMessage | null>;
@@ -166,9 +167,9 @@ export class ConversationStorageAdapter implements IConversationStorage {
   /**
    * 获取所有会话列表
    */
-  async listSessions(): Promise<ConversationSession[]> {
+  async listSessions(options?: ListSessionsOptions): Promise<ConversationSession[]> {
     try {
-      const dbSessions = await this.storage.listSessions();
+      const dbSessions = await this.storage.listSessions(options);
 
       const sessions: ConversationSession[] = dbSessions.map(dbSession => ({
         id: dbSession.id,
