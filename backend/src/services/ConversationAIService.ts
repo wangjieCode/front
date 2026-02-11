@@ -14,7 +14,9 @@ import { GitService } from './GitService';
 import { GitLabMCPService } from './GitLabMCPService';
 import { ConversationManager } from './ConversationManager';
 import dayjs from 'dayjs';
-import { DEFAULT_NEOVATE_MODEL } from '../constants/neovateModels';
+import { DEFAULT_NEOVATE_MODEL } from '@front/shared';
+
+const DEFAULT_VISION_MODEL = 'qwen3-vl-plus';
 
 /**
  * 对话 AI 服务类
@@ -27,6 +29,52 @@ export class ConversationAIService {
   private gitlabService: GitLabMCPService;
   private conversationManager: ConversationManager;
   private activeAbortControllers: Map<string, AbortController> = new Map();
+
+  private hasVisionModelConfig(): boolean {
+    return !!process.env.MIDSCENE_MODEL_BASE_URL?.trim() && !!process.env.MIDSCENE_MODEL_API_KEY?.trim();
+  }
+
+  private async buildPromptWithVisionInsights(
+    sessionId: string,
+    userMessage: string,
+    images?: ImageAttachment[],
+    modelOverride?: string,
+    abortSignal?: AbortSignal
+  ): Promise<string> {
+    if (!images || images.length === 0) {
+      return userMessage;
+    }
+
+    if (!this.hasVisionModelConfig()) {
+      throw new Error('检测到图片输入，但未配置 MIDSCENE_MODEL_BASE_URL 或 MIDSCENE_MODEL_API_KEY');
+    }
+
+    const visionInsights = (await this.generateVisionResponse(
+      sessionId,
+      userMessage,
+      images,
+      modelOverride,
+      abortSignal
+    )).trim();
+
+    const normalizedVisionInsights = visionInsights || '视觉模型未提炼出稳定的图片关键信息，请结合用户文本需求执行，并在必要时提示用户补充更清晰图片。';
+    if (!visionInsights) {
+      console.warn('[ConversationAIService] 视觉模型返回空内容，已使用兜底提示继续执行');
+    }
+    console.log('[ConversationAIService] 视觉模型提炼特征:');
+    console.log(normalizedVisionInsights);
+
+    return [
+      '你将继续处理一个包含图片上下文的用户请求。',
+      '请优先结合图片关键信息理解需求，再完成后续任务。',
+      '',
+      '【用户原始需求】',
+      userMessage || '(空)',
+      '',
+      '【图片关键信息（由视觉模型提炼）】',
+      normalizedVisionInsights,
+    ].join('\n');
+  }
 
   constructor(
     neovateService: NeovateAIService,
@@ -55,30 +103,16 @@ export class ConversationAIService {
   ): Promise<AIResponse> {
     try {
       console.log(`[ConversationAIService] 流式生成响应 - sessionId: ${sessionId}`);
+      const abortController = new AbortController();
+      this.activeAbortControllers.set(sessionId, abortController);
 
-      if (images && images.length > 0) {
-        const abortController = new AbortController();
-        this.activeAbortControllers.set(sessionId, abortController);
-        try {
-          const response = await this.generateVisionResponse(
-            sessionId,
-            userMessage,
-            images,
-            modelOverride,
-            abortController.signal
-          );
-          if (response) {
-            onChunk(response);
-          }
-          return {
-            content: response,
-            metadata: {},
-            shouldPause: false,
-          };
-        } finally {
-          this.activeAbortControllers.delete(sessionId);
-        }
-      }
+      const promptWithVisionInsights = await this.buildPromptWithVisionInsights(
+        sessionId,
+        userMessage,
+        images,
+        modelOverride,
+        abortController.signal
+      );
 
       // 查询 Neovate 会话 ID
       let neovateSessionId: string | undefined;
@@ -96,13 +130,10 @@ export class ConversationAIService {
         : context.projectInfo.workDir;
       const selectedModel = modelOverride
         || (typeof context.variables?.model === 'string' ? context.variables.model : DEFAULT_NEOVATE_MODEL);
-
-      const abortController = new AbortController();
-      this.activeAbortControllers.set(sessionId, abortController);
       
       // 调用流式 AI 服务
       const result = await this.neovateService.modifyCodeStream(
-        userMessage,
+        promptWithVisionInsights,
         sessionId,
         neovateSessionId,
         projectWorkDir,
@@ -185,14 +216,12 @@ export class ConversationAIService {
         };
       }
 
-      if (images && images.length > 0) {
-        const response = await this.generateVisionResponse(sessionId, userMessage, images, modelOverride);
-        return {
-          content: response,
-          metadata: {},
-          shouldPause: false,
-        };
-      }
+      const promptWithVisionInsights = await this.buildPromptWithVisionInsights(
+        sessionId,
+        userMessage,
+        images,
+        modelOverride
+      );
 
       // 查询是否存在 Neovate 会话 ID
       let neovateSessionId: string | undefined;
@@ -219,7 +248,7 @@ export class ConversationAIService {
       // console.log(`[ConversationAIService] projectWorkDir: ${projectWorkDir}`);
       // console.log(`[ConversationAIService] context.workDir: ${context.workDir}`);
       const result = await this.neovateService.modifyCode(
-        userMessage,
+        promptWithVisionInsights,
         sessionId,
         neovateSessionId,
         projectWorkDir,
@@ -332,9 +361,9 @@ export class ConversationAIService {
     modelOverride?: string,
     abortSignal?: AbortSignal
   ): Promise<string> {
-    const baseUrl = process.env.MIDSCENE_MODEL_BASE_URL || '';
-    const apiKey = process.env.MIDSCENE_MODEL_API_KEY || '';
-    const model = process.env.MIDSCENE_MODEL_NAME || modelOverride || DEFAULT_NEOVATE_MODEL;
+    const baseUrl = process.env.MIDSCENE_MODEL_BASE_URL?.trim() || '';
+    const apiKey = process.env.MIDSCENE_MODEL_API_KEY?.trim() || '';
+    const model = process.env.MIDSCENE_MODEL_NAME || modelOverride || DEFAULT_VISION_MODEL;
 
     if (!baseUrl || !apiKey) {
       throw new Error('未配置 MIDSCENE_MODEL_BASE_URL 或 MIDSCENE_MODEL_API_KEY');
@@ -376,6 +405,11 @@ export class ConversationAIService {
       messages.push({ role: 'user', content: contentParts });
     }
 
+    messages.unshift({
+      role: 'system',
+      content: '你是图片内容提炼助手。只输出与用户需求相关的图片关键信息，简洁分点，不要输出代码块。'
+    });
+
     const url = new URL('chat/completions', baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`).toString();
     const response = await fetch(url, {
       method: 'POST',
@@ -393,13 +427,28 @@ export class ConversationAIService {
     });
 
     if (!response.ok) {
-      const errorPayload = await response.json().catch(() => ({}));
+      const errorPayload: any = await response.json().catch(() => ({}));
       const errorMessage = errorPayload?.error?.message || response.statusText;
       throw new Error(`视觉模型调用失败: ${errorMessage}`);
     }
 
-    const payload = await response.json();
-    return payload?.choices?.[0]?.message?.content || '';
+    const payload: any = await response.json();
+    const content = payload?.choices?.[0]?.message?.content;
+    if (typeof content === 'string') {
+      return content;
+    }
+    if (Array.isArray(content)) {
+      return content
+        .map((part: any) => {
+          if (typeof part === 'string') return part;
+          if (part && typeof part.text === 'string') return part.text;
+          if (part && typeof part.content === 'string') return part.content;
+          return '';
+        })
+        .join('\n')
+        .trim();
+    }
+    return '';
   }
 
   private normalizeImageData(image: ImageAttachment): string {

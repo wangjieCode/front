@@ -33,6 +33,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
   const textAreaRef = useRef<any>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const maxImageSize = 5 * 1024 * 1024;
+  const isDisabled = disabled || sending;
 
   const readFileAsDataUrl = (file: File): Promise<string> => new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -41,15 +42,15 @@ const MessageInput: React.FC<MessageInputProps> = ({
     reader.readAsDataURL(file);
   });
 
-  const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(event.target.files || []);
-    event.target.value = '';
+  const appendAttachmentsFromFiles = async (files: File[]) => {
     if (files.length === 0) return;
 
-    const validFiles = files.filter(file => file.type.startsWith('image/'));
     const nextAttachments: ImageAttachment[] = [];
 
-    for (const file of validFiles) {
+    for (const file of files) {
+      if (!file.type.startsWith('image/')) {
+        continue;
+      }
       if (file.size > maxImageSize) {
         continue;
       }
@@ -64,6 +65,28 @@ const MessageInput: React.FC<MessageInputProps> = ({
     if (nextAttachments.length > 0) {
       setAttachments(prev => [...prev, ...nextAttachments]);
     }
+  };
+
+  const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files || []);
+    event.target.value = '';
+    await appendAttachmentsFromFiles(files);
+  };
+
+  const handlePaste = async (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    if (isDisabled) {
+      return;
+    }
+
+    const files = Array.from(event.clipboardData.items)
+      .filter(item => item.kind === 'file' && item.type.startsWith('image/'))
+      .map(item => item.getAsFile())
+      .filter((file): file is File => file !== null);
+
+    if (files.length === 0) return;
+
+    event.preventDefault();
+    await appendAttachmentsFromFiles(files);
   };
 
   const handleRemoveAttachment = (index: number) => {
@@ -127,7 +150,6 @@ const MessageInput: React.FC<MessageInputProps> = ({
     }
   };
 
-  const isDisabled = disabled || sending;
   const canSend = (currentValue.trim().length > 0 || attachments.length > 0) && !isDisabled;
 
   return (
@@ -154,6 +176,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
             value={currentValue}
             onChange={handleChange}
             onKeyDown={handleKeyDown}
+            onPaste={handlePaste}
             placeholder={sending ? 'AI 正在处理中...' : placeholder}
             disabled={isDisabled}
             bordered={false}

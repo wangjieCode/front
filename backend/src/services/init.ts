@@ -1,4 +1,4 @@
-import { GitService, CodeToolService, GitLabMCPService, ProjectService, LocalExecutor, NeovateAIService } from './index';
+import { GitService, CodeToolService, GitLabMCPService, ProjectService, LocalExecutor, NeovateAIService, ModelAvailabilityService } from './index';
 import { WorktreeManager } from './WorktreeManager';
 import { ConversationManager } from './ConversationManager';
 import { MessageRouter } from './MessageRouter';
@@ -21,6 +21,7 @@ let services: {
   gitlabService: GitLabMCPService;
   gitService: GitService;
   codeToolService: CodeToolService;
+  modelAvailabilityService: ModelAvailabilityService;
   redis: any;
 } | null = null;
 
@@ -62,8 +63,11 @@ export async function initializeAllServices() {
   const worktreeBaseDir = getWorktreeBaseDir(workDir);
   const worktreeManager = new WorktreeManager(executor, workDir, worktreeBaseDir, 'global-or-default');
   const projectService = new ProjectService(executor);
+  const modelAvailabilityService = new ModelAvailabilityService();
+  await modelAvailabilityService.initialize(workDir);
   
-  const conversationManager = new ConversationManager(storageAdapter, projectService, gitlabService, worktreeManager);
+  const redis = RedisManager.getInstance();
+  const conversationManager = new ConversationManager(storageAdapter, projectService, gitlabService, worktreeManager, redis);
   const databaseUrl = process.env.DATABASE_URL || '';
   const neovateAIService = new NeovateAIService(executor, workDir, databaseUrl);
   const conversationAIService = new ConversationAIService(
@@ -75,9 +79,7 @@ export async function initializeAllServices() {
   );
   const messageRouter = new MessageRouter(conversationManager);
 
-  console.log('[INIT] 对话相关服务初始化完成，准备连接 Redis');
-  const redis = RedisManager.getInstance();
-  console.log('[INIT] Redis 实例已创建');
+  console.log('[INIT] 对话相关服务初始化完成，Redis 已连接');
 
   services = {
     conversationManager,
@@ -90,6 +92,7 @@ export async function initializeAllServices() {
     gitlabService,
     gitService,
     codeToolService,
+    modelAvailabilityService,
     redis
   };
 
