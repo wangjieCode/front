@@ -105,7 +105,7 @@ export interface ConversationMessage {
 export interface ProjectInfo {
   projectId: string;
   projectName: string;
-  gitRepositoryUrl: string;
+  gitRepositoryUrl?: string;
   workDir: string;
   gitBranch?: string;
   relevantFiles?: string[];
