@@ -163,128 +163,154 @@ const MobileMessageList: React.FC<MessageListProps> = ({
     );
   };
 
-  /**
-   * 渲染工具调用卡片
-   */
-  const renderToolUse = (content: ParsedContent, index: number) => {
-    return (
-      <Card
-        key={`tool-use-${index}`}
-        size="small"
-        style={{
-          marginTop: 8,
-          background: '#fafafa',
-          border: '1px solid #e8e8e8',
-        }}
-        bodyStyle={{ padding: 0 }}
-      >
-        <Collapse ghost>
-          <Panel
-            key="1"
-            header={
-              <span style={{ fontSize: 13 }}>
-                <ThunderboltOutlined style={{ color: '#8c8c8c', marginRight: 6 }} />
-                <span style={{ color: '#595959', fontWeight: 500 }}>
-                  {content.toolName}
-                </span>
-                {content.toolDescription && (
-                  <span style={{ marginLeft: 8, fontSize: 12, color: '#8c8c8c' }}>
-                    {content.toolDescription}
-                  </span>
-                )}
-              </span>
-            }
-          >
-            {content.toolInput && (
-              <SyntaxHighlighter
-                language="json"
-                style={vscDarkPlus as any}
-                customStyle={{
-                  margin: 0,
-                  borderRadius: 4,
-                  fontSize: 12,
-                }}
-              >
-                {JSON.stringify(content.toolInput, null, 2)}
-              </SyntaxHighlighter>
-            )}
-          </Panel>
-        </Collapse>
-      </Card>
-    );
-  };
+  interface ToolTraceItem {
+    id: string;
+    name: string;
+    description?: string;
+    input?: any;
+    result?: any;
+    running: boolean;
+  }
 
-  /**
-   * 渲染工具结果卡片
-   */
-  const renderToolResult = (content: ParsedContent, index: number) => {
-    const resultStr = typeof content.toolResult === 'string' 
-      ? content.toolResult 
-      : JSON.stringify(content.toolResult, null, 2);
+  const buildToolTraceItems = (parsedContents: ParsedContent[], isStreaming: boolean): ToolTraceItem[] => {
+    const items: ToolTraceItem[] = [];
+    const itemById = new Map<string, ToolTraceItem>();
 
-    return (
-      <Card
-        key={`tool-result-${index}`}
-        size="small"
-        style={{
-          marginTop: 8,
-          background: '#fafafa',
-          border: '1px solid #e8e8e8',
-        }}
-        bodyStyle={{ padding: 0 }}
-      >
-        <Collapse ghost>
-          <Panel
-            key="1"
-            header={
-              <span style={{ fontSize: 13 }}>
-                <CheckCircleOutlined style={{ color: '#52c41a', marginRight: 6 }} />
-                <span style={{ color: '#595959', fontWeight: 500 }}>
-                  {content.toolName}
-                </span>
-                <Tag 
-                  color="success" 
-                  style={{ 
-                    marginLeft: 8, 
-                    fontSize: 11,
-                    padding: '0 6px',
-                    lineHeight: '18px',
-                  }}
-                >
-                  完成
-                </Tag>
-              </span>
-            }
-          >
-            <SyntaxHighlighter
-              language="bash"
-              style={vscDarkPlus as any}
-              customStyle={{
-                margin: 0,
-                borderRadius: 4,
-                fontSize: 12,
-              }}
-            >
-              {resultStr}
-            </SyntaxHighlighter>
-          </Panel>
-        </Collapse>
-      </Card>
-    );
+    const ensureItem = (content: ParsedContent, fallbackIndex: number): ToolTraceItem => {
+      const rawId = content.toolCallId || `${content.toolName || 'tool'}-${fallbackIndex}`;
+      const existing = itemById.get(rawId);
+      if (existing) {
+        return existing;
+      }
+
+      const created: ToolTraceItem = {
+        id: rawId,
+        name: content.toolName || `工具 ${items.length + 1}`,
+        description: content.toolDescription,
+        input: content.toolInput,
+        running: false,
+      };
+      items.push(created);
+      itemById.set(rawId, created);
+      return created;
+    };
+
+    parsedContents.forEach((content, index) => {
+      if (content.type === 'tool_use') {
+        const item = ensureItem(content, index);
+        item.name = content.toolName || item.name;
+        item.description = content.toolDescription || item.description;
+        item.input = content.toolInput ?? item.input;
+        return;
+      }
+
+      if (content.type === 'tool_result') {
+        const byId = content.toolCallId ? itemById.get(content.toolCallId) : undefined;
+        const target =
+          byId
+          || items.find(item => item.name === (content.toolName || '') && item.result === undefined)
+          || ensureItem(content, index);
+        target.name = content.toolName || target.name;
+        target.result = content.toolResult;
+      }
+    });
+
+    items.forEach(item => {
+      item.running = isStreaming && item.result === undefined;
+    });
+
+    return items;
   };
 
   /**
    * 渲染结构化内容
    */
-  const renderStructuredContent = (parsedContents: ParsedContent[]) => {
-    return parsedContents.map((content, index) => {
-      if (content.type === 'tool_use') {
-        return renderToolUse(content, index);
-      } else if (content.type === 'tool_result') {
-        return renderToolResult(content, index);
-      }
+  const renderStructuredContent = (parsedContents: ParsedContent[], isStreaming: boolean) => {
+    const toolContents = parsedContents.filter(
+      content => content.type === 'tool_use' || content.type === 'tool_result'
+    );
+    if (toolContents.length === 0) {
       return null;
-    });
+    }
+
+    const toolItems = buildToolTraceItems(toolContents, isStreaming);
+    const runningCount = toolItems.filter(item => item.running).length;
+    const doneCount = toolItems.filter(item => item.result !== undefined).length;
+
+    return (
+      <div className="tool-trace-container">
+        <Collapse ghost className="tool-trace-collapse">
+          <Panel
+            key="tool-trace-panel"
+            header={
+              <div className="tool-trace-summary">
+                <span className="tool-trace-summary-title">
+                  <ThunderboltOutlined style={{ marginRight: 6 }} />
+                  工具调用
+                </span>
+                <span className="tool-trace-summary-meta">
+                  {toolItems.length} 个工具
+                  {runningCount > 0 ? ` · ${runningCount} 执行中` : ` · ${doneCount} 已完成`}
+                </span>
+              </div>
+            }
+          >
+            <div className="tool-trace-list">
+              <Collapse ghost className="tool-trace-nested-collapse">
+                {toolItems.map((item, index) => (
+                  <Panel
+                    key={item.id}
+                    header={
+                      <div className="tool-trace-item-summary">
+                        <span className="tool-trace-item-title">
+                          {item.running ? (
+                            <Spin size="small" style={{ marginRight: 6 }} />
+                          ) : (
+                            <CheckCircleOutlined style={{ color: '#16a34a', marginRight: 6 }} />
+                          )}
+                          {item.name}
+                        </span>
+                        {item.running ? (
+                          <Tag className="tool-trace-item-tag" color="processing">执行中</Tag>
+                        ) : (
+                          <Tag className="tool-trace-item-tag" color="success">完成</Tag>
+                        )}
+                      </div>
+                    }
+                  >
+                    <div className="tool-trace-item" key={`${item.id}-${index}`}>
+                      {item.description && (
+                        <div className="tool-trace-item-desc">{item.description}</div>
+                      )}
+                      {item.input !== undefined && (
+                        <SyntaxHighlighter
+                          language="json"
+                          style={vscDarkPlus as any}
+                          customStyle={{ margin: 0, borderRadius: 8, fontSize: 12 }}
+                        >
+                          {JSON.stringify(item.input, null, 2)}
+                        </SyntaxHighlighter>
+                      )}
+                      {item.result !== undefined && (
+                        <div style={{ marginTop: item.input !== undefined ? 8 : 0 }}>
+                          <SyntaxHighlighter
+                            language="bash"
+                            style={vscDarkPlus as any}
+                            customStyle={{ margin: 0, borderRadius: 8, fontSize: 12 }}
+                          >
+                            {typeof item.result === 'string' ? item.result : JSON.stringify(item.result, null, 2)}
+                          </SyntaxHighlighter>
+                        </div>
+                      )}
+                    </div>
+                  </Panel>
+                ))}
+              </Collapse>
+            </div>
+          </Panel>
+        </Collapse>
+      </div>
+    );
   };
 
   /**
@@ -378,7 +404,7 @@ const MobileMessageList: React.FC<MessageListProps> = ({
           {/* 思维链展示 - 工具调用和结果 */}
           {!isUser && !isSystem && structuredContents.length > 0 && (
             <div style={{ marginBottom: displayContent ? 12 : 0 }}>
-              {renderStructuredContent(structuredContents)}
+              {renderStructuredContent(structuredContents, (message as any).isStreaming || false)}
             </div>
           )}
 
@@ -410,7 +436,7 @@ const MobileMessageList: React.FC<MessageListProps> = ({
           {message.metadata?.toolCalls &&
             message.metadata.toolCalls.length > 0 && (
               <div style={{ marginTop: 8 }}>
-                <Tag color="purple">
+                <Tag>
                   {message.metadata.toolCalls.length} 个工具调用
                 </Tag>
               </div>

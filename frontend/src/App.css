@@ -883,6 +883,138 @@ body {
   object-fit: cover;
 }
 
+.tool-trace-container {
+  margin-top: 4px;
+  margin-bottom: 8px;
+  border-radius: 12px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+}
+
+.tool-trace-collapse.ant-collapse {
+  background: transparent;
+}
+
+.tool-trace-collapse .ant-collapse-item {
+  border: none;
+}
+
+.tool-trace-collapse .ant-collapse-header {
+  align-items: center !important;
+  padding: 10px 12px !important;
+}
+
+.tool-trace-collapse .ant-collapse-content-box {
+  padding: 0 12px 12px !important;
+}
+
+.tool-trace-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.tool-trace-summary-title {
+  display: inline-flex;
+  align-items: center;
+  color: #334155;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.tool-trace-summary-meta {
+  color: #94a3b8;
+  font-size: 12px;
+}
+
+.tool-trace-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.tool-trace-nested-collapse.ant-collapse {
+  background: transparent;
+}
+
+.tool-trace-nested-collapse .ant-collapse-item {
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #f8fafc;
+}
+
+.tool-trace-nested-collapse .ant-collapse-item + .ant-collapse-item {
+  margin-top: 8px;
+}
+
+.tool-trace-nested-collapse .ant-collapse-header {
+  padding: 10px !important;
+}
+
+.tool-trace-nested-collapse .ant-collapse-content-box {
+  padding: 0 10px 10px !important;
+}
+
+.tool-trace-item-summary {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.tool-trace-item {
+  padding: 10px;
+  border-radius: 10px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+}
+
+.tool-trace-item-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.tool-trace-item-title {
+  display: inline-flex;
+  align-items: center;
+  color: #334155;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.tool-trace-item-tag.ant-tag {
+  margin-inline-end: 0;
+  border-radius: 999px;
+}
+
+.tool-trace-item-desc {
+  margin-bottom: 8px;
+  color: #64748b;
+  font-size: 12px;
+}
+
+@media (max-width: 768px) {
+  .tool-trace-summary {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+  }
+
+  .tool-trace-collapse .ant-collapse-header {
+    padding: 10px !important;
+  }
+
+  .tool-trace-collapse .ant-collapse-content-box {
+    padding: 0 10px 10px !important;
+  }
+}
+
 .chat-more-title {
   font-size: 12px;
   font-weight: 600;

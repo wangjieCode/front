@@ -44,18 +44,10 @@ describe('ConversationAIService.generateResponseStream', () => {
       push: jest.fn(),
     } as any;
 
-    const gitlabService = {} as any;
-
-    const conversationManager = {
-      getMessageHistory: jest.fn().mockResolvedValue([]),
-    } as any;
-
     const service = new ConversationAIService(
       neovateService,
       'postgres://user:pass@localhost:5432/db',
-      gitService,
-      gitlabService,
-      conversationManager
+      gitService
     );
 
     const context = {
@@ -116,18 +108,10 @@ describe('ConversationAIService.generateResponseStream', () => {
       push: jest.fn(),
     } as any;
 
-    const gitlabService = {} as any;
-
-    const conversationManager = {
-      getMessageHistory: jest.fn().mockResolvedValue([]),
-    } as any;
-
     const service = new ConversationAIService(
       neovateService,
       'postgres://user:pass@localhost:5432/db',
-      gitService,
-      gitlabService,
-      conversationManager
+      gitService
     );
 
     const context = {
@@ -160,13 +144,11 @@ describe('ConversationAIService.generateResponseStream', () => {
     const requestBody = JSON.parse((requestInit as RequestInit).body as string);
     expect(requestBody.model).toBe('gpt-4o-mini');
     expect(requestBody.messages[0].role).toBe('system');
-    expect(requestBody.messages[requestBody.messages.length - 1].role).toBe('user');
-    expect(requestBody.messages[requestBody.messages.length - 1].content).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ type: 'text' }),
-        expect.objectContaining({ type: 'image_url' }),
-      ])
-    );
+    expect(requestBody.messages).toHaveLength(2);
+    expect(requestBody.messages[1]).toEqual({
+      role: 'user',
+      content: [expect.objectContaining({ type: 'image_url' })],
+    });
 
     expect(modifyCodeStream).toHaveBeenCalledTimes(1);
     const mergedPrompt = modifyCodeStream.mock.calls[0][0] as string;

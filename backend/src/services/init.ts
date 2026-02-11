@@ -69,9 +69,7 @@ export async function initializeAllServices() {
   const conversationAIService = new ConversationAIService(
     neovateAIService,
     databaseUrl,
-    gitService,
-    gitlabService,
-    conversationManager
+    gitService
   );
   const messageRouter = new MessageRouter(conversationManager);
 
