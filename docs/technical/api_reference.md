@@ -19,7 +19,7 @@
 - POST `/api/conversations`：创建会话（支持 `model` 参数，默认 `iflow/qwen3-coder-plus`）
 - GET `/api/conversations`：会话列表
 - GET `/api/conversations/:sessionId`：会话详情
-- GET `/api/conversations/:sessionId/messages`：消息历史
+- GET `/api/conversations/:sessionId/messages`：消息历史（支持 `since=<ISO时间>` 增量拉取）
 - POST `/api/conversations/:sessionId/messages`：发送消息（SSE，支持 `model` 参数）
 - DELETE `/api/conversations/:sessionId`：删除会话
 - POST `/api/conversations/:sessionId/merge-request`：创建 MR

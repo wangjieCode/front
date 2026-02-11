@@ -11,6 +11,25 @@ import { QueueManager, TaskType, MAIN_QUEUE_NAME, getBullOptions } from './queue
 // 加载环境变量
 dotenv.config();
 
+const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+const ONE_DAY_SECONDS = 24 * 60 * 60;
+const WORKER_RETRY_DELAY_MS = Number(process.env.WORKER_RETRY_DELAY_MS || 30_000);
+
+let retryTimer: NodeJS.Timeout | null = null;
+let shuttingDown = false;
+
+function scheduleWorkerRetry(reason: unknown): void {
+  if (shuttingDown || retryTimer) {
+    return;
+  }
+  const message = reason instanceof Error ? reason.message : String(reason);
+  console.warn(`[Worker] 启动失败，${WORKER_RETRY_DELAY_MS}ms 后重试: ${message}`);
+  retryTimer = setTimeout(() => {
+    retryTimer = null;
+    void startWorker();
+  }, WORKER_RETRY_DELAY_MS);
+}
+
 /**
  * 启动任务监控界面 (Dashboard)
  */
@@ -25,11 +44,10 @@ async function startDashboard(app: express.Application) {
     options: {
       uiConfig: {
         boardTitle: '任务监控后台',
-        // 将轮询间隔设置为 1 小时 (3,600,000 ms)
-        // Bull-board UI 默认 5秒轮询一次，是 Redis 请求消耗的大户
+        // 将 Dashboard 轮询间隔设置为 1 天，降低 Redis 空转请求
         pollingInterval: {
           showSetting: false,
-          forceInterval: 1000 * 60 * 60,
+          forceInterval: ONE_DAY_MS,
         },
       },
     },
@@ -97,9 +115,8 @@ async function startWorker() {
       {
         ...getBullOptions(),
         concurrency: 1, // 顺序执行，避免冲突
-        // Upstash 建议：增加 drainDelay 减少轮询频率
-        // 默认为 5秒，增加到 10-30秒 可以显著减少空转时的请求数
-        drainDelay: 30,
+        // Worker 空闲轮询间隔设置为 1 天，降低 Redis 空转请求
+        drainDelay: ONE_DAY_SECONDS,
       }
     );
 
@@ -111,6 +128,10 @@ async function startWorker() {
       console.error(`[Worker] ❌ 任务失败: ${job?.name}`, err);
     });
 
+    worker.on('error', (err) => {
+      console.error('[Worker] ❌ Worker 运行异常:', err);
+    });
+
     console.log('⏰ BullMQ 任务监听中 (Archive: 00:00, Cleanup: 02:00)');
 
     // 4. 在同一个进程启动管理界面
@@ -119,19 +140,29 @@ async function startWorker() {
 
   } catch (error) {
     console.error('❌ Worker 启动失败:', error);
-    process.exit(1);
+    scheduleWorkerRetry(error);
   }
 }
 
 // 优雅关闭
 process.on('SIGTERM', () => {
+  shuttingDown = true;
+  if (retryTimer) {
+    clearTimeout(retryTimer);
+    retryTimer = null;
+  }
   console.log('收到 SIGTERM，正在关闭 Worker...');
   process.exit(0);
 });
 
 process.on('SIGINT', () => {
+  shuttingDown = true;
+  if (retryTimer) {
+    clearTimeout(retryTimer);
+    retryTimer = null;
+  }
   console.log('收到 SIGINT，正在关闭 Worker...');
   process.exit(0);
 });
 
-startWorker();
+void startWorker();

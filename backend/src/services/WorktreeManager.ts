@@ -2,6 +2,7 @@ import path from 'path';
 import dayjs from 'dayjs';
 import { ICommandExecutor } from '../types';
 import { resolveStoredPath, BasePathType } from '../utils/PathUtils';
+import { RedisCacheService } from './RedisCacheService';
 
 /**
  * Worktree 信息接口
@@ -31,7 +32,8 @@ export interface WorktreeInfo {
  * @param worktreeBaseDir worktree 基础目录（存放所有用户 worktree）
  */
 export class WorktreeManager {
-  private worktreeCache: Map<string, WorktreeInfo> = new Map();
+  private cache = new RedisCacheService();
+  private worktreeInfoCacheTtlSeconds = 60 * 60;
   private baseRepoPath: string;
   private worktreeBaseDir: string;
   
@@ -55,6 +57,10 @@ export class WorktreeManager {
    */
   private getConversationWorktreePath(userId: string, sessionId: string): string {
     return path.join(this.worktreeBaseDir, `project-${this.projectId}`, `user-${userId}`, `conversation-${sessionId}`);
+  }
+
+  private getWorktreeCacheKey(userId: string, sessionId: string): string {
+    return `worktree:info:${this.projectId}:${userId}:${sessionId}`;
   }
 
   /**
@@ -86,7 +92,6 @@ export class WorktreeManager {
     baseBranch: string = 'master'
   ): Promise<WorktreeInfo> {
     const worktreePath = this.getConversationWorktreePath(userId, sessionId);
-    const cacheKey = `${userId}-${sessionId}`;
     
     // 检查是否已存在
     if (await this.conversationWorktreeExists(userId, sessionId)) {
@@ -139,8 +144,7 @@ export class WorktreeManager {
         lastUsedAt: now,
       };
 
-      // 缓存 worktree 信息
-      this.worktreeCache.set(cacheKey, worktreeInfo);
+      await this.cache.setJson(this.getWorktreeCacheKey(userId, sessionId), worktreeInfo, this.worktreeInfoCacheTtlSeconds);
 
       console.log(`[WorktreeManager] ✅ 对话 worktree 创建成功`);
       console.log(`[WorktreeManager]    路径: ${worktreePath}`);
@@ -205,13 +209,15 @@ export class WorktreeManager {
    * 获取对话的 worktree 信息
    */
   async getWorktreeInfo(userId: string, sessionId: string): Promise<WorktreeInfo> {
-    const cacheKey = `${userId}-${sessionId}`;
-    
-    // 先从缓存获取
-    if (this.worktreeCache.has(cacheKey)) {
-      const info = this.worktreeCache.get(cacheKey)!;
-      info.lastUsedAt = dayjs().toDate();
-      return info;
+    const cacheKey = this.getWorktreeCacheKey(userId, sessionId);
+    const cached = await this.cache.getJson<WorktreeInfo>(cacheKey);
+    if (cached) {
+      const refreshed: WorktreeInfo = {
+        ...cached,
+        lastUsedAt: dayjs().toDate(),
+      };
+      await this.cache.setJson(cacheKey, refreshed, this.worktreeInfoCacheTtlSeconds);
+      return refreshed;
     }
 
     const worktreePath = this.getConversationWorktreePath(userId, sessionId);
@@ -237,7 +243,7 @@ export class WorktreeManager {
       lastUsedAt: now,
     };
 
-    this.worktreeCache.set(cacheKey, worktreeInfo);
+    await this.cache.setJson(cacheKey, worktreeInfo, this.worktreeInfoCacheTtlSeconds);
     return worktreeInfo;
   }
 
@@ -579,9 +585,7 @@ export class WorktreeManager {
         console.log(`[WorktreeManager] ✅ 物理删除成功`);
       }
 
-      // 从缓存移除
-      const cacheKey = `${userId}-${sessionId}`;
-      this.worktreeCache.delete(cacheKey);
+      await this.cache.del(this.getWorktreeCacheKey(userId, sessionId));
     } catch (error) {
       throw new Error(
         `删除对话 worktree 失败: ${error instanceof Error ? error.message : String(error)}`

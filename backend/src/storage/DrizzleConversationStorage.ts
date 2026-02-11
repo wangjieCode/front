@@ -1,4 +1,4 @@
-import { eq, and, desc, asc, lt, inArray } from 'drizzle-orm';
+import { eq, and, desc, asc, lt, gt, inArray } from 'drizzle-orm';
 import { DatabaseManager } from '../db/DatabaseManager';
 import {
   conversations,
@@ -13,6 +13,7 @@ import {
 import { newId } from '../utils/id';
 import dayjs from 'dayjs';
 import { convertToStoredPath, resolveStoredPath, BasePathType } from '../utils/PathUtils';
+import { RedisCacheService } from '../services/RedisCacheService';
 
 /**
  * 分页选项
@@ -26,10 +27,17 @@ export interface PaginationOptions {
  * 基于 Drizzle ORM 的对话存储实现
  */
 export class DrizzleConversationStorage {
-  private cache: Map<string, any>;
+  private cache = new RedisCacheService();
+  private cacheTtlSeconds = 60;
 
-  constructor() {
-    this.cache = new Map();
+  private hasImagePayload(metadata: any): boolean {
+    if (!metadata) return false;
+    const images = metadata.images;
+    return Array.isArray(images) ? images.length > 0 : Boolean(images);
+  }
+
+  private hasImagesInCombinedMessages(messagesWithMetadata: any[]): boolean {
+    return messagesWithMetadata.some(item => this.hasImagePayload(item?.metadata));
   }
 
   /**
@@ -42,29 +50,29 @@ export class DrizzleConversationStorage {
   /**
    * 清除缓存
    */
-  clearCache(): void {
-    this.cache.clear();
+  async clearCache(): Promise<void> {
+    await this.cache.delByPattern('storage:*');
   }
 
   /**
    * 从缓存获取数据
    */
-  private getCached<T>(key: string): T | undefined {
-    return this.cache.get(key);
+  private async getCached<T>(key: string): Promise<T | null> {
+    return this.cache.getJson<T>(`storage:${key}`);
   }
 
   /**
    * 设置缓存
    */
-  private setCache<T>(key: string, value: T): void {
-    this.cache.set(key, value);
+  private async setCache<T>(key: string, value: T, ttlSeconds: number = this.cacheTtlSeconds): Promise<void> {
+    await this.cache.setJson(`storage:${key}`, value, ttlSeconds);
   }
 
   /**
    * 删除缓存
    */
-  private deleteCache(key: string): void {
-    this.cache.delete(key);
+  private async deleteCache(key: string): Promise<void> {
+    await this.cache.del(`storage:${key}`);
   }
 
   // ==================== 会话管理方法 ====================
@@ -118,9 +126,11 @@ export class DrizzleConversationStorage {
     }
 
     // 清除相关缓存
-    this.deleteCache(`session:${session.id}`);
-    this.deleteCache(`session:${session.sessionId || session.id}`);
-    this.deleteCache('sessions:list');
+    await Promise.all([
+      this.deleteCache(`session:${session.id}`),
+      this.deleteCache(`session:${session.sessionId || session.id}`),
+      this.deleteCache('sessions:list'),
+    ]);
   }
 
   /**
@@ -152,7 +162,7 @@ export class DrizzleConversationStorage {
    */
   async loadSessionByAgentSessionId(agentSessionId: string): Promise<Conversation | null> {
     // 检查缓存
-    const cached = this.getCached<Conversation>(`agent-session:${agentSessionId}`);
+    const cached = await this.getCached<Conversation>(`agent-session:${agentSessionId}`);
     if (cached) {
       return cached;
     }
@@ -169,8 +179,10 @@ export class DrizzleConversationStorage {
 
     // 缓存结果
     if (session) {
-      this.setCache(`agent-session:${agentSessionId}`, session);
-      this.setCache(`session:${session.id}`, session);
+      await Promise.all([
+        this.setCache(`agent-session:${agentSessionId}`, session),
+        this.setCache(`session:${session.id}`, session),
+      ]);
     }
 
     return session;
@@ -283,8 +295,10 @@ export class DrizzleConversationStorage {
       .where(eq(conversations.id, sessionId));
 
     // 清除相关缓存
-    this.deleteCache(`session:${sessionId}`);
-    this.deleteCache('sessions:list');
+    await Promise.all([
+      this.deleteCache(`session:${sessionId}`),
+      this.deleteCache('sessions:list'),
+    ]);
   }
 
   /**
@@ -316,7 +330,7 @@ export class DrizzleConversationStorage {
     });
 
     // 清除所有相关缓存
-    this.clearCache();
+    await this.clearCache();
   }
 
   // ==================== 消息管理方法 ====================
@@ -329,8 +343,10 @@ export class DrizzleConversationStorage {
 
     await db.insert(messages).values(message);
 
-    this.deleteCache(`messages:${message.conversationId}`);
-    this.deleteCache(`messages_with_metadata:${message.conversationId}`);
+    await Promise.all([
+      this.deleteCache(`messages:${message.conversationId}`),
+      this.deleteCache(`messages_with_metadata:${message.conversationId}`),
+    ]);
   }
 
   /**
@@ -344,7 +360,7 @@ export class DrizzleConversationStorage {
 
     // 检查缓存（仅当没有分页时）
     if (!options) {
-      const cached = this.getCached<Message[]>(cacheKey);
+      const cached = await this.getCached<Message[]>(cacheKey);
       if (cached) {
         return cached;
       }
@@ -370,7 +386,7 @@ export class DrizzleConversationStorage {
 
     // 缓存结果（仅当没有分页时）
     if (!options) {
-      this.setCache(cacheKey, result);
+      await this.setCache(cacheKey, result);
     }
 
     return result;
@@ -380,25 +396,44 @@ export class DrizzleConversationStorage {
    * 加载带元数据的消息列表（高性能版，单次查询）
    */
   async loadMessagesWithMetadata(
-    conversationId: string
+    conversationId: string,
+    since?: string
   ): Promise<any[]> {
+    const sinceDate = since ? new Date(since) : null;
+    const hasValidSince = !!sinceDate && !Number.isNaN(sinceDate.getTime());
     const cacheKey = `messages_with_metadata:${conversationId}`;
 
-    const cached = this.getCached<any[]>(cacheKey);
-    if (cached) {
-      return cached;
+    if (!hasValidSince) {
+      const cached = await this.getCached<any[]>(cacheKey);
+      if (cached) {
+        // 历史缓存可能包含图片 payload，发现后立即清理并回源数据库
+        if (this.hasImagesInCombinedMessages(cached)) {
+          await this.deleteCache(cacheKey);
+        } else {
+          return cached;
+        }
+      }
     }
 
     const db = this.getDb();
 
+    const messageWhere = hasValidSince
+      ? and(
+          eq(messages.conversationId, conversationId),
+          gt(messages.timestamp, sinceDate as Date)
+        )
+      : eq(messages.conversationId, conversationId);
+
     const messageRows = await db
       .select()
       .from(messages)
-      .where(eq(messages.conversationId, conversationId))
+      .where(messageWhere)
       .orderBy(asc(messages.timestamp));
 
     if (messageRows.length === 0) {
-      this.setCache(cacheKey, []);
+      if (!hasValidSince) {
+        await this.setCache(cacheKey, []);
+      }
       return [];
     }
 
@@ -417,7 +452,13 @@ export class DrizzleConversationStorage {
       metadata: metadataByMessageId.get(row.id) || null,
     }));
 
-    this.setCache(cacheKey, combined);
+    // 图片附件体积大且含二进制/BASE64，不写入 Redis 缓存
+    if (!hasValidSince && !this.hasImagesInCombinedMessages(combined)) {
+      await this.setCache(cacheKey, combined);
+    } else if (!hasValidSince) {
+      await this.deleteCache(cacheKey);
+    }
+
     return combined;
   }
 
@@ -467,8 +508,10 @@ export class DrizzleConversationStorage {
 
     // 清除精确缓存而不是 clearCache()
     if (conversationId) {
-      this.deleteCache(`messages:${conversationId}`);
-      this.deleteCache(`messages_with_metadata:${conversationId}`);
+      await Promise.all([
+        this.deleteCache(`messages:${conversationId}`),
+        this.deleteCache(`messages_with_metadata:${conversationId}`),
+      ]);
     }
   }
 
@@ -537,7 +580,7 @@ export class DrizzleConversationStorage {
     }
 
     // 清除缓存
-    this.deleteCache(`context:${conversationId}`);
+    await this.deleteCache(`context:${conversationId}`);
   }
 
   /**
@@ -545,7 +588,7 @@ export class DrizzleConversationStorage {
    */
   async loadContext(conversationId: string): Promise<any | null> {
     // 检查缓存
-    const cached = this.getCached(`context:${conversationId}`);
+    const cached = await this.getCached(`context:${conversationId}`);
     if (cached) {
       return cached;
     }
@@ -582,7 +625,7 @@ export class DrizzleConversationStorage {
     };
 
     // 缓存结果
-    this.setCache(`context:${conversationId}`, context);
+    await this.setCache(`context:${conversationId}`, context);
 
     return context;
   }
@@ -627,9 +670,9 @@ export class DrizzleConversationStorage {
     }
 
     // 清除精确缓存
-    this.deleteCache(`metadata:${messageId}`);
+    await this.deleteCache(`metadata:${messageId}`);
     if (conversationId) {
-      this.deleteCache(`messages_with_metadata:${conversationId}`);
+      await this.deleteCache(`messages_with_metadata:${conversationId}`);
     }
   }
 
@@ -638,9 +681,13 @@ export class DrizzleConversationStorage {
    */
   async loadMessageMetadata(messageId: string): Promise<any | null> {
     // 检查缓存
-    const cached = this.getCached(`metadata:${messageId}`);
+    const cached = await this.getCached(`metadata:${messageId}`);
     if (cached) {
-      return cached;
+      if (this.hasImagePayload(cached)) {
+        await this.deleteCache(`metadata:${messageId}`);
+      } else {
+        return cached;
+      }
     }
 
     const db = this.getDb();
@@ -654,8 +701,8 @@ export class DrizzleConversationStorage {
     const metadata = result[0] || null;
 
     // 缓存结果
-    if (metadata) {
-      this.setCache(`metadata:${messageId}`, metadata);
+    if (metadata && !this.hasImagePayload(metadata)) {
+      await this.setCache(`metadata:${messageId}`, metadata);
     }
 
     return metadata;
@@ -686,7 +733,7 @@ export class DrizzleConversationStorage {
     }
 
     // 清除缓存
-    this.clearCache();
+    await this.clearCache();
 
     return count;
   }
@@ -713,7 +760,7 @@ export class DrizzleConversationStorage {
     }
 
     // 清除缓存
-    this.clearCache();
+    await this.clearCache();
 
     return count;
   }
