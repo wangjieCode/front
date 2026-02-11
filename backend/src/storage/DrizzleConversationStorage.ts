@@ -1,11 +1,10 @@
-import { eq, and, desc, asc, lt } from 'drizzle-orm';
+import { eq, and, desc, asc, lt, inArray } from 'drizzle-orm';
 import { DatabaseManager } from '../db/DatabaseManager';
 import {
   conversations,
   conversationContexts,
   messages,
   messageMetadata,
-  projects,
   type Conversation,
   type NewConversation,
   type Message,
@@ -14,7 +13,6 @@ import {
 import { newId } from '../utils/id';
 import dayjs from 'dayjs';
 import { convertToStoredPath, resolveStoredPath, BasePathType } from '../utils/PathUtils';
-import path from 'path';
 
 /**
  * 分页选项
@@ -131,50 +129,22 @@ export class DrizzleConversationStorage {
   async loadSession(sessionId: string): Promise<Conversation | null> {
     const db = this.getDb();
 
-    // Join with projects table to get project details
     const result = await db
-      .select({
-        conversation: conversations,
-        projectRepoUrl: projects.gitRepositoryUrl,
-        projectNameJoined: projects.name,
-      })
+      .select()
       .from(conversations)
-      .leftJoin(projects, eq(conversations.projectId, projects.id))
       .where(eq(conversations.id, sessionId))
       .limit(1);
 
-    const row = result[0];
-
-    if (row) {
-      const rawSession = row.conversation;
-      // Attach joined data to session object (as non-enumerable or just properties)
-      // We cast to any to avoid type issues, but ideally we should extend the type
-      const sessionWithExtra = {
-        ...rawSession,
-        projectRepoUrl: row.projectRepoUrl,
-        projectNameJoined: row.projectNameJoined,
-        projectName: rawSession.projectName || row.projectNameJoined || null, // Use joined name if saved name is missing
-      };
-
-      // 加载关联的上下文
-      const context = await this.loadContext(sessionId);
-      if (context) {
-        // 创建一个新的session对象，确保包含context字段
-        const session = {
-          ...sessionWithExtra,
-          context: context
-        };
-        return session as unknown as Conversation;
-      } else {
-        const session = {
-          ...sessionWithExtra,
-          context: null
-        };
-        return session as unknown as Conversation;
-      }
-    } else {
+    const rawSession = result[0];
+    if (!rawSession) {
       return null;
     }
+
+    const context = await this.loadContext(sessionId);
+    return {
+      ...rawSession,
+      context: context || null,
+    } as unknown as Conversation;
   }
 
   /**
@@ -212,51 +182,70 @@ export class DrizzleConversationStorage {
   async listSessions(): Promise<any[]> {
     const db = this.getDb();
 
-    const results = await db
+    const sessionRows = await db
       .select({
         id: conversations.id,
         userId: conversations.userId,
         visibility: conversations.visibility,
         status: conversations.status,
         title: conversations.title,
+        summary: conversations.summary,
         projectId: conversations.projectId,
         projectName: conversations.projectName,
         createdAt: conversations.createdAt,
         updatedAt: conversations.updatedAt,
-        projectNameJoined: projects.name,
+      })
+      .from(conversations)
+      .orderBy(desc(conversations.createdAt));
+
+    if (sessionRows.length === 0) {
+      return [];
+    }
+
+    const sessionIds = sessionRows.map(row => row.id);
+    const contextRows = await db
+      .select({
+        conversationId: conversationContexts.conversationId,
         mode: conversationContexts.mode,
         taskDescription: conversationContexts.taskDescription,
         workDir: conversationContexts.workDir,
         variables: conversationContexts.variables,
       })
-      .from(conversations)
-      .leftJoin(projects, eq(conversations.projectId, projects.id))
-      .leftJoin(conversationContexts, eq(conversations.id, conversationContexts.conversationId))
-      .orderBy(desc(conversations.createdAt));
+      .from(conversationContexts)
+      .where(inArray(conversationContexts.conversationId, sessionIds));
 
-    return results.map(row => ({
-      id: row.id,
-      userId: row.userId,
-      visibility: row.visibility || 'private',
-      status: row.status,
-      title: row.title,
-      projectName: row.projectName || row.projectNameJoined || null,
-      createdAt: row.createdAt,
-      updatedAt: row.updatedAt,
-      context: {
-        mode: row.mode || 'edit',
-        taskDescription: row.taskDescription || '',
-        variables: row.variables || {}, // 确保变量始终是一个对象
-        projectInfo: {
-          workDir: resolveStoredPath(row.workDir),
-          projectId: row.projectId || null,
-          projectName: row.projectName || row.projectNameJoined || null,
-          gitRepositoryUrl: '',
-          gitBranch: null,
-          relevantFiles: [],
+    const contextByConversationId = new Map(
+      contextRows.map(row => [row.conversationId, row])
+    );
+
+    return sessionRows.map(row => {
+      const contextRow = contextByConversationId.get(row.id);
+
+      return {
+        id: row.id,
+        userId: row.userId,
+        visibility: row.visibility || 'private',
+        status: row.status,
+        title: row.title,
+        summary: row.summary,
+        projectName: row.projectName || null,
+        createdAt: row.createdAt,
+        updatedAt: row.updatedAt,
+        context: {
+          mode: contextRow?.mode || 'edit',
+          taskDescription: contextRow?.taskDescription || '',
+          variables: contextRow?.variables || {},
+          projectInfo: {
+            workDir: resolveStoredPath(contextRow?.workDir || null),
+            projectId: row.projectId || null,
+            projectName: row.projectName || null,
+            gitRepositoryUrl: '',
+            gitBranch: null,
+            relevantFiles: [],
+          }
         }
-      }
-    }));
+      };
+    });
   }
 
   /**
@@ -402,20 +391,30 @@ export class DrizzleConversationStorage {
 
     const db = this.getDb();
 
-    // 使用 LEFT JOIN 一次性查出消息和元数据
-    const results = await db
-      .select({
-        message: messages,
-        metadata: messageMetadata,
-      })
+    const messageRows = await db
+      .select()
       .from(messages)
-      .leftJoin(messageMetadata, eq(messages.id, messageMetadata.messageId))
       .where(eq(messages.conversationId, conversationId))
       .orderBy(asc(messages.timestamp));
 
-    const combined = results.map(row => ({
-      ...row.message,
-      metadata: row.metadata,
+    if (messageRows.length === 0) {
+      this.setCache(cacheKey, []);
+      return [];
+    }
+
+    const messageIds = messageRows.map(row => row.id);
+    const metadataRows = await db
+      .select()
+      .from(messageMetadata)
+      .where(inArray(messageMetadata.messageId, messageIds));
+
+    const metadataByMessageId = new Map(
+      metadataRows.map(row => [row.messageId, row])
+    );
+
+    const combined = messageRows.map(row => ({
+      ...row,
+      metadata: metadataByMessageId.get(row.id) || null,
     }));
 
     this.setCache(cacheKey, combined);

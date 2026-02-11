@@ -96,9 +96,9 @@ export class ConversationStorageAdapter implements IConversationStorage {
       const existingContext = (dbSession as any).context as ConversationContext;
       const worktreePath = existingContext.projectInfo?.worktreePath;
       const projectInfo = {
-        projectId: dbSession.projectId || existingContext.projectInfo?.projectId,
-        projectName: dbSession.projectName || (dbSession as any).projectNameJoined || existingContext.projectInfo?.projectName || '',
-        gitRepositoryUrl: (dbSession as any).projectRepoUrl || existingContext.projectInfo?.gitRepositoryUrl || '',
+        projectId: dbSession.projectId || existingContext.projectInfo?.projectId || '',
+        projectName: dbSession.projectName || existingContext.projectInfo?.projectName || '',
+        gitRepositoryUrl: existingContext.projectInfo?.gitRepositoryUrl || '',
         workDir: worktreePath || existingContext.projectInfo?.workDir || '',
         worktreePath,
         gitBranch: existingContext.projectInfo?.gitBranch || undefined,
@@ -130,8 +130,9 @@ export class ConversationStorageAdapter implements IConversationStorage {
     const worktreePath = dbContext.projectInfo?.worktreePath;
     const context: ConversationContext = {
       projectInfo: {
-        projectId: dbSession.projectId || undefined,
+        projectId: dbSession.projectId || '',
         projectName: dbSession.projectName || '',
+        gitRepositoryUrl: '',
         workDir: worktreePath || dbContext.projectInfo?.workDir || '',
         worktreePath,
         gitBranch: dbContext.gitBranch || undefined,
@@ -342,10 +343,10 @@ export class ConversationStorageAdapter implements IConversationStorage {
 
     const context: ConversationContext = {
       projectInfo: {
-        projectId: dbSession.projectId || undefined,
+        projectId: dbSession.projectId || '',
         projectName: dbSession.projectName || '',
         workDir: dbContext.workDir,
-        gitRepositoryUrl: (dbSession as any).projectRepoUrl || '',
+        gitRepositoryUrl: '',
         gitBranch: dbContext.gitBranch || undefined,
         relevantFiles: dbContext.relevantFiles || [],
       },

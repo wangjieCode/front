@@ -34,6 +34,25 @@ export function createConversationRoutes(
     }
     return model;
   };
+  const sanitizeProjectInfoForResponse = (projectInfo: any) => {
+    if (!projectInfo || typeof projectInfo !== 'object') {
+      return projectInfo;
+    }
+    const { gitRepositoryUrl: _gitRepositoryUrl, ...safeProjectInfo } = projectInfo;
+    return safeProjectInfo;
+  };
+  const sanitizeSessionForResponse = (session: any) => {
+    if (!session || !session.context || !session.context.projectInfo) {
+      return session;
+    }
+    return {
+      ...session,
+      context: {
+        ...session.context,
+        projectInfo: sanitizeProjectInfoForResponse(session.context.projectInfo),
+      },
+    };
+  };
 
   router.get('/models', async (_req, res: Response) => {
     const defaultModel = modelAvailabilityService?.resolveDefaultModel() || DEFAULT_NEOVATE_MODEL;
@@ -167,7 +186,7 @@ export function createConversationRoutes(
       
       res.status(201).json({
         success: true,
-        data: session,
+        data: sanitizeSessionForResponse(session),
       });
 
     } catch (error) {
@@ -192,7 +211,6 @@ export function createConversationRoutes(
         const projectInfo = {
           projectId: session.context.projectInfo.projectId,
           projectName: session.context.projectInfo.projectName,
-          gitRepositoryUrl: session.context.projectInfo.gitRepositoryUrl,
           workDir: session.context.projectInfo.workDir,
           gitBranch: session.context.projectInfo.gitBranch,
         };
@@ -247,7 +265,7 @@ export function createConversationRoutes(
 
       res.json({
         success: true,
-        data: session,
+        data: sanitizeSessionForResponse(session),
       });
     } catch (error) {
       res.status(500).json({
