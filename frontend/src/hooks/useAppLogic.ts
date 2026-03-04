@@ -19,7 +19,7 @@ const getPageMeta = (page: PageType) => {
     return { title: '项目管理', subtitle: '管理您的Git项目和团队成员' };
   }
   if (page === PageType.INTRO) {
-    return { title: '项目介绍', subtitle: '了解前端小秘的功能与优势' };
+    return { title: '项目介绍', subtitle: '了解代码伙计（Code Mate）的功能与优势' };
   }
   return { title: '对话', subtitle: '与AI助手进行对话' };
 };

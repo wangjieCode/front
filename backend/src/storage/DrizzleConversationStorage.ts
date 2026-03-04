@@ -13,7 +13,7 @@ import {
 import { newId } from '../utils/id';
 import dayjs from 'dayjs';
 import { convertToStoredPath, resolveStoredPath, BasePathType } from '../utils/PathUtils';
-import { RedisCacheService } from '../services/RedisCacheService';
+import { LruCacheService } from '../services/LruCacheService';
 
 /**
  * 分页选项
@@ -43,7 +43,7 @@ export interface SessionAccessInfo {
  * 基于 Drizzle ORM 的对话存储实现
  */
 export class DrizzleConversationStorage {
-  private cache = new RedisCacheService();
+  private cache = new LruCacheService();
   private cacheTtlSeconds = 60;
   private messageQuerySlowLogMs = Number(process.env.MESSAGE_QUERY_SLOW_LOG_MS || 800);
   private messageHistoryVersionCacheTtlSeconds = Number(process.env.MESSAGE_VERSION_CACHE_TTL_SECONDS || 30);

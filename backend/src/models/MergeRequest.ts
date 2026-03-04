@@ -76,7 +76,7 @@ ${taskPrompt}
 
 - 任务 ID: ${taskId}
 - 创建时间: ${dayjs().toISOString()}
-- 创建方式: Web 前端实习生助手系统
+- 创建方式: 代码伙计 Code Mate
 
 ## 变更说明
 

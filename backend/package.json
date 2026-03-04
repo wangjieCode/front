@@ -1,7 +1,7 @@
 {
   "name": "web-frontend-intern-assistant-backend",
   "version": "1.0.0",
-  "description": "Web 前端实习生助手系统 - 后端服务",
+  "description": "代码伙计 Code Mate - 后端服务",
   "main": "dist/index.js",
   "scripts": {
     "dev": "tsx watch src/index.ts",
@@ -42,7 +42,6 @@
     "dotenv": "^16.3.1",
     "drizzle-orm": "^0.44.7",
     "express": "^4.18.2",
-    "ioredis": "^5.9.2",
     "jsonwebtoken": "^9.0.3",
     "lru-cache": "^11.2.4",
     "postgres": "^3.4.7",
@@ -53,7 +52,6 @@
   },
   "devDependencies": {
     "@types/express": "^4.17.21",
-    "@types/ioredis": "^5.0.0",
     "@types/jest": "^29.5.11",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^20.10.5",

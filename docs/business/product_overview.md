@@ -1,5 +1,13 @@
 # 产品概览
 
+## 产品名称
+
+- `代码伙计 / Code Mate`
+
+## Slogan
+
+- `少折腾，多交付。/ Less hassle, more delivery.`
+
 ## 核心价值
 
 - 用对话驱动代码修改与交付

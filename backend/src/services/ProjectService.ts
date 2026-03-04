@@ -14,7 +14,7 @@ import path from 'path';
 import { resolveStoredPath, convertToStoredPath, BasePathType } from '../utils/PathUtils';
 import { getGitWorkDir } from '../utils/config';
 import { resolve } from 'path';
-import { RedisCacheService } from './RedisCacheService';
+import { LruCacheService } from './LruCacheService';
 
 // 从schema导出类型
 type Project = typeof projects.$inferSelect;
@@ -79,7 +79,7 @@ export interface ProjectListResult extends OperationResult {
 export class ProjectService {
   private db = DatabaseManager.getDb();
   private repositoryService: RepositoryService;
-  private cache = new RedisCacheService();
+  private cache = new LruCacheService();
   private listCacheTtlSeconds = 30;
   private detailCacheTtlSeconds = 60;
 
@@ -87,7 +87,7 @@ export class ProjectService {
     try {
       await this.cache.delByPattern('projects:list:*');
     } catch (error) {
-      console.warn('[ProjectService] 缓存清理失败 (Redis 可能达到限制):', error);
+      console.warn('[ProjectService] 缓存清理失败:', error);
     }
   }
 

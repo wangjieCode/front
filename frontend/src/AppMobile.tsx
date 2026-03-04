@@ -74,7 +74,7 @@ const MobileContent: React.FC = () => {
             />
             <Link to="/" className="mobile-brand" onClick={handleNewConversation}>
               <img src="/ai-avatar.png" alt="AI" />
-              <span>前端小秘</span>
+              <span>代码伙计</span>
             </Link>
           </div>
           <Space size={12}>

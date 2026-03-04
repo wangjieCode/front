@@ -1,7 +1,7 @@
 {
   "name": "web-frontend-intern-assistant-frontend",
   "version": "1.0.0",
-  "description": "Web 前端实习生助手系统 - 前端界面",
+  "description": "代码伙计 Code Mate - 前端界面",
   "private": true,
   "type": "module",
   "scripts": {
