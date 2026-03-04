@@ -34,6 +34,7 @@
   - `idx_conversations_created_at`
 - 新增索引：
   - `idx_conversations_user_visibility_created_at (user_id, visibility, created_at)`
+  - `idx_conversations_visibility_created_at (visibility, created_at)`
 - 删除索引：
   - `idx_conversations_status`
   - `idx_conversations_visibility`
@@ -101,3 +102,10 @@
 - A3：`saveMessageMetadata` 对不存在消息写入抛错。
 - A4：`deleteSession` 清理链路包含 `neovate_sessions`。
 - A5：不包含外键定义。
+
+## 查询路径约束
+
+- Q1：用户态会话列表必须拆分为“两次查询”：
+  - 本人会话：`where user_id = ? order by created_at desc`
+  - 公开会话：`where visibility = 'public' and user_id <> ? order by created_at desc`
+- Q2：禁止继续使用 `user_id = ? OR visibility = 'public'` 的单条查询写法。
