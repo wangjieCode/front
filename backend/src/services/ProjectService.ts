@@ -15,6 +15,7 @@ import { resolveStoredPath, convertToStoredPath, BasePathType } from '../utils/P
 import { getGitWorkDir } from '../utils/config';
 import { resolve } from 'path';
 import { LruCacheService } from './LruCacheService';
+import { CacheStrategyManager } from './CacheStrategyManager';
 
 // 从schema导出类型
 type Project = typeof projects.$inferSelect;
@@ -80,12 +81,13 @@ export class ProjectService {
   private db = DatabaseManager.getDb();
   private repositoryService: RepositoryService;
   private cache = new LruCacheService();
-  private listCacheTtlSeconds = 30;
-  private detailCacheTtlSeconds = 60;
+  private cacheStrategyManager = new CacheStrategyManager(this.cache);
+  private listCacheTtlSeconds = 0;
+  private detailCacheTtlSeconds = 0;
 
   private async invalidateProjectListCache(_userId: string): Promise<void> {
     try {
-      await this.cache.delByPattern('projects:list:*');
+      await this.cacheStrategyManager.delByPattern('projects:list:*');
     } catch (error) {
       console.warn('[ProjectService] 缓存清理失败:', error);
     }
@@ -214,7 +216,7 @@ export class ProjectService {
       }
 
       await this.invalidateProjectListCache(userId);
-      await this.cache.del(this.getProjectDetailCacheKey(project.id));
+      await this.cacheStrategyManager.del(this.getProjectDetailCacheKey(project.id));
 
       return {
         success: true,
@@ -239,7 +241,7 @@ export class ProjectService {
       const searchTerm = filters?.search?.trim().toLowerCase() || '';
       const cacheKey = this.getProjectListCacheKey(filters);
 
-      const cached = await this.cache.getJson<ProjectListResult>(cacheKey);
+      const cached = await this.cacheStrategyManager.get<ProjectListResult>(cacheKey);
       if (cached) {
         return cached;
       }
@@ -270,7 +272,7 @@ export class ProjectService {
         total: filteredProjects.length,
       };
 
-      await this.cache.setJson(cacheKey, result, this.listCacheTtlSeconds);
+      await this.cacheStrategyManager.set(cacheKey, result, this.listCacheTtlSeconds);
 
       return result;
     } catch (error) {
@@ -289,7 +291,7 @@ export class ProjectService {
   async getProject(projectId: string, userId: string): Promise<ProjectResult> {
     try {
       const detailCacheKey = this.getProjectDetailCacheKey(projectId);
-      const cached = await this.cache.getJson<ProjectResult>(detailCacheKey);
+      const cached = await this.cacheStrategyManager.get<ProjectResult>(detailCacheKey);
       if (cached) {
         return cached;
       }
@@ -314,7 +316,7 @@ export class ProjectService {
         project: this.resolveProjectPaths(project),
       };
 
-      await this.cache.setJson(detailCacheKey, result, this.detailCacheTtlSeconds);
+      await this.cacheStrategyManager.set(detailCacheKey, result, this.detailCacheTtlSeconds);
 
       return result;
     } catch (error) {
@@ -375,7 +377,7 @@ export class ProjectService {
         message: '项目更新成功',
         project: this.resolveProjectPaths(updatedProject),
       };
-      await this.cache.setJson(this.getProjectDetailCacheKey(projectId), result, this.detailCacheTtlSeconds);
+      await this.cacheStrategyManager.set(this.getProjectDetailCacheKey(projectId), result, this.detailCacheTtlSeconds);
 
       return result;
     } catch (error) {
@@ -421,7 +423,7 @@ export class ProjectService {
       await this.db.delete(projects).where(eq(projects.id, projectId));
 
       await this.invalidateProjectListCache(userId);
-      await this.cache.del(this.getProjectDetailCacheKey(projectId));
+      await this.cacheStrategyManager.del(this.getProjectDetailCacheKey(projectId));
 
       return {
         success: true,
@@ -467,7 +469,7 @@ export class ProjectService {
       if (dirCheckResult.stdout.trim() !== 'exists') {
         const cloneResult = await this.repositoryService.cloneRepository(resolvedProject);
         if (!cloneResult.success) return { success: false, error: cloneResult.error, message: '克隆失败' };
-        await this.cache.del(this.getProjectDetailCacheKey(projectId));
+        await this.cacheStrategyManager.del(this.getProjectDetailCacheKey(projectId));
         await this.invalidateProjectListCache(userId);
         return { success: true, message: '克隆成功' };
       }
@@ -480,7 +482,7 @@ export class ProjectService {
         if (!cloneResult.success) {
           return { success: false, error: cloneResult.error, message: '重新克隆失败' };
         }
-        await this.cache.del(this.getProjectDetailCacheKey(projectId));
+        await this.cacheStrategyManager.del(this.getProjectDetailCacheKey(projectId));
         await this.invalidateProjectListCache(userId);
         return { success: true, message: '重新克隆成功' };
       }
@@ -496,7 +498,7 @@ export class ProjectService {
       }
 
       await this.db.update(projects).set({ lastPulledAt: dayjs().toDate() }).where(eq(projects.id, projectId));
-      await this.cache.del(this.getProjectDetailCacheKey(projectId));
+      await this.cacheStrategyManager.del(this.getProjectDetailCacheKey(projectId));
       await this.invalidateProjectListCache(userId);
       return { success: true, message: '代码更新成功' };
     } catch (error) {

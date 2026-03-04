@@ -22,6 +22,7 @@ import { getWorktreeBaseDir } from "../utils/config";
 import dayjs from "dayjs";
 import { DEFAULT_NEOVATE_MODEL, isNeovateModelSupported } from "@front/shared";
 import { LruCacheService } from "./LruCacheService";
+import { CacheStrategyManager } from "./CacheStrategyManager";
 
 /**
  * 对话管理器类
@@ -36,9 +37,14 @@ export class ConversationManager {
   private worktreeManager?: WorktreeManager;
   public projectService: ProjectService;
   private cache: LruCacheService;
-  private sessionCacheTtlSeconds = 120;
-  private sessionListCacheTtlSeconds = 30;
-  private gitlabBranchesCacheTtlSeconds = 120;
+  private cacheStrategyManager: CacheStrategyManager;
+  private sessionCacheTtlSeconds = 0;
+  private sessionListCacheTtlSeconds = 0;
+  private gitlabBranchesCacheTtlSeconds = 0;
+  private gitlabBranchesRefreshIntervalMs = (() => {
+    const parsed = Number(process.env.GITLAB_BRANCHES_REFRESH_INTERVAL_MS || 120_000);
+    return Number.isFinite(parsed) && parsed >= 1 ? parsed : 120_000;
+  })();
 
   constructor(
     storage: IConversationStorage,
@@ -52,6 +58,7 @@ export class ConversationManager {
     this.gitlabService = gitlabService;
     this.worktreeManager = worktreeManager;
     this.cache = new LruCacheService();
+    this.cacheStrategyManager = new CacheStrategyManager(this.cache);
   }
 
   private getCurrentEnv(): string {
@@ -73,7 +80,7 @@ export class ConversationManager {
   private async invalidateSessionListCache(userId?: string): Promise<void> {
     if (!userId) return;
     try {
-      await this.cache.delByPattern(`sessions:list:*:${this.getCurrentEnv()}`);
+      await this.cacheStrategyManager.delByPattern(`sessions:list:*:${this.getCurrentEnv()}`);
     } catch (error) {
       console.warn("[ConversationManager] 会话列表缓存清理失败:", error);
     }
@@ -81,8 +88,8 @@ export class ConversationManager {
 
   private async persistSession(session: ConversationSession): Promise<void> {
     await this.storage.saveSession(session);
-    await this.cache.setJson(this.getSessionCacheKey(session.id), session, this.sessionCacheTtlSeconds);
-    await this.cache.setJson(
+    await this.cacheStrategyManager.set(this.getSessionCacheKey(session.id), session, this.sessionCacheTtlSeconds);
+    await this.cacheStrategyManager.set(
       this.getSessionAccessCacheKey(session.id),
       {
         id: session.id,
@@ -328,7 +335,7 @@ export class ConversationManager {
    * 获取对话会话（带缓存）
    */
   async getSession(sessionId: string): Promise<ConversationSession | null> {
-    const cached = await this.cache.getJson<ConversationSession>(this.getSessionCacheKey(sessionId));
+    const cached = await this.cacheStrategyManager.get<ConversationSession>(this.getSessionCacheKey(sessionId));
     if (cached) {
       return {
         ...cached,
@@ -351,7 +358,7 @@ export class ConversationManager {
         : null;
 
       if (normalized) {
-        await this.cache.setJson(this.getSessionCacheKey(sessionId), normalized, this.sessionCacheTtlSeconds);
+        await this.cacheStrategyManager.set(this.getSessionCacheKey(sessionId), normalized, this.sessionCacheTtlSeconds);
       }
 
       return normalized;
@@ -366,7 +373,7 @@ export class ConversationManager {
   }
 
   async getSessionAccessInfo(sessionId: string): Promise<SessionAccessInfo | null> {
-    const cached = await this.cache.getJson<SessionAccessInfo>(this.getSessionAccessCacheKey(sessionId));
+    const cached = await this.cacheStrategyManager.get<SessionAccessInfo>(this.getSessionAccessCacheKey(sessionId));
     if (cached) {
       return {
         ...cached,
@@ -383,7 +390,7 @@ export class ConversationManager {
       ...sessionAccess,
       visibility: sessionAccess.visibility ?? ConversationVisibility.PRIVATE,
     };
-    await this.cache.setJson(this.getSessionAccessCacheKey(sessionId), normalized, this.sessionCacheTtlSeconds);
+    await this.cacheStrategyManager.set(this.getSessionAccessCacheKey(sessionId), normalized, this.sessionCacheTtlSeconds);
     return normalized;
   }
 
@@ -391,7 +398,7 @@ export class ConversationManager {
    * 清除会话缓存
    */
   private async clearSessionCache(sessionId: string): Promise<void> {
-    await this.cache.del(this.getSessionCacheKey(sessionId), this.getSessionAccessCacheKey(sessionId));
+    await this.cacheStrategyManager.del(this.getSessionCacheKey(sessionId), this.getSessionAccessCacheKey(sessionId));
   }
 
    /**
@@ -402,7 +409,7 @@ export class ConversationManager {
   async listSessions(userId?: string): Promise<ConversationSession[]> {
     const cacheKey = this.getSessionListCacheKey(userId);
 
-    const cached = await this.cache.getJson<ConversationSession[]>(cacheKey);
+    const cached = await this.cacheStrategyManager.get<ConversationSession[]>(cacheKey);
     if (cached) {
       return cached;
     }
@@ -416,7 +423,7 @@ export class ConversationManager {
       visibility: s.visibility ?? 'private',
     }));
 
-    await this.cache.setJson(cacheKey, sessions, this.sessionListCacheTtlSeconds);
+    await this.cacheStrategyManager.set(cacheKey, sessions, this.sessionListCacheTtlSeconds);
     return sessions as ConversationSession[];
   }
 
@@ -948,28 +955,52 @@ export class ConversationManager {
     if (!projectResult.success || !projectResult.project) {
       throw new Error(projectResult.error || '项目不存在');
     }
+    const project = projectResult.project;
 
-    const branchesCacheKey = `gitlab:branches:${projectId}:${projectResult.project.gitBranch || 'none'}`;
-    const cachedBranches = await this.cache.getJson<{ branches: string[]; defaultBranch?: string }>(branchesCacheKey);
-    if (cachedBranches) {
-      return cachedBranches;
-    }
-
-    const gitlabProjectId = projectResult.project.gitlabProjectId || undefined;
+    const branchesCacheKey = `gitlab:branches:${projectId}:${project.gitBranch || 'none'}`;
+    const gitlabProjectId = project.gitlabProjectId || undefined;
     if (!gitlabProjectId) {
       throw new Error('项目未配置 gitlab_project_id');
     }
 
+    return this.cacheStrategyManager.getWithStaleWhileRevalidate({
+      key: branchesCacheKey,
+      ttlSeconds: this.gitlabBranchesCacheTtlSeconds,
+      refreshIntervalMs: this.gitlabBranchesRefreshIntervalMs,
+      loader: async () => {
+        const result = await this.fetchGitLabBranches(
+          projectId,
+          project.gitBranch,
+          gitlabProjectId
+        );
+        return {
+          branches: result.branches,
+          defaultBranch: result.defaultBranch,
+        };
+      },
+      onStaleHit: () => {
+        console.log(
+          `[ConversationManager] GitLab 分支缓存已过期，触发异步回源刷新: projectId=${projectId}, key=${branchesCacheKey}`
+        );
+      },
+    });
+  }
+
+  private async fetchGitLabBranches(
+    projectId: string,
+    projectDefaultBranch: string | null | undefined,
+    gitlabProjectId: string
+  ): Promise<{ branches: string[]; defaultBranch?: string }> {
     console.log(
-      `[ConversationManager] GitLab 分支查询参数: projectId=${projectId}, gitlabProjectId=${gitlabProjectId}, projectDefaultBranch=${projectResult.project.gitBranch}`
+      `[ConversationManager] GitLab 分支查询参数: projectId=${projectId}, gitlabProjectId=${gitlabProjectId}, projectDefaultBranch=${projectDefaultBranch}`
     );
 
     const [branches, projectInfo] = await Promise.all([
-      this.gitlabService.listBranches(gitlabProjectId),
-      this.gitlabService.getProjectInfo(gitlabProjectId),
+      this.gitlabService!.listBranches(gitlabProjectId),
+      this.gitlabService!.getProjectInfo(gitlabProjectId),
     ]);
 
-    const resolvedDefaultBranch = projectInfo?.default_branch || projectResult.project.gitBranch;
+    const resolvedDefaultBranch = projectInfo?.default_branch || projectDefaultBranch || undefined;
     const defaultBranchSource = projectInfo?.default_branch ? 'gitlab.default_branch' : 'project.gitBranch';
 
     console.log(
@@ -984,17 +1015,13 @@ export class ConversationManager {
 
     if (!projectInfo?.default_branch) {
       console.warn(
-        `[ConversationManager] GitLab 默认分支为空，已回退到项目默认分支: projectId=${projectId}, gitlabProjectId=${gitlabProjectId}, fallback=${projectResult.project.gitBranch}`
+        `[ConversationManager] GitLab 默认分支为空，已回退到项目默认分支: projectId=${projectId}, gitlabProjectId=${gitlabProjectId}, fallback=${projectDefaultBranch}`
       );
     }
 
-    const result = {
+    return {
       branches,
       defaultBranch: resolvedDefaultBranch,
     };
-
-    await this.cache.setJson(branchesCacheKey, result, this.gitlabBranchesCacheTtlSeconds);
-
-    return result;
   }
 }

@@ -10,6 +10,7 @@
 - `WORKER_RETRY_DELAY_MS`：Worker 启动失败后的重试间隔（毫秒，默认 30000）
 - `LRU_CACHE_PERSIST_PATH`：LRU 缓存快照文件路径（配置后启用定时持久化）
 - `LRU_CACHE_PERSIST_INTERVAL_MS`：LRU 缓存定时持久化间隔（毫秒，默认 60000）
+- `GITLAB_BRANCHES_REFRESH_INTERVAL_MS`：GitLab 分支缓存软刷新窗口（毫秒，默认 120000；超时后回源刷新）
 
 ## 数据库
 
