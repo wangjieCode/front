@@ -14,6 +14,7 @@ import { newId } from '../utils/id';
 import dayjs from 'dayjs';
 import { convertToStoredPath, resolveStoredPath, BasePathType } from '../utils/PathUtils';
 import { LruCacheService } from '../services/LruCacheService';
+import { CacheStrategyManager } from '../services/CacheStrategyManager';
 
 /**
  * 分页选项
@@ -44,9 +45,10 @@ export interface SessionAccessInfo {
  */
 export class DrizzleConversationStorage {
   private cache = new LruCacheService();
-  private cacheTtlSeconds = 60;
+  private cacheStrategyManager = new CacheStrategyManager(this.cache);
+  private cacheTtlSeconds = 0;
   private messageQuerySlowLogMs = Number(process.env.MESSAGE_QUERY_SLOW_LOG_MS || 800);
-  private messageHistoryVersionCacheTtlSeconds = Number(process.env.MESSAGE_VERSION_CACHE_TTL_SECONDS || 30);
+  private messageHistoryVersionCacheTtlSeconds = Number(process.env.MESSAGE_VERSION_CACHE_TTL_SECONDS || 0);
 
   private hasImagePayload(metadata: any): boolean {
     if (!metadata) return false;
@@ -69,28 +71,28 @@ export class DrizzleConversationStorage {
    * 清除缓存
    */
   async clearCache(): Promise<void> {
-    await this.cache.delByPattern('storage:*');
+    await this.cacheStrategyManager.delByPattern('storage:*');
   }
 
   /**
    * 从缓存获取数据
    */
   private async getCached<T>(key: string): Promise<T | null> {
-    return this.cache.getJson<T>(`storage:${key}`);
+    return this.cacheStrategyManager.get<T>(`storage:${key}`);
   }
 
   /**
    * 设置缓存
    */
   private async setCache<T>(key: string, value: T, ttlSeconds: number = this.cacheTtlSeconds): Promise<void> {
-    await this.cache.setJson(`storage:${key}`, value, ttlSeconds);
+    await this.cacheStrategyManager.set(`storage:${key}`, value, ttlSeconds);
   }
 
   /**
    * 删除缓存
    */
   private async deleteCache(key: string): Promise<void> {
-    await this.cache.del(`storage:${key}`);
+    await this.cacheStrategyManager.del(`storage:${key}`);
   }
 
   // ==================== 会话管理方法 ====================

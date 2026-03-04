@@ -3,6 +3,7 @@ import dayjs from 'dayjs';
 import { ICommandExecutor } from '../types';
 import { resolveStoredPath, BasePathType } from '../utils/PathUtils';
 import { LruCacheService } from './LruCacheService';
+import { CacheStrategyManager } from './CacheStrategyManager';
 
 /**
  * Worktree 信息接口
@@ -33,7 +34,8 @@ export interface WorktreeInfo {
  */
 export class WorktreeManager {
   private cache = new LruCacheService();
-  private worktreeInfoCacheTtlSeconds = 60 * 60;
+  private cacheStrategyManager = new CacheStrategyManager(this.cache);
+  private worktreeInfoCacheTtlSeconds = 0;
   private baseRepoPath: string;
   private worktreeBaseDir: string;
   
@@ -144,7 +146,7 @@ export class WorktreeManager {
         lastUsedAt: now,
       };
 
-      await this.cache.setJson(this.getWorktreeCacheKey(userId, sessionId), worktreeInfo, this.worktreeInfoCacheTtlSeconds);
+      await this.cacheStrategyManager.set(this.getWorktreeCacheKey(userId, sessionId), worktreeInfo, this.worktreeInfoCacheTtlSeconds);
 
       console.log(`[WorktreeManager] ✅ 对话 worktree 创建成功`);
       console.log(`[WorktreeManager]    路径: ${worktreePath}`);
@@ -210,13 +212,13 @@ export class WorktreeManager {
    */
   async getWorktreeInfo(userId: string, sessionId: string): Promise<WorktreeInfo> {
     const cacheKey = this.getWorktreeCacheKey(userId, sessionId);
-    const cached = await this.cache.getJson<WorktreeInfo>(cacheKey);
+    const cached = await this.cacheStrategyManager.get<WorktreeInfo>(cacheKey);
     if (cached) {
       const refreshed: WorktreeInfo = {
         ...cached,
         lastUsedAt: dayjs().toDate(),
       };
-      await this.cache.setJson(cacheKey, refreshed, this.worktreeInfoCacheTtlSeconds);
+      await this.cacheStrategyManager.set(cacheKey, refreshed, this.worktreeInfoCacheTtlSeconds);
       return refreshed;
     }
 
@@ -243,7 +245,7 @@ export class WorktreeManager {
       lastUsedAt: now,
     };
 
-    await this.cache.setJson(cacheKey, worktreeInfo, this.worktreeInfoCacheTtlSeconds);
+    await this.cacheStrategyManager.set(cacheKey, worktreeInfo, this.worktreeInfoCacheTtlSeconds);
     return worktreeInfo;
   }
 
@@ -585,7 +587,7 @@ export class WorktreeManager {
         console.log(`[WorktreeManager] ✅ 物理删除成功`);
       }
 
-      await this.cache.del(this.getWorktreeCacheKey(userId, sessionId));
+      await this.cacheStrategyManager.del(this.getWorktreeCacheKey(userId, sessionId));
     } catch (error) {
       throw new Error(
         `删除对话 worktree 失败: ${error instanceof Error ? error.message : String(error)}`

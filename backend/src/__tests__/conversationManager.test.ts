@@ -149,3 +149,54 @@ describe('ConversationManager.listSessions', () => {
     });
   });
 });
+
+describe('ConversationManager.getGitLabBranches', () => {
+  it('returns stale branches first and refreshes cache asynchronously after refresh window', async () => {
+    process.env.GITLAB_BRANCHES_REFRESH_INTERVAL_MS = '10';
+
+    const storage = createStorage();
+    const projectService = {
+      getProject: jest.fn().mockResolvedValue({
+        success: true,
+        project: {
+          id: 'project-branch-refresh',
+          name: 'Demo',
+          gitBranch: 'main',
+          gitlabProjectId: 'gitlab-project-1',
+        },
+      }),
+      executor: {},
+    } as any;
+
+    const gitlabService = {
+      listBranches: jest
+        .fn()
+        .mockResolvedValueOnce(['main'])
+        .mockResolvedValueOnce(['main', 'feature/new-branch'])
+        .mockResolvedValue(['main', 'feature/new-branch']),
+      getProjectInfo: jest
+        .fn()
+        .mockResolvedValue({ default_branch: 'main' }),
+    } as any;
+
+    const manager = new ConversationManager(storage as any, projectService, gitlabService);
+
+    const first = await manager.getGitLabBranches('project-branch-refresh', 'user-1');
+    const second = await manager.getGitLabBranches('project-branch-refresh', 'user-1');
+
+    expect(first.branches).toEqual(['main']);
+    expect(second.branches).toEqual(['main']);
+    expect(gitlabService.listBranches).toHaveBeenCalledTimes(1);
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const third = await manager.getGitLabBranches('project-branch-refresh', 'user-1');
+
+    expect(third.branches).toEqual(['main']);
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const fourth = await manager.getGitLabBranches('project-branch-refresh', 'user-1');
+
+    expect(gitlabService.listBranches.mock.calls.length).toBeGreaterThanOrEqual(2);
+    expect(fourth.branches).toEqual(['main', 'feature/new-branch']);
+  });
+});

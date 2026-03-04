@@ -8,7 +8,7 @@ const DEFAULT_PERSIST_INTERVAL_MS = 60_000;
 interface PersistedCacheEntry {
   key: string;
   value: object;
-  ttlMs: number;
+  ttlMs: number | null;
 }
 
 interface PersistedCacheSnapshot {
@@ -92,7 +92,12 @@ export class LruCacheService {
       if (parsed.version !== 1 || !Array.isArray(parsed.entries)) return;
 
       for (const entry of parsed.entries) {
-        if (!entry || typeof entry.key !== 'string' || entry.ttlMs <= 0) continue;
+        if (!entry || typeof entry.key !== 'string') continue;
+        if (entry.ttlMs === null) {
+          this.cache.set(entry.key, entry.value);
+          continue;
+        }
+        if (entry.ttlMs <= 0) continue;
         this.cache.set(entry.key, entry.value, { ttl: entry.ttlMs });
       }
 
@@ -121,7 +126,11 @@ export class LruCacheService {
           const value = this.cache.get(key);
           if (value === undefined) continue;
           const ttlMs = this.cache.getRemainingTTL(key);
-          if (!Number.isFinite(ttlMs) || ttlMs <= 0) continue;
+          if (!Number.isFinite(ttlMs)) {
+            entries.push({ key, value, ttlMs: null });
+            continue;
+          }
+          if (ttlMs <= 0) continue;
           entries.push({ key, value, ttlMs });
         }
 
@@ -159,6 +168,10 @@ export class LruCacheService {
 
   async setJson(key: string, value: unknown, ttlSeconds: number): Promise<void> {
     await LruCacheService.ensurePersistenceReady();
+    if (ttlSeconds <= 0) {
+      LruCacheService.cache.set(key, value as object);
+      return;
+    }
     LruCacheService.cache.set(key, value as object, { ttl: ttlSeconds * 1000 });
   }
 
