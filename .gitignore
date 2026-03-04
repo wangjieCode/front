@@ -48,3 +48,5 @@ front-workspace/
 public/
 
 .turbo
+
+.cache/
