@@ -5,6 +5,7 @@ import {
   conversationContexts,
   messages,
   messageMetadata,
+  neovateSessions,
   type Conversation,
   type NewConversation,
   type Message,
@@ -397,15 +398,13 @@ export class DrizzleConversationStorage {
 
     // 使用事务确保数据一致性
     await db.transaction(async (tx) => {
-      // 1. 删除消息元数据
-      const messagesToDelete = await tx
+      const messageIdsSubquery = tx
         .select({ id: messages.id })
         .from(messages)
         .where(eq(messages.conversationId, sessionId));
 
-      for (const msg of messagesToDelete) {
-        await tx.delete(messageMetadata).where(eq(messageMetadata.messageId, msg.id));
-      }
+      // 1. 删除消息元数据（集合删除，避免逐条循环）
+      await tx.delete(messageMetadata).where(inArray(messageMetadata.messageId, messageIdsSubquery as any));
 
       // 2. 删除消息
       await tx.delete(messages).where(eq(messages.conversationId, sessionId));
@@ -413,7 +412,10 @@ export class DrizzleConversationStorage {
       // 3. 删除上下文
       await tx.delete(conversationContexts).where(eq(conversationContexts.conversationId, sessionId));
 
-      // 4. 删除会话
+      // 4. 删除 Neovate 会话映射
+      await tx.delete(neovateSessions).where(eq(neovateSessions.conversationId, sessionId));
+
+      // 5. 删除会话
       await tx.delete(conversations).where(eq(conversations.id, sessionId));
     });
 
@@ -816,6 +818,9 @@ export class DrizzleConversationStorage {
       .limit(1);
     
     const conversationId = msgResult[0]?.conversationId;
+    if (!conversationId) {
+      throw new Error(`Message ${messageId} not found`);
+    }
 
     // 检查是否已存在
     const existing = await db

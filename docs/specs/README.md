@@ -13,3 +13,4 @@
 - Monorepo 工作区：`spec-monorepo-workspace.md`
 - 视觉模型提供方验证：`spec-vision-model-verify.md`
 - Zadig 工作流发布 Skill：`spec-zadig-workflow-deploy-skill.md`
+- 数据库结构优化（无外键）：`spec-database-schema-optimization-no-fk.md`

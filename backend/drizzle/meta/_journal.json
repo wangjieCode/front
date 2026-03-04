@@ -43,6 +43,13 @@
       "when": 1766419200000,
       "tag": "0005_messages_conversation_timestamp_index",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1772616596000,
+      "tag": "0006_schema_optimization_no_fk",
+      "breakpoints": true
     }
   ]
 }

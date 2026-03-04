@@ -1,4 +1,4 @@
-import { pgTable, uuid, varchar, text, boolean, timestamp, jsonb, index } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, varchar, text, boolean, timestamp, jsonb, index, uniqueIndex } from 'drizzle-orm/pg-core';
 
 /**
  * users 表
@@ -13,9 +13,7 @@ export const users = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     lastLoginAt: timestamp('last_login_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (table) => ({
-    usernameIdx: index('idx_users_username').on(table.username),
-  })
+  () => ({})
 );
 
 /**
@@ -28,7 +26,7 @@ export const conversations = pgTable(
     id: uuid('id').primaryKey(),
     userId: uuid('user_id').notNull(),
     projectId: uuid('project_id'),
-    status: varchar('status', { length: 50 }).notNull(),
+    status: varchar('status', { length: 50 }).notNull().default('active'),
     visibility: varchar('visibility', { length: 50 }).notNull().default('private'),
     title: varchar('title', { length: 500 }),
     summary: text('summary'),
@@ -41,10 +39,8 @@ export const conversations = pgTable(
   (table) => ({
     userIdIdx: index('idx_conversations_user_id').on(table.userId),
     projectIdIdx: index('idx_conversations_project_id').on(table.projectId),
-    statusIdx: index('idx_conversations_status').on(table.status),
-    visibilityIdx: index('idx_conversations_visibility').on(table.visibility),
     createdAtIdx: index('idx_conversations_created_at').on(table.createdAt),
-    titleIdx: index('idx_conversations_title').on(table.title),
+    userVisibilityCreatedAtIdx: index('idx_conversations_user_visibility_created_at').on(table.userId, table.visibility, table.createdAt),
   })
 );
 
@@ -71,9 +67,7 @@ export const conversationContexts = pgTable(
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({
-    conversationIdIdx: index('idx_contexts_conversation_id').on(table.conversationId),
-    conversationIdUnique: index('unique_contexts_conversation_id').on(table.conversationId),
-    modeIdx: index('idx_contexts_mode').on(table.mode),
+    conversationIdUnique: uniqueIndex('unique_contexts_conversation_id').on(table.conversationId),
   })
 );
 
@@ -95,9 +89,7 @@ export const messages = pgTable(
     parentMessageId: uuid('parent_message_id'),
   },
   (table) => ({
-    conversationIdIdx: index('idx_messages_conversation_id').on(table.conversationId),
     conversationTimestampIdx: index('idx_messages_conversation_timestamp').on(table.conversationId, table.timestamp),
-    timestampIdx: index('idx_messages_timestamp').on(table.timestamp),
     parentMessageIdIdx: index('idx_messages_parent_message_id').on(table.parentMessageId),
   })
 );
@@ -117,8 +109,7 @@ export const neovateSessions = pgTable(
     lastUsedAt: timestamp('last_used_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({
-    conversationIdIdx: index('idx_neovate_sessions_conversation_id').on(table.conversationId),
-    conversationIdUnique: index('unique_neovate_sessions_conversation_id').on(table.conversationId),
+    conversationIdUnique: uniqueIndex('unique_neovate_sessions_conversation_id').on(table.conversationId),
     neovateSessionIdIdx: index('idx_neovate_sessions_neovate_session_id').on(table.neovateSessionId),
   })
 );
@@ -135,11 +126,11 @@ export const messageMetadata = pgTable(
     toolCalls: jsonb('tool_calls'),
     codeChanges: jsonb('code_changes'),
     thinking: text('thinking'),
-    isQuestion: boolean('is_question').default(false),
+    isQuestion: boolean('is_question').notNull().default(false),
     questionOptions: jsonb('question_options'),
-    requiresResponse: boolean('requires_response').default(false),
+    requiresResponse: boolean('requires_response').notNull().default(false),
     messageReferences: jsonb('message_references'),
-    isInvalid: boolean('is_invalid').default(false),
+    isInvalid: boolean('is_invalid').notNull().default(false),
     gitBranch: varchar('git_branch', { length: 255 }), // 关联的 Git 分支
     mrUrl: text('mr_url'), // 关联的 MR URL
     images: jsonb('images'), // 图片附件
@@ -147,10 +138,7 @@ export const messageMetadata = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({
-    messageIdIdx: index('idx_metadata_message_id').on(table.messageId),
-    messageIdUnique: index('unique_metadata_message_id').on(table.messageId),
-    isQuestionIdx: index('idx_metadata_is_question').on(table.isQuestion),
-    requiresResponseIdx: index('idx_metadata_requires_response').on(table.requiresResponse),
+    messageIdUnique: uniqueIndex('unique_metadata_message_id').on(table.messageId),
   })
 );
 
@@ -195,9 +183,8 @@ export const projects = pgTable(
   },
   (table) => ({
     ownerIdIdx: index('idx_projects_owner_id').on(table.ownerId),
-    nameIdx: index('idx_projects_name').on(table.name),
-    isActiveIdx: index('idx_projects_is_active').on(table.isActive),
     createdAtIdx: index('idx_projects_created_at').on(table.createdAt),
+    isActiveCreatedAtIdx: index('idx_projects_is_active_created_at').on(table.isActive, table.createdAt),
   })
 );
 
