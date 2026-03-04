@@ -8,6 +8,8 @@
 - `APP_ENV`：应用环境（用于会话过滤）
 - `API_SLOW_LOG_MS`：接口慢请求阈值（毫秒，默认 1000）
 - `WORKER_RETRY_DELAY_MS`：Worker 启动失败后的重试间隔（毫秒，默认 30000）
+- `LRU_CACHE_PERSIST_PATH`：LRU 缓存快照文件路径（配置后启用定时持久化）
+- `LRU_CACHE_PERSIST_INTERVAL_MS`：LRU 缓存定时持久化间隔（毫秒，默认 60000）
 
 ## 数据库
 
@@ -20,7 +22,6 @@
 
 - `REDIS_URL`：Redis 连接串（队列）
 - `REDIS_PREFIX`：Redis Key 前缀
-- `DISABLE_REDIS`：设为 `true` 时禁用 Redis（仅影响队列/调度相关）
 
 ## Git / Worktree
 

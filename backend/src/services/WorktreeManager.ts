@@ -2,7 +2,7 @@ import path from 'path';
 import dayjs from 'dayjs';
 import { ICommandExecutor } from '../types';
 import { resolveStoredPath, BasePathType } from '../utils/PathUtils';
-import { RedisCacheService } from './RedisCacheService';
+import { LruCacheService } from './LruCacheService';
 
 /**
  * Worktree 信息接口
@@ -32,7 +32,7 @@ export interface WorktreeInfo {
  * @param worktreeBaseDir worktree 基础目录（存放所有用户 worktree）
  */
 export class WorktreeManager {
-  private cache = new RedisCacheService();
+  private cache = new LruCacheService();
   private worktreeInfoCacheTtlSeconds = 60 * 60;
   private baseRepoPath: string;
   private worktreeBaseDir: string;

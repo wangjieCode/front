@@ -33,12 +33,12 @@
 
 ## 业务缓存
 
-- RedisCacheService：统一封装进程内 LRU 缓存读写、按模式批量清理。
+- LruCacheService：统一封装进程内 LRU 缓存读写、按模式批量清理，进程级缓存上限 `50MB`；支持按配置周期落盘缓存快照，并在服务启动后自动恢复（启用条件：`LRU_CACHE_PERSIST_PATH`）。
 - ConversationManager：缓存会话详情、会话列表、GitLab 分支列表。
 - ProjectService：缓存项目列表与项目详情，写操作后清理对应键。
 - WorktreeManager：缓存 worktree 信息（分支、路径）。
 - DrizzleConversationStorage：缓存会话上下文、消息列表、消息元数据。
-- 缓存异常降级：缓存访问失败时直接回退无缓存路径（数据库直读/实时探测）。
+- 缓存异常降级：缓存访问失败时直接回退无缓存路径（数据库直读/实时探测）；业务缓存不依赖 Redis。
 
 ## 接口观测
 

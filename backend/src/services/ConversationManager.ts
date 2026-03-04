@@ -21,8 +21,7 @@ import { newId } from "../utils/id";
 import { getWorktreeBaseDir } from "../utils/config";
 import dayjs from "dayjs";
 import { DEFAULT_NEOVATE_MODEL, isNeovateModelSupported } from "@front/shared";
-import type Redis from "ioredis";
-import { RedisCacheService } from "./RedisCacheService";
+import { LruCacheService } from "./LruCacheService";
 
 /**
  * 对话管理器类
@@ -36,7 +35,7 @@ export class ConversationManager {
   private gitlabService?: GitLabMCPService;
   private worktreeManager?: WorktreeManager;
   public projectService: ProjectService;
-  private cache: RedisCacheService;
+  private cache: LruCacheService;
   private sessionCacheTtlSeconds = 120;
   private sessionListCacheTtlSeconds = 30;
   private gitlabBranchesCacheTtlSeconds = 120;
@@ -45,15 +44,14 @@ export class ConversationManager {
     storage: IConversationStorage,
     projectService: ProjectService,
     gitlabService?: GitLabMCPService,
-    worktreeManager?: WorktreeManager,
-    redis?: Redis
+    worktreeManager?: WorktreeManager
   ) {
     this.storage = storage;
     this.projectService = projectService;
     this.modeValidator = new ModeValidator();
     this.gitlabService = gitlabService;
     this.worktreeManager = worktreeManager;
-    this.cache = new RedisCacheService(redis);
+    this.cache = new LruCacheService();
   }
 
   private getCurrentEnv(): string {
@@ -77,7 +75,7 @@ export class ConversationManager {
     try {
       await this.cache.delByPattern(`sessions:list:*:${this.getCurrentEnv()}`);
     } catch (error) {
-      console.warn("[ConversationManager] 会话列表缓存清理失败 (Redis 可能达到限制):", error);
+      console.warn("[ConversationManager] 会话列表缓存清理失败:", error);
     }
   }
 

@@ -58,4 +58,5 @@
 - `projects:detail:{projectId}`
 - `worktree:info:{projectId}:{userId}:{sessionId}`
 - `storage:*`（会话上下文、消息列表、元数据等存储层缓存）
+- 进程级缓存总容量上限：`50MB`。
 - 约束：`message_metadata.images` 不进入缓存（仅落库）。
