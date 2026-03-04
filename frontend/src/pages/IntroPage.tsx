@@ -97,7 +97,7 @@ const IntroPage: React.FC = () => {
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
              <img src="/ai-avatar.png" alt="logo" style={{ width: 32, height: 32, borderRadius: '50%' }} />
-             <span style={{ fontSize: '20px', fontWeight: 600, color: '#333' }}>前端小秘</span>
+             <span style={{ fontSize: '20px', fontWeight: 600, color: '#333' }}>代码伙计</span>
           </div>
           <Space size="middle">
              <Button type="link" style={{ color: '#555' }} onClick={() => navigate('/projects')}>项目管理</Button>
@@ -121,7 +121,7 @@ const IntroPage: React.FC = () => {
             letterSpacing: '-1px',
             textShadow: '0 4px 12px rgba(0,0,0,0.05)'
           }}>
-            前端小秘
+            代码伙计
           </Title>
           <Paragraph style={{
             fontSize: '24px',
@@ -131,7 +131,7 @@ const IntroPage: React.FC = () => {
             lineHeight: '1.6',
             fontWeight: 300
           }}>
-            您的专属 <span style={{ color: '#7c5cff', fontWeight: 600 }}>AI 前端实习生助理</span>
+            少折腾，多交付。<span style={{ color: '#7c5cff', fontWeight: 600 }}> Less hassle, more delivery.</span>
           </Paragraph>
           <Paragraph style={{
             fontSize: '18px',
@@ -196,7 +196,7 @@ const IntroPage: React.FC = () => {
       <div className="concept-section">
         <div className="concept-module-container">
           <div className="concept-module-header">
-            <span className="concept-main-title">前端小秘</span>
+            <span className="concept-main-title">代码伙计</span>
             <span className="concept-math-symbol">=</span>
           </div>
           

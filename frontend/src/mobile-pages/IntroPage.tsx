@@ -58,17 +58,17 @@ const MobileIntroPage: React.FC = () => {
       <header className="mobile-intro-header">
         <div className="mobile-intro-brand">
           <img src="/ai-avatar.png" alt="logo" />
-          <span>前端小秘</span>
+          <span>代码伙计</span>
         </div>
         <Button type="primary" size="small" onClick={() => navigate('/')}>开始使用</Button>
       </header>
 
       <main className="mobile-intro-main">
         <section className="hero-card">
-          <div className="hero-badge">AI 前端实习生</div>
+          <div className="hero-badge">Code Mate</div>
           <Title level={2} className="hero-title">让协作更轻快</Title>
           <Paragraph className="hero-subtitle">
-            面向移动端的轻量入口，快速发起对话与任务。
+            少折腾，多交付。Less hassle, more delivery.
           </Paragraph>
           <div className="hero-actions">
             {quickActions.map((item) => (

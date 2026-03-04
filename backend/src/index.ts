@@ -183,9 +183,11 @@ startServer().catch((error) => {
 // 优雅关闭
 import { closeDatabase } from './db/init';
 import { streamingManager } from './streaming/StreamingResponseManager';
+import { LruCacheService } from './services/LruCacheService';
 
 process.on('SIGTERM', async () => {
   console.log('收到 SIGTERM 信号，正在关闭服务器...');
+  await LruCacheService.persistNow();
   
   // 关闭所有 SSE 连接
   await streamingManager.closeAll();
@@ -201,6 +203,7 @@ process.on('SIGTERM', async () => {
 
 process.on('SIGINT', async () => {
   console.log('\n收到 SIGINT 信号，正在关闭服务器...');
+  await LruCacheService.persistNow();
   
   // 关闭所有 SSE 连接
   await streamingManager.closeAll();
