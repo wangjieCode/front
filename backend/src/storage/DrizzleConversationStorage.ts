@@ -1,4 +1,4 @@
-import { eq, and, desc, asc, lt, gt, inArray, or, sql } from 'drizzle-orm';
+import { eq, and, desc, asc, lt, gt, inArray, ne, sql } from 'drizzle-orm';
 import { DatabaseManager } from '../db/DatabaseManager';
 import {
   conversations,
@@ -265,28 +265,40 @@ export class DrizzleConversationStorage {
   async listSessions(options: ListSessionsOptions = {}): Promise<any[]> {
     const db = this.getDb();
     const { userId, environment } = options;
-    const visibilityScope = userId
-      ? or(eq(conversations.userId, userId), eq(conversations.visibility, 'public'))
-      : undefined;
+    const selectFields = {
+      id: conversations.id,
+      userId: conversations.userId,
+      visibility: conversations.visibility,
+      status: conversations.status,
+      title: conversations.title,
+      summary: conversations.summary,
+      projectId: conversations.projectId,
+      projectName: conversations.projectName,
+      createdAt: conversations.createdAt,
+      updatedAt: conversations.updatedAt,
+    };
 
-    const sessionQuery = db
-      .select({
-        id: conversations.id,
-        userId: conversations.userId,
-        visibility: conversations.visibility,
-        status: conversations.status,
-        title: conversations.title,
-        summary: conversations.summary,
-        projectId: conversations.projectId,
-        projectName: conversations.projectName,
-        createdAt: conversations.createdAt,
-        updatedAt: conversations.updatedAt,
-      })
-      .from(conversations)
-      .orderBy(desc(conversations.createdAt));
-    const sessionRows = visibilityScope
-      ? await sessionQuery.where(visibilityScope)
-      : await sessionQuery;
+    const sessionRows = userId
+      ? (
+          await Promise.all([
+            db
+              .select(selectFields)
+              .from(conversations)
+              .where(eq(conversations.userId, userId))
+              .orderBy(desc(conversations.createdAt)),
+            db
+              .select(selectFields)
+              .from(conversations)
+              .where(and(eq(conversations.visibility, 'public'), ne(conversations.userId, userId)))
+              .orderBy(desc(conversations.createdAt)),
+          ])
+        )
+          .flat()
+          .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+      : await db
+          .select(selectFields)
+          .from(conversations)
+          .orderBy(desc(conversations.createdAt));
 
     if (sessionRows.length === 0) {
       return [];

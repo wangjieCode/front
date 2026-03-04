@@ -41,6 +41,7 @@ export const conversations = pgTable(
     projectIdIdx: index('idx_conversations_project_id').on(table.projectId),
     createdAtIdx: index('idx_conversations_created_at').on(table.createdAt),
     userVisibilityCreatedAtIdx: index('idx_conversations_user_visibility_created_at').on(table.userId, table.visibility, table.createdAt),
+    visibilityCreatedAtIdx: index('idx_conversations_visibility_created_at').on(table.visibility, table.createdAt),
   })
 );
 

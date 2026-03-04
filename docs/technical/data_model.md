@@ -28,7 +28,7 @@
 - status, visibility
 - title, summary, project_name
 - created_at, updated_at, completed_at, error
-- 索引：`(user_id)`, `(project_id)`, `(created_at)`, `(user_id, visibility, created_at)`
+- 索引：`(user_id)`, `(project_id)`, `(created_at)`, `(user_id, visibility, created_at)`, `(visibility, created_at)`
 
 ## conversation_contexts
 
