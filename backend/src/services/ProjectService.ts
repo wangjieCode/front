@@ -104,7 +104,7 @@ export class ProjectService {
   }
 
   constructor(
-    private executor: ICommandExecutor
+    readonly executor: ICommandExecutor
   ) {
     this.repositoryService = new RepositoryService(executor);
   }

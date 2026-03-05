@@ -275,7 +275,7 @@ body {
 }
 
 .review-sidebar {
-  width: clamp(420px, 42vw, 840px);
+  width: clamp(300px, 30vw, 560px);
   border-left: 1px solid #f0f0f0;
   background: #fafafa;
   display: flex;
@@ -293,11 +293,11 @@ body {
 }
 
 .review-sidebar-header {
-  min-height: 64px;
+  min-height: 48px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 8px 12px;
+  padding: 6px 10px;
   border-bottom: 1px solid #f0f0f0;
   background: #fff;
 }
@@ -318,18 +318,18 @@ body {
 }
 
 .review-sidebar-toolbar {
-  padding: 8px 12px;
+  padding: 6px 10px;
   border-bottom: 1px solid #f0f0f0;
   background: #fff;
 }
 
 .review-sidebar-alert {
-  margin: 8px 12px 0;
+  margin: 6px 10px 0;
 }
 
 .review-sidebar-file-list {
   border-bottom: 1px solid #f0f0f0;
-  max-height: 42%;
+  max-height: 36%;
   overflow-y: auto;
 }
 
@@ -339,7 +339,7 @@ body {
   border: none;
   border-bottom: 1px solid #f3f3f3;
   text-align: left;
-  padding: 10px 12px;
+  padding: 7px 10px;
   cursor: pointer;
 }
 
@@ -519,7 +519,7 @@ body {
 
 @media (max-width: 1280px) {
   .review-sidebar {
-    width: clamp(360px, 46vw, 720px);
+    width: clamp(280px, 34vw, 500px);
   }
 }
 

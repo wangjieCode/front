@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls /Users/gangqiang/Desktop/front-intern/docs/ && cat /Users/gangqiang/Desktop/front-intern/docs/*.md 2>/dev/null | head -200)",
+      "Bash(pnpm -C backend build 2>&1)"
+    ]
+  }
+}

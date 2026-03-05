@@ -1,24 +1,19 @@
 import { Router, Response } from 'express';
 import { ConversationManager } from '../services/ConversationManager';
-import { MessageRouter } from '../services/MessageRouter';
 import { ConversationAIService } from '../services/ConversationAIService';
-import { ConversationStatus, ConversationVisibility } from '../types';
+import { BranchCacheService } from '../services/BranchCacheService';
+import { ConversationStatus, ConversationVisibility, MessageRole } from '../types';
 import { requireAuth, AuthRequest } from './authMiddleware';
 import dayjs from 'dayjs';
 import { DEFAULT_NEOVATE_MODEL, isNeovateModelSupported, NEOVATE_MODEL_OPTIONS } from '@front/shared';
 import { ModelAvailabilityService } from '../services/ModelAvailabilityService';
 
-/**
- * 创建对话路由
- */
 export function createConversationRoutes(
   conversationManager: ConversationManager,
-  messageRouter: MessageRouter,
   aiService: ConversationAIService,
+  branchCacheService: BranchCacheService,
   modelAvailabilityService?: ModelAvailabilityService
 ): Router {
-  // 获取 ConversationManager 中的 ProjectService 实例
-  const projectService = (conversationManager as any).projectService;
   const router = Router();
   const isCreator = (session: any, userId?: string) => {
     if (!userId) return false;
@@ -88,7 +83,7 @@ export function createConversationRoutes(
 
       console.log(`[API] 获取 GitLab 分支: projectId=${projectId}, userId=${req.userId}`);
 
-      const result = await conversationManager.getGitLabBranches(projectId, req.userId!);
+      const result = await branchCacheService.getBranches(projectId, req.userId!);
       console.log(
         `[API] 获取 GitLab 分支完成: projectId=${projectId}, userId=${req.userId}, branchesCount=${result.branches.length}, defaultBranch=${result.defaultBranch || 'N/A'}`
       );
@@ -139,7 +134,7 @@ export function createConversationRoutes(
       let project;
       // 验证项目是否存在
       try {
-        const projectResult = await projectService.getProject(projectId, req.userId!);
+        const projectResult = await conversationManager.projectService.getProject(projectId, req.userId!);
         if (!projectResult.success || !projectResult.project) {
           return res.status(404).json({
             success: false,
@@ -613,8 +608,9 @@ export function createConversationRoutes(
       (async () => {
         try {
           const step3aStart = dayjs().valueOf();
-          messageRouter.handleUserMessage(
+          conversationManager.addMessage(
             sessionId,
+            MessageRole.USER,
             trimmedContent,
             normalizedImages.length > 0 ? { images: normalizedImages } : undefined,
             session,
@@ -650,7 +646,13 @@ export function createConversationRoutes(
             content: fullContent || aiResponse.content
           };
 
-          messageRouter.handleAIResponse(sessionId, parsedAiResponse, session).catch(error => {
+          conversationManager.addMessage(
+            sessionId,
+            MessageRole.ASSISTANT,
+            parsedAiResponse.content,
+            parsedAiResponse.metadata,
+            session
+          ).catch(error => {
             console.error(`[conversationRoutes] 保存 AI 响应失败:`, error);
           });
 

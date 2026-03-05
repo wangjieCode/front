@@ -279,9 +279,10 @@ export class ConversationStorageAdapter implements IConversationStorage {
   }
 
   /**
-   * 保存消息
+   * 保存消息（D1：元数据随消息一起单次 INSERT，不再分两步）
    */
   async saveMessage(message: ConversationMessage): Promise<void> {
+    const meta = message.metadata;
     await this.storage.saveMessage({
       id: message.id,
       conversationId: message.sessionId,
@@ -289,25 +290,19 @@ export class ConversationStorageAdapter implements IConversationStorage {
       content: message.content,
       timestamp: message.timestamp,
       parentMessageId: message.parentMessageId || null,
-      isComplete: true,
+      toolCalls: meta?.toolCalls ?? null,
+      codeChanges: meta?.codeChanges ?? null,
+      thinking: meta?.thinking ?? null,
+      isQuestion: meta?.isQuestion ?? false,
+      questionOptions: meta?.questionOptions ?? null,
+      requiresResponse: meta?.requiresResponse ?? false,
+      messageReferences: meta?.references ?? null,
+      isInvalid: meta?.isInvalid ?? false,
+      gitBranch: meta?.gitBranch ?? null,
+      mrUrl: meta?.mrUrl ?? null,
+      images: meta?.images ?? null,
+      operationDenied: meta?.operationDenied ?? null,
     });
-
-    if (message.metadata) {
-      await this.storage.saveMessageMetadata(message.id, {
-        toolCalls: message.metadata.toolCalls || null,
-        codeChanges: message.metadata.codeChanges || null,
-        thinking: message.metadata.thinking || null,
-        isQuestion: message.metadata.isQuestion ?? false,
-        questionOptions: message.metadata.questionOptions || null,
-        requiresResponse: message.metadata.requiresResponse ?? false,
-        messageReferences: message.metadata.references || null,
-        isInvalid: message.metadata.isInvalid ?? false,
-        gitBranch: message.metadata.gitBranch || null,
-        mrUrl: message.metadata.mrUrl || null,
-        images: message.metadata.images || null,
-        operationDenied: message.metadata.operationDenied || null,
-      });
-    }
   }
 
   /**
@@ -369,15 +364,11 @@ export class ConversationStorageAdapter implements IConversationStorage {
   }
 
   /**
-   * 加载单条消息
+   * 加载单条消息（D1：元数据直接从 messages 列读取，无需单独查 message_metadata）
    */
   async loadMessage(sessionId: string, messageId: string): Promise<ConversationMessage | null> {
     const dbMsg = await this.storage.loadMessage(sessionId, messageId);
-    if (!dbMsg) {
-      return null;
-    }
-
-    const dbMetadata = await this.storage.loadMessageMetadata(dbMsg.id);
+    if (!dbMsg) return null;
 
     const message: ConversationMessage = {
       id: dbMsg.id,
@@ -388,20 +379,26 @@ export class ConversationStorageAdapter implements IConversationStorage {
       parentMessageId: dbMsg.parentMessageId || undefined,
     };
 
-    if (dbMetadata) {
+    const hasMetadata = !!(
+      dbMsg.toolCalls || dbMsg.codeChanges || dbMsg.thinking ||
+      dbMsg.isQuestion || dbMsg.requiresResponse || dbMsg.isInvalid ||
+      dbMsg.gitBranch || dbMsg.mrUrl || dbMsg.images || dbMsg.operationDenied ||
+      dbMsg.messageReferences || dbMsg.questionOptions
+    );
+    if (hasMetadata) {
       message.metadata = {
-        toolCalls: dbMetadata.toolCalls || undefined,
-        codeChanges: dbMetadata.codeChanges || undefined,
-        thinking: dbMetadata.thinking || undefined,
-        isQuestion: dbMetadata.isQuestion ?? undefined,
-        questionOptions: dbMetadata.questionOptions || undefined,
-        requiresResponse: dbMetadata.requiresResponse ?? undefined,
-        references: dbMetadata.messageReferences || undefined,
-        isInvalid: dbMetadata.isInvalid ?? undefined,
-        gitBranch: dbMetadata.gitBranch || undefined,
-        mrUrl: dbMetadata.mrUrl || undefined,
-        images: dbMetadata.images || undefined,
-        operationDenied: dbMetadata.operationDenied || undefined,
+        toolCalls: (dbMsg.toolCalls as any) || undefined,
+        codeChanges: (dbMsg.codeChanges as any) || undefined,
+        thinking: dbMsg.thinking || undefined,
+        isQuestion: dbMsg.isQuestion ?? undefined,
+        questionOptions: (dbMsg.questionOptions as any) || undefined,
+        requiresResponse: dbMsg.requiresResponse ?? undefined,
+        references: (dbMsg.messageReferences as any) || undefined,
+        isInvalid: dbMsg.isInvalid ?? undefined,
+        gitBranch: dbMsg.gitBranch || undefined,
+        mrUrl: dbMsg.mrUrl || undefined,
+        images: (dbMsg.images as any) || undefined,
+        operationDenied: (dbMsg.operationDenied as any) || undefined,
       };
     }
 

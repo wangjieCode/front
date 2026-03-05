@@ -35,9 +35,9 @@ const createApp = (listSessions: jest.Mock) => {
   const app = express();
   app.use(express.json());
   const conversationManager = { listSessions } as any;
-  const messageRouter = {} as any;
+  const branchCacheService = {} as any;
   const aiService = {} as any;
-  app.use('/api/conversations', createConversationRoutes(conversationManager, messageRouter, aiService));
+  app.use('/api/conversations', createConversationRoutes(conversationManager, aiService, branchCacheService));
   return app;
 };
 
@@ -72,9 +72,9 @@ const createReviewApp = (managerOverrides: Record<string, any> = {}) => {
     }),
     ...managerOverrides,
   } as any;
-  const messageRouter = {} as any;
+  const branchCacheService = {} as any;
   const aiService = {} as any;
-  app.use('/api/conversations', createConversationRoutes(conversationManager, messageRouter, aiService));
+  app.use('/api/conversations', createConversationRoutes(conversationManager, aiService, branchCacheService));
   return app;
 };
 
