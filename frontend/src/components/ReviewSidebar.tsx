@@ -32,11 +32,10 @@ const ReviewSidebar: React.FC<ReviewSidebarProps> = ({
   loadingDiff,
   filesError,
   diffError,
-  focusMode = false,
-  onToggleFocusMode,
   onSelectFile,
   onRetryLoadFiles,
 }) => {
+  const [panelOpen, setPanelOpen] = useState(false);
   const [keyword, setKeyword] = useState('');
   const [activeModalFilePath, setActiveModalFilePath] = useState<string>('');
   const [diffModalOpen, setDiffModalOpen] = useState(false);
@@ -124,98 +123,105 @@ const ReviewSidebar: React.FC<ReviewSidebarProps> = ({
 
   return (
     <>
-    <aside className="review-sidebar">
-      <div className="review-sidebar-header">
-        <div className="review-sidebar-title-wrap">
-          <Text strong>Review</Text>
-          <Text type="secondary" className="review-sidebar-subtitle">
-            {filteredFiles.length} 文件 · +{stats.additions} / -{stats.deletions}
-          </Text>
-          <Text type="secondary" className="review-sidebar-tip">
-            仅展示最新轮次差异
-          </Text>
-        </div>
-        <div className="review-sidebar-header-actions">
-          <Button
-            size="small"
-            icon={focusMode ? <CompressOutlined /> : <ArrowsAltOutlined />}
-            onClick={onToggleFocusMode}
-          >
-            {focusMode ? '退出聚焦' : '聚焦'}
-          </Button>
-          <Button
-            size="small"
-            icon={<StepBackwardOutlined />}
-            onClick={() => handleSelectByOffset(-1)}
-            disabled={loadingFiles || filteredFiles.length === 0 || selectedIndex <= 0}
-          />
-          <Button
-            size="small"
-            icon={<StepForwardOutlined />}
-            onClick={() => handleSelectByOffset(1)}
-            disabled={loadingFiles || filteredFiles.length === 0 || selectedIndex < 0 || selectedIndex >= filteredFiles.length - 1}
-          />
-          <Button
-            size="small"
-            icon={<ReloadOutlined />}
-            onClick={onRetryLoadFiles}
-            disabled={loadingFiles}
-          >
-            刷新
-          </Button>
-        </div>
-      </div>
+    <div className="review-float-root">
+      {panelOpen && (
+        <div className="review-float-panel">
+          <div className="review-float-panel-header">
+            <div className="review-float-panel-title">
+              <Text strong style={{ fontSize: 13 }}>变更文件</Text>
+              {!loadingFiles && files.length > 0 && (
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  {filteredFiles.length} 个 · <span style={{ color: '#52c41a' }}>+{stats.additions}</span> <span style={{ color: '#ff4d4f' }}>-{stats.deletions}</span>
+                </Text>
+              )}
+            </div>
+            <div className="review-float-panel-actions">
+              <Button
+                type="text"
+                size="small"
+                icon={<ReloadOutlined />}
+                onClick={onRetryLoadFiles}
+                loading={loadingFiles}
+              />
+              <Button
+                type="text"
+                size="small"
+                icon={<CloseOutlined />}
+                onClick={() => setPanelOpen(false)}
+              />
+            </div>
+          </div>
 
-      <div className="review-sidebar-toolbar">
-        <Input
-          size="small"
-          value={keyword}
-          onChange={(event) => setKeyword(event.target.value)}
-          allowClear
-          prefix={<SearchOutlined />}
-          placeholder="搜索文件路径"
-        />
-      </div>
+          <div className="review-float-search">
+            <Input
+              size="small"
+              value={keyword}
+              onChange={(event) => setKeyword(event.target.value)}
+              allowClear
+              prefix={<SearchOutlined style={{ color: '#bbb' }} />}
+              placeholder="搜索文件路径"
+              variant="borderless"
+            />
+          </div>
 
-      {filesError && (
-        <Alert
-          type="error"
-          message={filesError}
-          showIcon
-          className="review-sidebar-alert"
-        />
+          {filesError && (
+            <Alert
+              type="error"
+              message={filesError}
+              showIcon
+              style={{ margin: '0 10px 6px' }}
+            />
+          )}
+
+          <div className="review-float-file-list">
+            {loadingFiles ? (
+              <div className="review-float-state">
+                <Spin size="small" />
+                <Text type="secondary" style={{ fontSize: 12 }}>加载中...</Text>
+              </div>
+            ) : filteredFiles.length === 0 ? (
+              <div className="review-float-state">
+                <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={files.length === 0 ? '暂无变更文件' : '未匹配到文件'} />
+              </div>
+            ) : (
+              filteredFiles.map((file, index) => (
+                <button
+                  type="button"
+                  key={file.filePath}
+                  className={`review-float-file-item${selectedFilePath === file.filePath ? ' active' : ''}`}
+                  onClick={() => openFileDiffModal(file)}
+                >
+                  <span className="review-float-file-index">{index + 1}</span>
+                  <FileTextOutlined style={{ color: '#8c8c8c', flexShrink: 0 }} />
+                  <span className="review-float-file-path" title={file.filePath}>{file.filePath}</span>
+                  <Tag
+                    color={getChangeTagColor(file.changeType)}
+                    style={{ marginLeft: 'auto', flexShrink: 0, fontSize: 10, lineHeight: '16px', padding: '0 4px' }}
+                  >
+                    {file.changeType === 'added' ? 'A' : file.changeType === 'deleted' ? 'D' : 'M'}
+                  </Tag>
+                </button>
+              ))
+            )}
+          </div>
+        </div>
       )}
 
-      <div className="review-sidebar-file-list">
+      <button
+        type="button"
+        className={`review-float-trigger${panelOpen ? ' active' : ''}`}
+        onClick={() => setPanelOpen(!panelOpen)}
+      >
+        <CodeOutlined />
         {loadingFiles ? (
-          <div className="review-sidebar-loading">
-            <Spin size="small" />
-            <Text type="secondary">加载文件列表中...</Text>
-          </div>
-        ) : filteredFiles.length === 0 ? (
-          <div className="review-sidebar-empty">
-            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={files.length === 0 ? '暂无变更文件' : '未匹配到文件'} />
-          </div>
+          <Spin size="small" />
         ) : (
-          filteredFiles.map((file, index) => (
-            <button
-              type="button"
-              key={file.filePath}
-              className={`review-file-item${selectedFilePath === file.filePath ? ' active' : ''}`}
-              onClick={() => openFileDiffModal(file)}
-            >
-              <div className="review-file-main">
-            <Text type="secondary" className="review-file-index">{index + 1}</Text>
-                <FileTextOutlined />
-                <Text className="review-file-path" ellipsis={{ tooltip: file.filePath }}>
-                  {file.filePath}
-                </Text>
-              </div>
-            </button>
-          ))
+          <span className="review-float-trigger-count">{files.length}</span>
         )}
-      </div>
-    </aside>
+        <span className="review-float-trigger-label">文件变更</span>
+        {panelOpen && <CloseOutlined style={{ fontSize: 11, opacity: 0.7 }} />}
+      </button>
+    </div>
     <Modal
       open={diffModalOpen}
       onCancel={() => setDiffModalOpen(false)}
@@ -230,7 +236,6 @@ const ReviewSidebar: React.FC<ReviewSidebarProps> = ({
           <Text className="review-diff-meta-path" ellipsis={{ tooltip: currentDiffFilePath }}>
             {currentDiffFilePath || '-'}
           </Text>
-          <Text type="secondary">{selectedFileOrderLabel}</Text>
           {hasActiveDiff && (
             <>
               <Tag color={getChangeTagColor(selectedDiff.changeType)}>{selectedDiff.changeType}</Tag>
@@ -240,6 +245,19 @@ const ReviewSidebar: React.FC<ReviewSidebarProps> = ({
           )}
         </div>
         <div className="review-diff-actions">
+          <Button
+            size="small"
+            icon={<StepBackwardOutlined />}
+            onClick={() => handleSelectByOffset(-1)}
+            disabled={loadingFiles || filteredFiles.length === 0 || selectedIndex <= 0}
+          />
+          <Text type="secondary" style={{ fontSize: 12 }}>{selectedFileOrderLabel}</Text>
+          <Button
+            size="small"
+            icon={<StepForwardOutlined />}
+            onClick={() => handleSelectByOffset(1)}
+            disabled={loadingFiles || filteredFiles.length === 0 || selectedIndex < 0 || selectedIndex >= filteredFiles.length - 1}
+          />
           <Switch
             size="small"
             checked={wrapLines}

@@ -102,7 +102,6 @@ const ConversationView: React.FC<ConversationViewProps> = ({
   const [loadingReviewDiff, setLoadingReviewDiff] = useState(false);
   const [reviewFilesError, setReviewFilesError] = useState<string | null>(null);
   const [reviewDiffError, setReviewDiffError] = useState<string | null>(null);
-  const [reviewFocusMode, setReviewFocusMode] = useState(false);
 
   const lastSentMessageRef = useRef('');
   const streamAbortRef = useRef<AbortController | null>(null);
@@ -1114,7 +1113,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
   );
 
   const renderChatContent = () => (
-    <div className={`conversation-chat-layout${reviewFocusMode ? ' review-focus' : ''}`}>
+    <div className="conversation-chat-layout">
       <div className="conversation-chat-main">
         <div
           ref={chatContainerRef}
@@ -1209,8 +1208,6 @@ const ConversationView: React.FC<ConversationViewProps> = ({
         loadingDiff={loadingReviewDiff}
         filesError={reviewFilesError}
         diffError={reviewDiffError}
-        focusMode={reviewFocusMode}
-        onToggleFocusMode={() => setReviewFocusMode(prev => !prev)}
         onSelectFile={(file) => {
           void loadReviewFileDiff(file);
         }}
