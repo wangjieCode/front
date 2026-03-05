@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { Alert, Button, Empty, Input, Modal, Segmented, Spin, Switch, Tag, Typography, message } from 'antd';
-import { ArrowsAltOutlined, CompressOutlined, CopyOutlined, FileTextOutlined, ReloadOutlined, SearchOutlined, StepBackwardOutlined, StepForwardOutlined } from '@ant-design/icons';
+import { CloseOutlined, CodeOutlined, CopyOutlined, FileTextOutlined, ReloadOutlined, SearchOutlined, StepBackwardOutlined, StepForwardOutlined } from '@ant-design/icons';
 import { ReviewFileDiff, ReviewFileItem } from '../types/conversation';
 import { Diff, Hunk, parseDiff } from 'react-diff-view';
 
@@ -14,8 +14,6 @@ interface ReviewSidebarProps {
   loadingDiff: boolean;
   filesError?: string | null;
   diffError?: string | null;
-  focusMode?: boolean;
-  onToggleFocusMode?: () => void;
   onSelectFile: (file: ReviewFileItem) => void;
   onRetryLoadFiles: () => void;
 }
@@ -42,7 +40,7 @@ const ReviewSidebar: React.FC<ReviewSidebarProps> = ({
   const [keyword, setKeyword] = useState('');
   const [activeModalFilePath, setActiveModalFilePath] = useState<string>('');
   const [diffModalOpen, setDiffModalOpen] = useState(false);
-  const [viewType, setViewType] = useState<'unified' | 'split'>('unified');
+  const [viewType, setViewType] = useState<'unified' | 'split'>('split');
   const [fontSize, setFontSize] = useState<'small' | 'middle'>('small');
   const [wrapLines, setWrapLines] = useState(true);
   const currentDiffFilePath = activeModalFilePath || selectedFilePath || '';

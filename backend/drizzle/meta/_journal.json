@@ -71,6 +71,13 @@
       "when": 1772717400000,
       "tag": "0009_review_diff_blob_refactor",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1741132800000,
+      "tag": "0010_db_optimization",
+      "breakpoints": true
     }
   ]
 }

@@ -1,8 +1,16 @@
-import { pgTable, uuid, varchar, text, boolean, timestamp, jsonb, index, uniqueIndex, integer } from 'drizzle-orm/pg-core';
+import {
+  pgTable, uuid, varchar, text, boolean,
+  timestamp, jsonb, index, uniqueIndex, integer,
+} from 'drizzle-orm/pg-core';
+import { customType } from 'drizzle-orm/pg-core';
+
+// D2: bytea 自定义类型，直接存 gzip 二进制，不走 base64 中转
+const bytea = customType<{ data: Buffer; driverData: Buffer }>({
+  dataType() { return 'bytea'; },
+});
 
 /**
  * users 表
- * 存储用户信息
  */
 export const users = pgTable(
   'users',
@@ -18,7 +26,7 @@ export const users = pgTable(
 
 /**
  * conversations 表
- * 存储对话会话的基本信息
+ * D4: 移除 summary（冗余，内容与 conversation_contexts.task_description 重复）
  */
 export const conversations = pgTable(
   'conversations',
@@ -29,7 +37,6 @@ export const conversations = pgTable(
     status: varchar('status', { length: 50 }).notNull().default('active'),
     visibility: varchar('visibility', { length: 50 }).notNull().default('private'),
     title: varchar('title', { length: 500 }),
-    summary: text('summary'),
     projectName: varchar('project_name', { length: 255 }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
@@ -47,7 +54,6 @@ export const conversations = pgTable(
 
 /**
  * conversation_contexts 表
- * 存储对话的上下文信息
  */
 export const conversationContexts = pgTable(
   'conversation_contexts',
@@ -55,15 +61,15 @@ export const conversationContexts = pgTable(
     id: uuid('id').primaryKey(),
     conversationId: uuid('conversation_id').notNull(),
     workDir: text('work_dir').notNull(),
-    worktreePath: text('worktree_path'), // 对话关联的 worktree 路径
+    worktreePath: text('worktree_path'),
     gitBranch: varchar('git_branch', { length: 255 }),
     relevantFiles: jsonb('relevant_files'),
     taskDescription: text('task_description').notNull(),
     variables: jsonb('variables').default({}),
-    mode: varchar('mode', { length: 50 }).notNull().default('edit'), // 对话模式
-    contextGitBranch: varchar('context_git_branch', { length: 255 }), // 编辑模式下创建的 Git 分支
-    mrUrl: text('mr_url'), // 编辑模式下创建的 MR URL
-    previewInfo: jsonb('preview_info'), // 预览部署信息（包含镜像 ID、容器 ID、运行状态等）
+    mode: varchar('mode', { length: 50 }).notNull().default('edit'),
+    contextGitBranch: varchar('context_git_branch', { length: 255 }),
+    mrUrl: text('mr_url'),
+    previewInfo: jsonb('preview_info'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -72,11 +78,11 @@ export const conversationContexts = pgTable(
   })
 );
 
-
-
 /**
  * messages 表
- * 存储对话消息
+ * D1: 合并原 message_metadata 字段，消除 1:1 JOIN
+ * D5: 移除 is_complete（始终为 true）
+ * D9: 增加 (conversation_id, role) 复合索引
  */
 export const messages = pgTable(
   'messages',
@@ -85,19 +91,31 @@ export const messages = pgTable(
     conversationId: uuid('conversation_id').notNull(),
     role: varchar('role', { length: 50 }).notNull(),
     content: text('content').notNull(),
-    isComplete: boolean('is_complete').notNull().default(true),
     timestamp: timestamp('timestamp', { withTimezone: true }).notNull().defaultNow(),
     parentMessageId: uuid('parent_message_id'),
+    // D1: 从 message_metadata 合并过来的字段
+    toolCalls: jsonb('tool_calls'),
+    codeChanges: jsonb('code_changes'),
+    thinking: text('thinking'),
+    isQuestion: boolean('is_question').notNull().default(false),
+    questionOptions: jsonb('question_options'),
+    requiresResponse: boolean('requires_response').notNull().default(false),
+    messageReferences: jsonb('message_references'),
+    isInvalid: boolean('is_invalid').notNull().default(false),
+    gitBranch: varchar('git_branch', { length: 255 }),
+    mrUrl: text('mr_url'),
+    images: jsonb('images'),
+    operationDenied: jsonb('operation_denied'),
   },
   (table) => ({
     conversationTimestampIdx: index('idx_messages_conversation_timestamp').on(table.conversationId, table.timestamp),
     parentMessageIdIdx: index('idx_messages_parent_message_id').on(table.parentMessageId),
+    conversationRoleIdx: index('idx_messages_conversation_role').on(table.conversationId, table.role),
   })
 );
 
 /**
  * neovate_sessions 表
- * 存储 Neovate AI 工具的会话映射
  */
 export const neovateSessions = pgTable(
   'neovate_sessions',
@@ -116,36 +134,7 @@ export const neovateSessions = pgTable(
 );
 
 /**
- * message_metadata 表
- * 存储消息的元数据（工具调用、代码变更等）
- */
-export const messageMetadata = pgTable(
-  'message_metadata',
-  {
-    id: uuid('id').primaryKey(),
-    messageId: uuid('message_id').notNull(),
-    toolCalls: jsonb('tool_calls'),
-    codeChanges: jsonb('code_changes'),
-    thinking: text('thinking'),
-    isQuestion: boolean('is_question').notNull().default(false),
-    questionOptions: jsonb('question_options'),
-    requiresResponse: boolean('requires_response').notNull().default(false),
-    messageReferences: jsonb('message_references'),
-    isInvalid: boolean('is_invalid').notNull().default(false),
-    gitBranch: varchar('git_branch', { length: 255 }), // 关联的 Git 分支
-    mrUrl: text('mr_url'), // 关联的 MR URL
-    images: jsonb('images'), // 图片附件
-    operationDenied: jsonb('operation_denied'), // 操作被拒绝的信息
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  },
-  (table) => ({
-    messageIdUnique: uniqueIndex('unique_metadata_message_id').on(table.messageId),
-  })
-);
-
-/**
  * review_rounds 表
- * 存储只读 review 的轮次投影
  */
 export const reviewRounds = pgTable(
   'review_rounds',
@@ -168,7 +157,7 @@ export const reviewRounds = pgTable(
 
 /**
  * review_file_changes 表
- * 存储每个 review 轮次的文件变更投影
+ * D8: 增加 (conversation_id, file_path) 复合索引
  */
 export const reviewFileChanges = pgTable(
   'review_file_changes',
@@ -192,55 +181,33 @@ export const reviewFileChanges = pgTable(
     conversationRoundIdx: index('idx_review_file_changes_conversation_round').on(table.conversationId, table.reviewRoundId),
     messageIdIdx: index('idx_review_file_changes_message_id').on(table.messageId),
     diffBlobIdIdx: index('idx_review_file_changes_diff_blob_id').on(table.diffBlobId),
+    conversationFilePathIdx: index('idx_review_file_changes_conversation_file_path').on(table.conversationId, table.filePath),
   })
 );
 
 /**
  * review_diff_blobs 表
- * 存储压缩后的 diff 文本，通过 hash 去重，降低存储压力
+ * D2: 使用 bytea 代替 base64 text，节省 ~33% 空间
+ * D7: 增加 last_accessed_at 索引（供 TTL 清理任务使用）
  */
 export const reviewDiffBlobs = pgTable(
   'review_diff_blobs',
   {
     id: uuid('id').primaryKey(),
     diffHash: varchar('diff_hash', { length: 64 }).notNull(),
-    diffGzipBase64: text('diff_gzip_base64').notNull(),
+    diffBlob: bytea('diff_blob').notNull(),
     rawSize: integer('raw_size').notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     lastAccessedAt: timestamp('last_accessed_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({
     diffHashUnique: uniqueIndex('unique_review_diff_blobs_diff_hash').on(table.diffHash),
+    lastAccessedAtIdx: index('idx_review_diff_blobs_last_accessed_at').on(table.lastAccessedAt),
   })
 );
 
-// 导出类型
-export type Conversation = typeof conversations.$inferSelect;
-export type NewConversation = typeof conversations.$inferInsert;
-
-export type ConversationContext = typeof conversationContexts.$inferSelect;
-export type NewConversationContext = typeof conversationContexts.$inferInsert;
-
-export type Message = typeof messages.$inferSelect;
-export type NewMessage = typeof messages.$inferInsert;
-
-export type MessageMetadata = typeof messageMetadata.$inferSelect;
-export type NewMessageMetadata = typeof messageMetadata.$inferInsert;
-
-export type ReviewRound = typeof reviewRounds.$inferSelect;
-export type NewReviewRound = typeof reviewRounds.$inferInsert;
-
-export type ReviewFileChange = typeof reviewFileChanges.$inferSelect;
-export type NewReviewFileChange = typeof reviewFileChanges.$inferInsert;
-export type ReviewDiffBlob = typeof reviewDiffBlobs.$inferSelect;
-export type NewReviewDiffBlob = typeof reviewDiffBlobs.$inferInsert;
-
-export type NeovateSession = typeof neovateSessions.$inferSelect;
-export type NewNeovateSession = typeof neovateSessions.$inferInsert;
-
 /**
  * projects 表
- * 存储项目信息
  */
 export const projects = pgTable(
   'projects',
@@ -268,13 +235,30 @@ export const projects = pgTable(
   })
 );
 
-// 移除项目成员表，简化权限控制
-
 // 导出类型
+export type Conversation = typeof conversations.$inferSelect;
+export type NewConversation = typeof conversations.$inferInsert;
+
+export type ConversationContext = typeof conversationContexts.$inferSelect;
+export type NewConversationContext = typeof conversationContexts.$inferInsert;
+
+export type Message = typeof messages.$inferSelect;
+export type NewMessage = typeof messages.$inferInsert;
+
+export type ReviewRound = typeof reviewRounds.$inferSelect;
+export type NewReviewRound = typeof reviewRounds.$inferInsert;
+
+export type ReviewFileChange = typeof reviewFileChanges.$inferSelect;
+export type NewReviewFileChange = typeof reviewFileChanges.$inferInsert;
+
+export type ReviewDiffBlob = typeof reviewDiffBlobs.$inferSelect;
+export type NewReviewDiffBlob = typeof reviewDiffBlobs.$inferInsert;
+
+export type NeovateSession = typeof neovateSessions.$inferSelect;
+export type NewNeovateSession = typeof neovateSessions.$inferInsert;
+
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
 
 export type Project = typeof projects.$inferSelect;
 export type NewProject = typeof projects.$inferInsert;
-
-// 移除项目成员相关类型

@@ -1,12 +1,10 @@
+import path from 'path';
 import { ICommandExecutor, CodeChange, ChangeType } from '../types';
 import { createCodeChange, detectChangeType, parseFilePathFromDiff } from '../models/CodeChange';
 import { NeovateSessionManagerDB } from './NeovateSessionManagerDB';
 import { convertToStoredPath } from '../utils/PathUtils';
 import { runNeovateSdk } from '../utils/NeovateSdkRunner';
 
-/**
- * Neovate 执行结果接口
- */
 export interface NeovateAIResult {
   success: boolean;
   message: string;
@@ -18,10 +16,12 @@ export interface NeovateAIResult {
   mrUrl?: string;
 }
 
-/**
- * Neovate SDK 服务类
- * 负责调用 SDK 修改代码并解析结果
- */
+interface RunResult {
+  output: string;
+  neovateSessionId: string | undefined;
+  durationMs: number;
+}
+
 export class NeovateAIService {
   private sessionManager: NeovateSessionManagerDB;
 
@@ -33,9 +33,6 @@ export class NeovateAIService {
     this.sessionManager = new NeovateSessionManagerDB(databaseUrl);
   }
 
-  /**
-   * 使用 AI 修改代码（流式版本）
-   */
   async modifyCodeStream(
     prompt: string,
     conversationId: string | undefined,
@@ -45,76 +42,46 @@ export class NeovateAIService {
     model?: string,
     abortSignal?: AbortSignal
   ): Promise<NeovateAIResult> {
+    return this.execute(prompt, conversationId, existingSessionId, customWorkDir, model, abortSignal, onData);
+  }
+
+  async modifyCode(
+    prompt: string,
+    conversationId?: string,
+    existingSessionId?: string,
+    customWorkDir?: string,
+    model?: string,
+    abortSignal?: AbortSignal
+  ): Promise<NeovateAIResult> {
+    return this.execute(prompt, conversationId, existingSessionId, customWorkDir, model, abortSignal);
+  }
+
+  private async execute(
+    prompt: string,
+    conversationId: string | undefined,
+    existingSessionId: string | undefined,
+    customWorkDir: string | undefined,
+    model: string | undefined,
+    abortSignal: AbortSignal | undefined,
+    onChunk?: (chunk: string) => void
+  ): Promise<NeovateAIResult> {
     const workDir = customWorkDir || this.workDir;
     const gitBaseline = await this.captureGitBaseline(workDir);
-    const displayWorkDir = require('path').resolve(workDir);
-    console.log(`[AI-EXEC] 开始流式执行 Neovate SDK (dir: ${displayWorkDir})`);
-
-    let neovateSessionId: string | undefined = existingSessionId;
+    console.log(`[AI-EXEC] 开始执行 Neovate SDK (dir: ${path.resolve(workDir)})`);
 
     try {
-      let { output, durationMs, error, sessionId } = await runNeovateSdk({
-        prompt,
-        workDir,
-        sessionId: existingSessionId,
-        model,
-        abortSignal,
-        onChunk: (chunk) => {
-          onData(chunk);
-        },
-      });
+      const { output, neovateSessionId, durationMs } = await this.runWithRetry(
+        prompt, workDir, existingSessionId, model, abortSignal, onChunk
+      );
 
-      const shouldRetryWithoutSession = !!existingSessionId && !!error;
-      if (shouldRetryWithoutSession) {
-        console.warn(
-          `[AI-EXEC] 恢复会话失败，回退为新建会话重试。sessionId=${existingSessionId}, model=${model || 'default'}, error=${error?.message}`
-        );
-        const retryResult = await runNeovateSdk({
-          prompt,
-          workDir,
-          model,
-          abortSignal,
-          onChunk: (chunk) => {
-            onData(chunk);
-          },
+      if (neovateSessionId && conversationId) {
+        await this.sessionManager.saveSessionId(conversationId, neovateSessionId, workDir).catch(err => {
+          console.error('[NeovateAIService] 保存会话 ID 失败:', err);
         });
-        output = retryResult.output;
-        durationMs += retryResult.durationMs;
-        error = retryResult.error;
-        sessionId = retryResult.sessionId;
-        neovateSessionId = undefined;
-      }
-
-      if (!neovateSessionId && sessionId) {
-        neovateSessionId = sessionId;
-        console.log(`[NeovateAIService] 提取到新会话 ID: ${neovateSessionId}`);
-      }
-
-      if (error) {
-        console.error(`[AI-EXEC] 执行失败 (耗时: ${durationMs}ms): ${error.message}`);
-        return {
-          success: false,
-          message: error.message === 'aborted' ? '执行已中断' : 'neovate 执行失败',
-          changes: [],
-          error: error.message,
-          rawOutput: output,
-        };
+        console.log(`[NeovateAIService] 已保存会话 ID: ${neovateSessionId}，路径: ${convertToStoredPath(workDir) || workDir}`);
       }
 
       console.log(`[AI-EXEC] 执行成功 (耗时: ${durationMs}ms)`);
-
-      if (conversationId && neovateSessionId) {
-        await this.sessionManager.saveSessionId(
-          conversationId,
-          neovateSessionId,
-          workDir
-        ).catch(err => {
-          console.error('[NeovateAIService] 保存会话 ID 失败:', err);
-        });
-        const displaySavedPath = convertToStoredPath(workDir) || workDir;
-        console.log(`[NeovateAIService] 已保存会话 ID: ${neovateSessionId}，路径: ${displaySavedPath}`);
-      }
-
       const changes = await this.parseOutput(output, workDir, gitBaseline);
 
       return {
@@ -134,114 +101,62 @@ export class NeovateAIService {
     }
   }
 
-  /**
-   * 使用 AI 修改代码
-   */
-  async modifyCode(
+  private async runWithRetry(
     prompt: string,
-    conversationId?: string,
-    existingSessionId?: string,
-    customWorkDir?: string,
-    model?: string,
-    abortSignal?: AbortSignal
-  ): Promise<NeovateAIResult> {
-    const workDir = customWorkDir || this.workDir;
-    const gitBaseline = await this.captureGitBaseline(workDir);
-    const displayWorkDir = require('path').resolve(workDir);
-    console.log(`[AI-EXEC] 开始执行 Neovate SDK (dir: ${displayWorkDir})`);
+    workDir: string,
+    existingSessionId: string | undefined,
+    model: string | undefined,
+    abortSignal: AbortSignal | undefined,
+    onChunk?: (chunk: string) => void
+  ): Promise<RunResult> {
+    let { output, durationMs, error, sessionId } = await runNeovateSdk({
+      prompt,
+      workDir,
+      sessionId: existingSessionId,
+      model,
+      abortSignal,
+      onChunk,
+    });
 
-    try {
-      let { output, durationMs, error, sessionId } = await runNeovateSdk({
-        prompt,
-        workDir,
-        sessionId: existingSessionId,
-        model,
-        abortSignal,
-      });
-
-      const shouldRetryWithoutSession = !!existingSessionId && !!error;
-      if (shouldRetryWithoutSession) {
-        console.warn(
-          `[AI-EXEC] 恢复会话失败，回退为新建会话重试。sessionId=${existingSessionId}, model=${model || 'default'}, error=${error?.message}`
-        );
-        const retryResult = await runNeovateSdk({
-          prompt,
-          workDir,
-          model,
-          abortSignal,
-        });
-        output = retryResult.output;
-        durationMs += retryResult.durationMs;
-        error = retryResult.error;
-        sessionId = retryResult.sessionId;
-      }
-
-      if (error) {
-        console.error(`[AI-EXEC] 执行失败 (耗时: ${durationMs}ms): ${error.message}`);
-        return {
-          success: false,
-          message: error.message === 'aborted' ? '执行已中断' : 'neovate 执行失败',
-          changes: [],
-          error: error.message,
-          rawOutput: output,
-        };
-      }
-
-      console.log(`[AI-EXEC] 执行成功 (耗时: ${durationMs}ms)`);
-
-      const { cleanOutput, sessionId: parsedSessionId } = this.normalizeOutput(output);
-      const neovateSessionId = parsedSessionId || sessionId;
-
-      if (conversationId && neovateSessionId) {
-        await this.sessionManager.saveSessionId(
-          conversationId,
-          neovateSessionId,
-          workDir
-        ).catch(err => {
-          console.error('[NeovateAIService] 保存会话 ID 失败:', err);
-        });
-        const displaySavedPath = convertToStoredPath(workDir) || workDir;
-        console.log(`[NeovateAIService] 已保存会话 ID: ${neovateSessionId}，路径: ${displaySavedPath}`);
-      }
-
-      const changes = await this.parseOutput(cleanOutput, workDir, gitBaseline);
-
-      return {
-        success: true,
-        message: `成功修改代码，共 ${changes.length} 个文件变更`,
-        changes,
-        rawOutput: cleanOutput,
-        neovateSessionId,
-      };
-    } catch (error) {
-      return {
-        success: false,
-        message: '执行 neovate 时发生错误',
-        changes: [],
-        error: error instanceof Error ? error.message : String(error),
-      };
+    if (existingSessionId && error) {
+      console.warn(
+        `[AI-EXEC] 恢复会话失败，回退为新建会话重试。sessionId=${existingSessionId}, error=${error?.message}`
+      );
+      const retry = await runNeovateSdk({ prompt, workDir, model, abortSignal, onChunk });
+      output = retry.output;
+      durationMs += retry.durationMs;
+      error = retry.error;
+      sessionId = retry.sessionId;
     }
+
+    if (error) {
+      console.error(`[AI-EXEC] 执行失败 (耗时: ${durationMs}ms): ${error.message}`);
+      throw error.message === 'aborted'
+        ? Object.assign(new Error('执行已中断'), { isAbort: true })
+        : new Error(`neovate 执行失败: ${error.message}`);
+    }
+
+    const { cleanOutput, sessionId: parsedSessionId } = this.normalizeOutput(output);
+    const neovateSessionId = parsedSessionId || sessionId || undefined;
+
+    return { output: cleanOutput, neovateSessionId, durationMs };
   }
 
   private normalizeOutput(rawOutput: string): { cleanOutput: string; sessionId?: string } {
     let neovateSessionId: string | undefined;
-    const lines = rawOutput.split('\n').filter(line => line.trim());
     const validJsonLines: string[] = [];
 
-    for (const line of lines) {
-      if (!line.trim().startsWith('{')) {
-        continue;
-      }
+    for (const line of rawOutput.split('\n')) {
+      if (!line.trim().startsWith('{')) continue;
       try {
         const parsed = JSON.parse(line);
         validJsonLines.push(line);
-
-        if (!neovateSessionId && parsed.sessionId && typeof parsed.sessionId === 'string') {
+        if (!neovateSessionId && typeof parsed.sessionId === 'string') {
           neovateSessionId = parsed.sessionId;
           console.log(`[NeovateAIService] 提取到新会话 ID: ${neovateSessionId}`);
         }
-      } catch (error) {
-        // ignore
+      } catch {
+        // ignore non-JSON lines
       }
     }
 
@@ -251,9 +166,6 @@ export class NeovateAIService {
     };
   }
 
-  /**
-   * 解析 Neovate 输出
-   */
   private async parseOutput(
     rawOutput: string,
     workDir?: string,
@@ -272,58 +184,43 @@ export class NeovateAIService {
               item.diff || item.content || ''
             ));
           }
-        } catch (jsonError) {
-          // ignore
+        } catch {
+          // fall through
         }
       }
 
       const fileChangePattern = /(Modified|Created|Deleted|Added):\s*(.+)/gi;
       let match;
-
       while ((match = fileChangePattern.exec(rawOutput)) !== null) {
         const action = match[1].toLowerCase();
         const filePath = match[2].trim();
-
-        let changeType: ChangeType;
-        if (action === 'created' || action === 'added') {
-          changeType = ChangeType.ADDED;
-        } else if (action === 'deleted') {
-          changeType = ChangeType.DELETED;
-        } else {
-          changeType = ChangeType.MODIFIED;
-        }
-
+        const changeType = action === 'created' || action === 'added'
+          ? ChangeType.ADDED
+          : action === 'deleted' ? ChangeType.DELETED : ChangeType.MODIFIED;
         const diff = await this.getFileDiff(filePath, workDir);
         changes.push(createCodeChange(filePath, changeType, diff));
       }
 
       if (changes.length === 0) {
         const diffOutput = await this.getAllDiff(workDir);
-        if (diffOutput) {
-          const parsedChanges = this.parseDiffOutput(diffOutput);
-          changes.push(...parsedChanges);
-        }
+        if (diffOutput) changes.push(...this.parseDiffOutput(diffOutput));
       }
 
-      // 兜底：当 stream-json/当前工作区 diff 都无法提取时，回退到执行前后 Git 基线对比。
       if (changes.length === 0 && gitBaseline) {
-        const baselineChanges = await this.collectChangesFromGitBaseline(gitBaseline, workDir);
-        changes.push(...baselineChanges);
+        changes.push(...await this.collectChangesFromGitBaseline(gitBaseline, workDir));
       }
 
       return changes;
-    } catch (error) {
+    } catch {
       return changes;
     }
   }
 
   private async captureGitBaseline(workDir?: string): Promise<{ headSha: string | null }> {
     try {
-      const targetWorkDir = workDir || this.workDir;
-      const result = await this.executor.executeCommand('git rev-parse HEAD', targetWorkDir);
-      const headSha = (result.stdout || '').trim();
-      return { headSha: headSha || null };
-    } catch (_error) {
+      const result = await this.executor.executeCommand('git rev-parse HEAD', workDir || this.workDir);
+      return { headSha: (result.stdout || '').trim() || null };
+    } catch {
       return { headSha: null };
     }
   }
@@ -333,87 +230,57 @@ export class NeovateAIService {
     workDir?: string
   ): Promise<CodeChange[]> {
     try {
-      const targetWorkDir = workDir || this.workDir;
-      const currentHeadResult = await this.executor.executeCommand('git rev-parse HEAD', targetWorkDir);
+      const targetDir = workDir || this.workDir;
+      const currentHeadResult = await this.executor.executeCommand('git rev-parse HEAD', targetDir);
       const currentHead = (currentHeadResult.stdout || '').trim() || null;
       let combinedDiff = '';
 
       if (baseline.headSha && currentHead && baseline.headSha !== currentHead) {
-        const commitDiffResult = await this.executor.executeCommand(
-          `git diff ${baseline.headSha}..${currentHead}`,
-          targetWorkDir
-        );
-        combinedDiff += commitDiffResult.stdout || '';
+        const r = await this.executor.executeCommand(`git diff ${baseline.headSha}..${currentHead}`, targetDir);
+        combinedDiff += r.stdout || '';
       }
 
-      const worktreeDiff = await this.getAllDiff(targetWorkDir);
-      if (worktreeDiff) {
-        combinedDiff = combinedDiff ? `${combinedDiff}\n${worktreeDiff}` : worktreeDiff;
-      }
+      const worktreeDiff = await this.getAllDiff(targetDir);
+      if (worktreeDiff) combinedDiff = combinedDiff ? `${combinedDiff}\n${worktreeDiff}` : worktreeDiff;
 
-      if (!combinedDiff.trim()) {
-        return [];
-      }
+      if (!combinedDiff.trim()) return [];
 
       const parsed = this.parseDiffOutput(combinedDiff);
       const byPath = new Map<string, CodeChange>();
-      for (const item of parsed) {
-        byPath.set(item.filePath, item);
-      }
+      for (const item of parsed) byPath.set(item.filePath, item);
       return Array.from(byPath.values());
-    } catch (_error) {
+    } catch {
       return [];
     }
   }
 
-  /**
-   * 获取指定文件的 diff
-   */
   private async getFileDiff(filePath: string, workDir?: string): Promise<string> {
     try {
-      const targetWorkDir = workDir || this.workDir;
-      const result = await this.executor.executeCommand(
-        `git diff HEAD -- "${filePath}"`,
-        targetWorkDir
-      );
-      return result.stdout || '';
-    } catch (error) {
+      const r = await this.executor.executeCommand(`git diff HEAD -- "${filePath}"`, workDir || this.workDir);
+      return r.stdout || '';
+    } catch {
       return '';
     }
   }
 
-  /**
-   * 获取所有文件的 diff
-   */
   private async getAllDiff(workDir?: string): Promise<string> {
     try {
-      const targetWorkDir = workDir || this.workDir;
-      const result = await this.executor.executeCommand(
-        'git diff HEAD',
-        targetWorkDir
-      );
-      return result.stdout || '';
-    } catch (error) {
+      const r = await this.executor.executeCommand('git diff HEAD', workDir || this.workDir);
+      return r.stdout || '';
+    } catch {
       return '';
     }
   }
 
-  /**
-   * 解析 git diff 输出
-   */
   private parseDiffOutput(diffOutput: string): CodeChange[] {
-    const changes: CodeChange[] = [];
-    const fileDiffs = diffOutput.split(/^diff --git /m).filter(Boolean);
-
-    for (const fileDiff of fileDiffs) {
-      const fullDiff = 'diff --git ' + fileDiff;
-      const filePath = parseFilePathFromDiff(fullDiff);
-      if (!filePath) continue;
-
-      const changeType = detectChangeType(fullDiff);
-      changes.push(createCodeChange(filePath, changeType, fullDiff));
-    }
-
-    return changes;
+    return diffOutput
+      .split(/^diff --git /m)
+      .filter(Boolean)
+      .map(chunk => {
+        const fullDiff = 'diff --git ' + chunk;
+        const filePath = parseFilePathFromDiff(fullDiff);
+        return filePath ? createCodeChange(filePath, detectChangeType(fullDiff), fullDiff) : null;
+      })
+      .filter((c): c is CodeChange => c !== null);
   }
 }

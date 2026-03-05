@@ -31,7 +31,7 @@ import { DrizzleConversationStorage } from './storage/DrizzleConversationStorage
 
 // 初始化服务
 let conversationManager: any;
-let messageRouter: any;
+let branchCacheService: any;
 let conversationAIService: any;
 let executor: any;
 let modelAvailabilityService: any;
@@ -43,7 +43,7 @@ async function initializeServices() {
   try {
     const services = await initializeAllServices();
     conversationManager = services.conversationManager;
-    messageRouter = services.messageRouter;
+    branchCacheService = services.branchCacheService;
     conversationAIService = services.conversationAIService;
     executor = services.executor;
     modelAvailabilityService = services.modelAvailabilityService;
@@ -86,12 +86,12 @@ async function startServer() {
   app.use('/api/projects', createProjectRoutes(executor));
 
   // 对话路由（在服务初始化后注册）
-  if (conversationManager && messageRouter && conversationAIService) {
+  if (conversationManager && conversationAIService) {
     app.use(
       '/api/conversations',
-      createConversationRoutes(conversationManager, messageRouter, conversationAIService, modelAvailabilityService)
+      createConversationRoutes(conversationManager, conversationAIService, branchCacheService, modelAvailabilityService)
     );
-    
+
     // 预览路由
     const { createPreviewRoutes } = require('./api/previewRoutes');
     const { ProjectPreviewService } = require('./services/ProjectPreviewService');
@@ -168,7 +168,7 @@ async function startServer() {
     console.log(`📝 环境: ${process.env.NODE_ENV || 'development'}`);
     console.log(`🌊 SSE 流式响应端点: http://localhost:${PORT}/api/streaming`);
     
-    if (conversationManager && messageRouter && conversationAIService) {
+    if (conversationManager && conversationAIService) {
       console.log(`💬 对话 API 端点: http://localhost:${PORT}/api/conversations`);
     }
   });
