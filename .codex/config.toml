@@ -1,0 +1,15 @@
+[agents]
+max_threads = 6
+max_depth = 1
+
+[agents.system_architect]
+description = "系统架构师：负责系统架构设计、数据库设计、技术选型。"
+config_file = "agents/system-architect.toml"
+
+[agents.software_engineer]
+description = "软件开发工程师：负责编码完成实际功能，并在改动范围内完成验证。"
+config_file = "agents/software-engineer.toml"
+
+[agents.product_expert]
+description = "产品专家：负责规划功能、需求走查与系统易用性提升。"
+config_file = "agents/product-expert.toml"

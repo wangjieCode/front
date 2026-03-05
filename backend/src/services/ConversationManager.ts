@@ -12,6 +12,12 @@ import {
   ValidationResult,
 } from "../types";
 import { IConversationStorage } from "../storage/ConversationStorageAdapter";
+import type {
+  ReviewDiffData,
+  ReviewFilesData,
+  ReviewSidebarData,
+  ReviewUpdatesData,
+} from "../storage/ConversationStorageAdapter";
 import type { MessageHistoryVersion, SessionAccessInfo } from "../storage/DrizzleConversationStorage";
 import { ModeValidator } from "./ModeValidator";
 import { GitLabMCPService } from "./GitLabMCPService";
@@ -524,6 +530,22 @@ export class ConversationManager {
 
   async getMessageHistoryVersion(sessionId: string): Promise<MessageHistoryVersion> {
     return this.storage.getMessageHistoryVersion(sessionId);
+  }
+
+  async getReviewSidebar(sessionId: string): Promise<ReviewSidebarData> {
+    return this.storage.getReviewSidebar(sessionId);
+  }
+
+  async getReviewFiles(sessionId: string): Promise<ReviewFilesData> {
+    return this.storage.getReviewFiles(sessionId);
+  }
+
+  async getReviewDiff(sessionId: string, filePath: string, roundId?: string): Promise<ReviewDiffData> {
+    return this.storage.getReviewDiff(sessionId, filePath, roundId);
+  }
+
+  async getReviewUpdates(sessionId: string, since: string): Promise<ReviewUpdatesData> {
+    return this.storage.getReviewUpdates(sessionId, since);
   }
 
   /**

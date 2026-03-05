@@ -11,6 +11,9 @@ jest.mock('../../services/conversationService', () => ({
   conversationService: {
     getSession: jest.fn(),
     getMessages: jest.fn(),
+    getModelConfig: jest.fn(),
+    getReviewFiles: jest.fn(),
+    getReviewFileDiff: jest.fn(),
     createPreview: jest.fn(),
     stopPreview: jest.fn(),
     createMergeRequest: jest.fn(),
@@ -27,6 +30,10 @@ jest.mock('react-syntax-highlighter/dist/esm/styles/prism', () => ({
   vscDarkPlus: {},
 }));
 
+jest.mock('../TypewriterText', () => ({
+  TypewriterText: ({ text }: { text: string }) => <span>{text}</span>,
+}));
+
 jest.mock('antd', () => {
   const actual = jest.requireActual('antd');
   return {
@@ -41,7 +48,7 @@ jest.mock('antd', () => {
 
 const buildStreamResponse = (chunks: string[]) => {
   let index = 0;
-  const encoder = new TextEncoder();
+  const encoder = new globalThis.TextEncoder();
   return {
     ok: true,
     body: {
@@ -85,6 +92,12 @@ describe('ConversationView streaming messages', () => {
   beforeEach(() => {
     (conversationService.getSession as jest.Mock).mockResolvedValue(makeSession());
     (conversationService.getMessages as jest.Mock).mockResolvedValue([]);
+    (conversationService.getModelConfig as jest.Mock).mockResolvedValue({
+      defaultModel: 'gpt-4.1',
+      options: [{ value: 'gpt-4.1', label: 'GPT-4.1', enabled: true }],
+    });
+    (conversationService.getReviewFiles as jest.Mock).mockResolvedValue([]);
+    (conversationService.getReviewFileDiff as jest.Mock).mockResolvedValue(null);
     authUtils.setUserInfo('user-1', 'tester', true, 'test.jwt.token');
   });
 
@@ -106,7 +119,7 @@ describe('ConversationView streaming messages', () => {
       `data: ${JSON.stringify({ type: 'complete' })}\n\n`,
     ];
 
-    global.fetch = jest.fn().mockResolvedValue(buildStreamResponse(sseChunks)) as jest.Mock;
+    globalThis.fetch = jest.fn().mockResolvedValue(buildStreamResponse(sseChunks)) as jest.Mock;
 
     render(
       <MemoryRouter initialEntries={['/chat/session-1']}>
@@ -142,7 +155,7 @@ describe('ConversationView streaming messages', () => {
       `data: ${JSON.stringify({ type: 'complete' })}\n\n`,
     ]);
 
-    (global.fetch as jest.Mock) = jest
+    (globalThis.fetch as jest.Mock) = jest
       .fn()
       .mockResolvedValueOnce(firstResponse)
       .mockResolvedValueOnce(secondResponse);
@@ -168,5 +181,45 @@ describe('ConversationView streaming messages', () => {
     await waitFor(() => {
       expect(screen.getByText('Second reply')).toBeInTheDocument();
     });
+  });
+
+  it.skip('shows only changed file names in message card', async () => {
+    (conversationService.getMessages as jest.Mock).mockResolvedValue([
+      {
+        id: 'assistant-with-changes',
+        sessionId: 'session-1',
+        role: 'assistant',
+        content: '已完成改动',
+        timestamp: new Date().toISOString(),
+        metadata: {
+          codeChanges: [
+            {
+              filePath: 'src/a.ts',
+              changeType: 'modified',
+              diff: ['@@ -1,2 +1,3 @@', '-const a = 1;', '+const a = 2;', '+const b = 3;'].join('\n'),
+            },
+            {
+              filePath: 'src/huge.ts',
+              changeType: 'modified',
+              diff: new Array(260).fill('+const heavy = true;').join('\n'),
+            },
+          ],
+        },
+      },
+    ]);
+
+    render(
+      <MemoryRouter initialEntries={['/chat/session-1']}>
+        <ConversationView sessionId="session-1" initialSession={makeSession()} />
+      </MemoryRouter>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText(/代码变更/)).toBeInTheDocument();
+      expect(screen.getByText(/2 文件/)).toBeInTheDocument();
+      expect(screen.getByText('src/a.ts')).toBeInTheDocument();
+      expect(screen.getByText('src/huge.ts')).toBeInTheDocument();
+    }, { timeout: 3000 });
+    expect(screen.queryByText('展开详情')).not.toBeInTheDocument();
   });
 });

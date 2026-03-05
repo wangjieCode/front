@@ -6,6 +6,9 @@ import {
   messages,
   messageMetadata,
   neovateSessions,
+  reviewRounds,
+  reviewFileChanges,
+  reviewDiffBlobs,
   type Conversation,
   type NewConversation,
   type Message,
@@ -16,6 +19,8 @@ import dayjs from 'dayjs';
 import { convertToStoredPath, resolveStoredPath, BasePathType } from '../utils/PathUtils';
 import { LruCacheService } from '../services/LruCacheService';
 import { CacheStrategyManager } from '../services/CacheStrategyManager';
+import { createHash } from 'crypto';
+import { gzipSync, gunzipSync } from 'zlib';
 
 /**
  * 分页选项
@@ -41,6 +46,61 @@ export interface SessionAccessInfo {
   visibility: string;
 }
 
+export interface ReviewSidebarData {
+  sessionId: string;
+  totalRounds: number;
+  rounds: Array<{
+    roundId: string;
+    status: string | null;
+    summary: string | null;
+    fileCount: number;
+    createdAt: Date | null;
+    updatedAt: Date | null;
+  }>;
+}
+
+export interface ReviewDiffData {
+  sessionId: string;
+  filePath: string;
+  roundId: string | null;
+  items: Array<{
+    changeId: string;
+    roundId: string;
+    filePath: string;
+    oldPath: string | null;
+    status: string | null;
+    patch: string | null;
+    additions: number;
+    deletions: number;
+    createdAt: Date | null;
+    updatedAt: Date | null;
+  }>;
+}
+
+export interface ReviewFilesData {
+  sessionId: string;
+  files: Array<{
+    filePath: string;
+    changeType: string | null;
+    additions: number;
+    deletions: number;
+  }>;
+}
+
+export interface ReviewUpdatesData {
+  sessionId: string;
+  since: string;
+  items: Array<{
+    kind: 'round' | 'file';
+    itemId: string;
+    roundId: string;
+    filePath: string | null;
+    status: string | null;
+    summary: string | null;
+    updatedAt: Date | null;
+  }>;
+}
+
 /**
  * 基于 Drizzle ORM 的对话存储实现
  */
@@ -51,6 +111,17 @@ export class DrizzleConversationStorage {
   private messageQuerySlowLogMs = Number(process.env.MESSAGE_QUERY_SLOW_LOG_MS || 800);
   private messageHistoryVersionCacheTtlSeconds = Number(process.env.MESSAGE_VERSION_CACHE_TTL_SECONDS || 0);
 
+  private toDateOrNull(value: unknown): Date | null {
+    if (!value) return null;
+    const parsed = value instanceof Date ? value : new Date(String(value));
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+
+  private toNumber(value: unknown): number {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : 0;
+  }
+
   private hasImagePayload(metadata: any): boolean {
     if (!metadata) return false;
     const images = metadata.images;
@@ -59,6 +130,116 @@ export class DrizzleConversationStorage {
 
   private hasImagesInCombinedMessages(messagesWithMetadata: any[]): boolean {
     return messagesWithMetadata.some(item => this.hasImagePayload(item?.metadata));
+  }
+
+  private normalizeReviewFileChanges(codeChanges: any): Array<{
+    filePath: string;
+    changeType: string;
+    status: string;
+    oldPath: string | null;
+    diffText: string;
+    additions: number;
+    deletions: number;
+  }> {
+    if (!Array.isArray(codeChanges)) {
+      return [];
+    }
+
+    return codeChanges
+      .map((item) => {
+        const filePath = item?.filePath || item?.path || item?.newPath;
+        if (!filePath || typeof filePath !== 'string') {
+          return null;
+        }
+        const additions = Number(item?.additions ?? 0);
+        const deletions = Number(item?.deletions ?? 0);
+        const diffText = String(
+          item?.diff
+          || item?.patch
+          || item?.diffPatch
+          || item?.content
+          || item?.unifiedDiff
+          || item?.unified_diff
+          || ''
+        );
+        const counted = this.countDiffStats(diffText);
+        return {
+          filePath,
+          changeType: String(item?.changeType || item?.type || item?.status || 'modified'),
+          status: String(item?.changeType || item?.type || item?.status || 'modified'),
+          oldPath: typeof item?.oldPath === 'string' ? item.oldPath : null,
+          diffText,
+          additions: Number.isFinite(additions) && additions > 0 ? additions : counted.additions,
+          deletions: Number.isFinite(deletions) && deletions > 0 ? deletions : counted.deletions,
+        };
+      })
+      .filter((item): item is {
+        filePath: string;
+        changeType: string;
+        status: string;
+        oldPath: string | null;
+        diffText: string;
+        additions: number;
+        deletions: number;
+      } => item !== null);
+  }
+
+  private countDiffStats(diffText: string): { additions: number; deletions: number } {
+    if (!diffText) {
+      return { additions: 0, deletions: 0 };
+    }
+    let additions = 0;
+    let deletions = 0;
+    for (const line of diffText.split('\n')) {
+      if (line.startsWith('+++') || line.startsWith('---')) continue;
+      if (line.startsWith('+')) additions += 1;
+      if (line.startsWith('-')) deletions += 1;
+    }
+    return { additions, deletions };
+  }
+
+  private buildDiffHash(diffText: string): string {
+    return createHash('sha256').update(diffText).digest('hex');
+  }
+
+  private encodeDiff(diffText: string): string {
+    return gzipSync(Buffer.from(diffText, 'utf8')).toString('base64');
+  }
+
+  private decodeDiff(diffGzipBase64: string): string {
+    try {
+      return gunzipSync(Buffer.from(diffGzipBase64, 'base64')).toString('utf8');
+    } catch (_error) {
+      return '';
+    }
+  }
+
+  private extractReviewSummary(metadata: any, fileChangeCount: number): string {
+    const explicitSummary = metadata?.reviewSummary || metadata?.summary;
+    if (typeof explicitSummary === 'string' && explicitSummary.trim().length > 0) {
+      return explicitSummary.trim();
+    }
+    return `Changed ${fileChangeCount} file${fileChangeCount > 1 ? 's' : ''}`;
+  }
+
+  private toLightweightMetadata(metadata: any): any {
+    if (!metadata || typeof metadata !== 'object') {
+      return metadata;
+    }
+    const lightweightCodeChanges = Array.isArray(metadata.codeChanges)
+      ? metadata.codeChanges.map((change: any) => ({
+          filePath: change?.filePath || change?.path || change?.newPath || '',
+          changeType: String(change?.changeType || change?.type || change?.status || 'modified'),
+        })).filter((item: any) => item.filePath)
+      : metadata.codeChanges;
+
+    return {
+      ...metadata,
+      isQuestion: metadata.isQuestion === true,
+      requiresResponse: metadata.requiresResponse === true,
+      isInvalid: metadata.isInvalid === true,
+      codeChanges: lightweightCodeChanges,
+    };
   }
 
   /**
@@ -228,6 +409,214 @@ export class DrizzleConversationStorage {
     };
   }
 
+  async getReviewSidebar(sessionId: string): Promise<ReviewSidebarData> {
+    const db: any = this.getDb();
+    try {
+      const result = await db.execute(sql`
+        SELECT
+          rr.id AS round_id,
+          rr.status AS round_status,
+          rr.summary AS round_summary,
+          rr.created_at AS round_created_at,
+          rr.updated_at AS round_updated_at,
+          COUNT(rfc.id)::int AS file_count
+        FROM review_rounds rr
+        LEFT JOIN review_file_changes rfc ON rfc.review_round_id = rr.id
+        WHERE rr.conversation_id = ${sessionId}
+        GROUP BY rr.id, rr.status, rr.summary, rr.created_at, rr.updated_at
+        ORDER BY rr.created_at DESC
+      `);
+
+      const rows = (result?.rows || result || []) as any[];
+      return {
+        sessionId,
+        totalRounds: rows.length,
+        rounds: rows.map((row) => ({
+          roundId: String(row.round_id || ''),
+          status: row.round_status ? String(row.round_status) : null,
+          summary: row.round_summary ? String(row.round_summary) : null,
+          fileCount: this.toNumber(row.file_count),
+          createdAt: this.toDateOrNull(row.round_created_at),
+          updatedAt: this.toDateOrNull(row.round_updated_at),
+        })),
+      };
+    } catch (error) {
+      console.warn(`[Storage][review] getReviewSidebar failed, fallback empty. sessionId=${sessionId}`, error);
+      return { sessionId, totalRounds: 0, rounds: [] };
+    }
+  }
+
+  async getReviewFiles(sessionId: string): Promise<ReviewFilesData> {
+    const db: any = this.getDb();
+    try {
+      const result = await db.execute(sql`
+        WITH latest_round AS (
+          SELECT rr.id
+          FROM review_rounds rr
+          WHERE rr.conversation_id = ${sessionId}
+          ORDER BY rr.round_number DESC
+          LIMIT 1
+        )
+        SELECT
+          rfc.file_path,
+          rfc.change_type,
+          rfc.additions,
+          rfc.deletions
+        FROM review_file_changes rfc
+        INNER JOIN latest_round lr ON lr.id = rfc.review_round_id
+        ORDER BY rfc.updated_at DESC
+      `);
+      const rows = (result?.rows || result || []) as any[];
+      return {
+        sessionId,
+        files: rows.map((row) => ({
+          filePath: String(row.file_path || ''),
+          changeType: row.change_type ? String(row.change_type) : null,
+          additions: this.toNumber(row.additions),
+          deletions: this.toNumber(row.deletions),
+        })),
+      };
+    } catch (_errorWithOptionalColumns) {
+      console.warn(`[Storage][review] getReviewFiles failed, fallback empty. sessionId=${sessionId}`, _errorWithOptionalColumns);
+      return { sessionId, files: [] };
+    }
+  }
+
+  async getReviewDiff(sessionId: string, filePath: string, roundId?: string): Promise<ReviewDiffData> {
+    const db: any = this.getDb();
+    try {
+      const result = roundId
+        ? await db.execute(sql`
+          SELECT
+            rfc.id AS change_id,
+            rfc.review_round_id AS round_id,
+            rfc.file_path,
+            rfc.old_path,
+            rfc.change_type,
+            rdb.diff_gzip_base64,
+            rfc.additions,
+            rfc.deletions,
+            rfc.created_at,
+            rfc.updated_at
+          FROM review_file_changes rfc
+          INNER JOIN review_rounds rr ON rr.id = rfc.review_round_id
+          INNER JOIN review_diff_blobs rdb ON rdb.id = rfc.diff_blob_id
+          WHERE rr.conversation_id = ${sessionId}
+            AND rfc.file_path = ${filePath}
+            AND rr.id = ${roundId}
+          ORDER BY rfc.updated_at DESC
+        `)
+        : await db.execute(sql`
+          WITH latest_round AS (
+            SELECT rr.id
+            FROM review_rounds rr
+            WHERE rr.conversation_id = ${sessionId}
+            ORDER BY rr.round_number DESC
+            LIMIT 1
+          )
+          SELECT
+            rfc.id AS change_id,
+            rfc.review_round_id AS round_id,
+            rfc.file_path,
+            rfc.old_path,
+            rfc.change_type,
+            rdb.diff_gzip_base64,
+            rfc.additions,
+            rfc.deletions,
+            rfc.created_at,
+            rfc.updated_at
+          FROM review_file_changes rfc
+          INNER JOIN latest_round lr ON lr.id = rfc.review_round_id
+          INNER JOIN review_diff_blobs rdb ON rdb.id = rfc.diff_blob_id
+          WHERE rfc.file_path = ${filePath}
+          ORDER BY rfc.updated_at DESC
+          LIMIT 1
+        `);
+
+      const rows = (result?.rows || result || []) as any[];
+      return {
+        sessionId,
+        filePath,
+        roundId: roundId || null,
+        items: rows.map((row) => ({
+          changeId: String(row.change_id || ''),
+          roundId: String(row.round_id || ''),
+          filePath: String(row.file_path || filePath),
+          oldPath: row.old_path ? String(row.old_path) : null,
+          status: row.change_type ? String(row.change_type) : null,
+          patch: row.diff_gzip_base64 ? this.decodeDiff(String(row.diff_gzip_base64)) : null,
+          additions: this.toNumber(row.additions),
+          deletions: this.toNumber(row.deletions),
+          createdAt: this.toDateOrNull(row.created_at),
+          updatedAt: this.toDateOrNull(row.updated_at),
+        })),
+      };
+    } catch (error) {
+      console.warn(
+        `[Storage][review] getReviewDiff failed, fallback empty. sessionId=${sessionId}, filePath=${filePath}`,
+        error
+      );
+      return { sessionId, filePath, roundId: roundId || null, items: [] };
+    }
+  }
+
+  async getReviewUpdates(sessionId: string, since: string): Promise<ReviewUpdatesData> {
+    const db: any = this.getDb();
+    const sinceDate = new Date(since);
+    if (Number.isNaN(sinceDate.getTime())) {
+      return { sessionId, since, items: [] };
+    }
+
+    try {
+      const result = await db.execute(sql`
+        SELECT
+          'round'::text AS kind,
+          rr.id AS item_id,
+          rr.id AS round_id,
+          NULL::text AS file_path,
+          rr.status AS status,
+          rr.summary AS summary,
+          rr.updated_at AS updated_at
+        FROM review_rounds rr
+        WHERE rr.conversation_id = ${sessionId}
+          AND rr.updated_at > ${sinceDate}
+        UNION ALL
+        SELECT
+          'file'::text AS kind,
+          rfc.id AS item_id,
+          rfc.review_round_id AS round_id,
+          rfc.file_path AS file_path,
+          NULL::text AS status,
+          NULL::text AS summary,
+          rfc.updated_at AS updated_at
+        FROM review_file_changes rfc
+        INNER JOIN review_rounds rr ON rr.id = rfc.review_round_id
+        WHERE rr.conversation_id = ${sessionId}
+          AND rfc.updated_at > ${sinceDate}
+        ORDER BY updated_at ASC
+        LIMIT 200
+      `);
+
+      const rows = (result?.rows || result || []) as any[];
+      return {
+        sessionId,
+        since,
+        items: rows.map((row) => ({
+          kind: row.kind === 'file' ? 'file' : 'round',
+          itemId: String(row.item_id || ''),
+          roundId: String(row.round_id || ''),
+          filePath: row.file_path ? String(row.file_path) : null,
+          status: row.status ? String(row.status) : null,
+          summary: row.summary ? String(row.summary) : null,
+          updatedAt: this.toDateOrNull(row.updated_at),
+        })),
+      };
+    } catch (error) {
+      console.warn(`[Storage][review] getReviewUpdates failed, fallback empty. sessionId=${sessionId}`, error);
+      return { sessionId, since, items: [] };
+    }
+  }
+
   /**
    * 通过 Agent sessionId 加载会话
    */
@@ -327,10 +716,53 @@ export class DrizzleConversationStorage {
       contextRows.map(row => [row.conversationId, row])
     );
 
+    const reviewRoundRows = await db
+      .select({
+        id: reviewRounds.id,
+        conversationId: reviewRounds.conversationId,
+        roundNumber: reviewRounds.roundNumber,
+        summary: reviewRounds.summary,
+        createdAt: reviewRounds.createdAt,
+      })
+      .from(reviewRounds)
+      .where(inArray(reviewRounds.conversationId, sessionIds))
+      .orderBy(desc(reviewRounds.createdAt));
+
+    const latestRoundByConversationId = new Map<string, {
+      id: string;
+      roundNumber: number;
+      summary: string | null;
+      createdAt: Date;
+    }>();
+    for (const row of reviewRoundRows) {
+      if (!latestRoundByConversationId.has(row.conversationId)) {
+        latestRoundByConversationId.set(row.conversationId, {
+          id: row.id,
+          roundNumber: row.roundNumber,
+          summary: row.summary,
+          createdAt: row.createdAt,
+        });
+      }
+    }
+
+    const latestRoundIds = Array.from(latestRoundByConversationId.values()).map(row => row.id);
+    const roundFileCountRows = latestRoundIds.length > 0
+      ? await db
+          .select({
+            roundId: reviewFileChanges.reviewRoundId,
+            count: sql<number>`count(*)`,
+          })
+          .from(reviewFileChanges)
+          .where(inArray(reviewFileChanges.reviewRoundId, latestRoundIds))
+          .groupBy(reviewFileChanges.reviewRoundId)
+      : [];
+    const roundFileCountMap = new Map(roundFileCountRows.map(row => [row.roundId, Number(row.count)]));
+
     return sessionRows
       .filter(row => contextByConversationId.has(row.id))
       .map(row => {
       const contextRow = contextByConversationId.get(row.id);
+      const latestRound = latestRoundByConversationId.get(row.id);
 
       return {
         id: row.id,
@@ -356,7 +788,15 @@ export class DrizzleConversationStorage {
             gitBranch: null,
             relevantFiles: [],
           }
-        }
+        },
+        review: latestRound
+          ? {
+              latestRoundNumber: latestRound.roundNumber,
+              latestRoundSummary: latestRound.summary,
+              changedFileCount: roundFileCountMap.get(latestRound.id) || 0,
+              latestRoundCreatedAt: latestRound.createdAt,
+            }
+          : null,
       };
     });
   }
@@ -427,9 +867,15 @@ export class DrizzleConversationStorage {
       // 4. 删除 Neovate 会话映射
       await tx.delete(neovateSessions).where(eq(neovateSessions.conversationId, sessionId));
 
-      // 5. 删除会话
+      // 5. 删除 review 文件变更与轮次投影
+      await tx.delete(reviewFileChanges).where(eq(reviewFileChanges.conversationId, sessionId));
+      await tx.delete(reviewRounds).where(eq(reviewRounds.conversationId, sessionId));
+
+      // 6. 删除会话
       await tx.delete(conversations).where(eq(conversations.id, sessionId));
     });
+
+    await this.cleanupOrphanReviewDiffBlobs();
 
     // 清除所有相关缓存
     await this.clearCache();
@@ -552,9 +998,13 @@ export class DrizzleConversationStorage {
         metadataImages: messageMetadata.images,
         metadataOperationDenied: messageMetadata.operationDenied,
         metadataCreatedAt: messageMetadata.createdAt,
+        reviewRoundId: reviewRounds.id,
+        reviewRoundNumber: reviewRounds.roundNumber,
+        reviewRoundSummary: reviewRounds.summary,
       })
       .from(messages)
       .leftJoin(messageMetadata, eq(messageMetadata.messageId, messages.id))
+      .leftJoin(reviewRounds, eq(reviewRounds.sourceMessageId, messages.id))
       .where(messageWhere)
       .orderBy(asc(messages.timestamp));
     const queryMs = Number(process.hrtime.bigint() - queryStart) / 1_000_000;
@@ -604,6 +1054,13 @@ export class DrizzleConversationStorage {
             images: row.metadataImages,
             operationDenied: row.metadataOperationDenied,
             createdAt: row.metadataCreatedAt,
+            reviewRound: row.reviewRoundId
+              ? {
+                  id: row.reviewRoundId,
+                  roundNumber: row.reviewRoundNumber,
+                  summary: row.reviewRoundSummary,
+                }
+              : null,
           }
         : null,
     }));
@@ -816,11 +1273,137 @@ export class DrizzleConversationStorage {
 
   // ==================== 消息元数据管理方法 ====================
 
+  private async upsertReviewProjection(messageId: string, conversationId: string, metadata: any): Promise<void> {
+    const db = this.getDb();
+    const fileChanges = this.normalizeReviewFileChanges(metadata?.codeChanges);
+    const summary = this.extractReviewSummary(metadata, fileChanges.length);
+
+    const existingRoundRows = await db
+      .select()
+      .from(reviewRounds)
+      .where(eq(reviewRounds.sourceMessageId, messageId))
+      .limit(1);
+    const existingRound = existingRoundRows[0];
+
+    if (fileChanges.length === 0) {
+      if (existingRound) {
+        await db.delete(reviewFileChanges).where(eq(reviewFileChanges.reviewRoundId, existingRound.id));
+        await db.delete(reviewRounds).where(eq(reviewRounds.id, existingRound.id));
+        await this.cleanupOrphanReviewDiffBlobs();
+      }
+      return;
+    }
+
+    let roundId = existingRound?.id;
+    if (existingRound) {
+      await db
+        .update(reviewRounds)
+        .set({
+          status: 'completed',
+          summary,
+          updatedAt: dayjs().toDate(),
+        })
+        .where(eq(reviewRounds.id, existingRound.id));
+      await db.delete(reviewFileChanges).where(eq(reviewFileChanges.reviewRoundId, existingRound.id));
+      await this.cleanupOrphanReviewDiffBlobs();
+    } else {
+      const [maxRoundRow] = await db
+        .select({
+          maxRound: sql<number>`coalesce(max(${reviewRounds.roundNumber}), 0)`,
+        })
+        .from(reviewRounds)
+        .where(eq(reviewRounds.conversationId, conversationId));
+      const nextRoundNumber = Number(maxRoundRow?.maxRound || 0) + 1;
+      roundId = newId();
+      await db.insert(reviewRounds).values({
+        id: roundId,
+        conversationId,
+        sourceMessageId: messageId,
+        roundNumber: nextRoundNumber,
+        status: 'completed',
+        summary,
+      });
+    }
+
+    const preparedRows: Array<{
+      id: string;
+      conversationId: string;
+      reviewRoundId: string;
+      messageId: string;
+      filePath: string;
+      changeType: string;
+      status: string;
+      oldPath: string | null;
+      diffBlobId: string;
+      additions: number;
+      deletions: number;
+    }> = [];
+
+    for (const change of fileChanges) {
+      const diffHash = this.buildDiffHash(change.diffText);
+      let diffBlobId: string;
+
+      const existingBlobRows = await db
+        .select({ id: reviewDiffBlobs.id })
+        .from(reviewDiffBlobs)
+        .where(eq(reviewDiffBlobs.diffHash, diffHash))
+        .limit(1);
+
+      const existingBlob = existingBlobRows[0];
+      if (existingBlob) {
+        diffBlobId = existingBlob.id;
+        await db
+          .update(reviewDiffBlobs)
+          .set({ lastAccessedAt: dayjs().toDate() })
+          .where(eq(reviewDiffBlobs.id, diffBlobId));
+      } else {
+        diffBlobId = newId();
+        await db.insert(reviewDiffBlobs).values({
+          id: diffBlobId,
+          diffHash,
+          diffGzipBase64: this.encodeDiff(change.diffText),
+          rawSize: Buffer.byteLength(change.diffText || '', 'utf8'),
+          lastAccessedAt: dayjs().toDate(),
+        });
+      }
+
+      preparedRows.push({
+        id: newId(),
+        conversationId,
+        reviewRoundId: roundId as string,
+        messageId,
+        filePath: change.filePath,
+        changeType: change.changeType,
+        status: change.status,
+        oldPath: change.oldPath,
+        diffBlobId,
+        additions: change.additions,
+        deletions: change.deletions,
+      });
+    }
+
+    await db.insert(reviewFileChanges).values(
+      preparedRows
+    );
+  }
+
+  private async cleanupOrphanReviewDiffBlobs(): Promise<void> {
+    const db: any = this.getDb();
+    await db.execute(sql`
+      DELETE FROM review_diff_blobs rdb
+      WHERE NOT EXISTS (
+        SELECT 1 FROM review_file_changes rfc WHERE rfc.diff_blob_id = rdb.id
+      )
+    `);
+  }
+
   /**
    * 保存消息元数据
    */
   async saveMessageMetadata(messageId: string, metadata: any): Promise<void> {
     const db = this.getDb();
+    const projectionMetadata = metadata;
+    const persistedMetadata = this.toLightweightMetadata(metadata);
 
     // 为了精确清除缓存，我们需要 conversationId
     const msgResult = await db
@@ -845,22 +1428,25 @@ export class DrizzleConversationStorage {
       // 更新现有元数据
       await db
         .update(messageMetadata)
-        .set(metadata)
+        .set(persistedMetadata)
         .where(eq(messageMetadata.messageId, messageId));
     } else {
       // 插入新元数据
       await db.insert(messageMetadata).values({
         id: newId(),
         messageId,
-        ...metadata,
+        ...persistedMetadata,
       });
     }
 
+    await this.upsertReviewProjection(messageId, conversationId, projectionMetadata);
+
     // 清除精确缓存
     await this.deleteCache(`metadata:${messageId}`);
-    if (conversationId) {
-      await this.deleteCache(`messages_with_metadata:${conversationId}`);
-    }
+    await Promise.all([
+      this.deleteCache(`messages_with_metadata:${conversationId}`),
+      this.deleteCache('sessions:list'),
+    ]);
   }
 
   /**

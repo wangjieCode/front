@@ -29,6 +29,73 @@ export interface IConversationStorage {
   loadContext(sessionId: string): Promise<ConversationContext | null>;
   deleteSession(sessionId: string): Promise<void>;
   getInactiveSessions(olderThanXDays: number, status?: string): Promise<{ id: string }[]>;
+  getReviewSidebar(sessionId: string): Promise<ReviewSidebarData>;
+  getReviewFiles(sessionId: string): Promise<ReviewFilesData>;
+  getReviewDiff(sessionId: string, filePath: string, roundId?: string): Promise<ReviewDiffData>;
+  getReviewUpdates(sessionId: string, since: string): Promise<ReviewUpdatesData>;
+}
+
+export interface ReviewSidebarItem {
+  roundId: string;
+  status: string | null;
+  summary: string | null;
+  fileCount: number;
+  createdAt: Date | null;
+  updatedAt: Date | null;
+}
+
+export interface ReviewSidebarData {
+  sessionId: string;
+  totalRounds: number;
+  rounds: ReviewSidebarItem[];
+}
+
+export interface ReviewDiffItem {
+  changeId: string;
+  roundId: string;
+  filePath: string;
+  oldPath: string | null;
+  status: string | null;
+  patch: string | null;
+  additions: number;
+  deletions: number;
+  createdAt: Date | null;
+  updatedAt: Date | null;
+}
+
+export interface ReviewDiffData {
+  sessionId: string;
+  filePath: string;
+  roundId: string | null;
+  items: ReviewDiffItem[];
+}
+
+export interface ReviewFileItem {
+  filePath: string;
+  changeType: string | null;
+  additions: number;
+  deletions: number;
+}
+
+export interface ReviewFilesData {
+  sessionId: string;
+  files: ReviewFileItem[];
+}
+
+export interface ReviewUpdateItem {
+  kind: 'round' | 'file';
+  itemId: string;
+  roundId: string;
+  filePath: string | null;
+  status: string | null;
+  summary: string | null;
+  updatedAt: Date | null;
+}
+
+export interface ReviewUpdatesData {
+  sessionId: string;
+  since: string;
+  items: ReviewUpdateItem[];
 }
 
 /**
@@ -230,11 +297,11 @@ export class ConversationStorageAdapter implements IConversationStorage {
         toolCalls: message.metadata.toolCalls || null,
         codeChanges: message.metadata.codeChanges || null,
         thinking: message.metadata.thinking || null,
-        isQuestion: message.metadata.isQuestion || null,
+        isQuestion: message.metadata.isQuestion ?? false,
         questionOptions: message.metadata.questionOptions || null,
-        requiresResponse: message.metadata.requiresResponse || null,
+        requiresResponse: message.metadata.requiresResponse ?? false,
         messageReferences: message.metadata.references || null,
-        isInvalid: message.metadata.isInvalid || null,
+        isInvalid: message.metadata.isInvalid ?? false,
         gitBranch: message.metadata.gitBranch || null,
         mrUrl: message.metadata.mrUrl || null,
         images: message.metadata.images || null,
@@ -265,11 +332,11 @@ export class ConversationStorageAdapter implements IConversationStorage {
           toolCalls: dbMetadata.toolCalls || undefined,
           codeChanges: dbMetadata.codeChanges || undefined,
           thinking: dbMetadata.thinking || undefined,
-          isQuestion: dbMetadata.isQuestion || undefined,
+          isQuestion: dbMetadata.isQuestion ?? undefined,
           questionOptions: dbMetadata.questionOptions || undefined,
-          requiresResponse: dbMetadata.requiresResponse || undefined,
+          requiresResponse: dbMetadata.requiresResponse ?? undefined,
           references: dbMetadata.messageReferences || undefined,
-          isInvalid: dbMetadata.isInvalid || undefined,
+          isInvalid: dbMetadata.isInvalid ?? undefined,
           gitBranch: dbMetadata.gitBranch || undefined,
           mrUrl: dbMetadata.mrUrl || undefined,
           images: dbMetadata.images || undefined,
@@ -283,6 +350,22 @@ export class ConversationStorageAdapter implements IConversationStorage {
 
   async getMessageHistoryVersion(sessionId: string): Promise<MessageHistoryVersion> {
     return this.storage.getMessageHistoryVersion(sessionId);
+  }
+
+  async getReviewSidebar(sessionId: string): Promise<ReviewSidebarData> {
+    return this.storage.getReviewSidebar(sessionId);
+  }
+
+  async getReviewFiles(sessionId: string): Promise<ReviewFilesData> {
+    return this.storage.getReviewFiles(sessionId);
+  }
+
+  async getReviewDiff(sessionId: string, filePath: string, roundId?: string): Promise<ReviewDiffData> {
+    return this.storage.getReviewDiff(sessionId, filePath, roundId);
+  }
+
+  async getReviewUpdates(sessionId: string, since: string): Promise<ReviewUpdatesData> {
+    return this.storage.getReviewUpdates(sessionId, since);
   }
 
   /**
@@ -310,11 +393,11 @@ export class ConversationStorageAdapter implements IConversationStorage {
         toolCalls: dbMetadata.toolCalls || undefined,
         codeChanges: dbMetadata.codeChanges || undefined,
         thinking: dbMetadata.thinking || undefined,
-        isQuestion: dbMetadata.isQuestion || undefined,
+        isQuestion: dbMetadata.isQuestion ?? undefined,
         questionOptions: dbMetadata.questionOptions || undefined,
-        requiresResponse: dbMetadata.requiresResponse || undefined,
+        requiresResponse: dbMetadata.requiresResponse ?? undefined,
         references: dbMetadata.messageReferences || undefined,
-        isInvalid: dbMetadata.isInvalid || undefined,
+        isInvalid: dbMetadata.isInvalid ?? undefined,
         gitBranch: dbMetadata.gitBranch || undefined,
         mrUrl: dbMetadata.mrUrl || undefined,
         images: dbMetadata.images || undefined,
