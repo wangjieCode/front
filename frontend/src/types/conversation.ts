@@ -52,6 +52,27 @@ export interface ToolCall {
 export interface CodeChange {
   filePath: string;
   changeType: 'added' | 'modified' | 'deleted';
+  diff?: string;
+}
+
+export interface CodeChangeFileJumpPayload {
+  messageId: string;
+  filePath: string;
+  changeType: CodeChange['changeType'];
+}
+
+export interface ReviewFileItem {
+  filePath: string;
+  changeType: 'added' | 'modified' | 'deleted';
+  additions: number;
+  deletions: number;
+}
+
+export interface ReviewFileDiff {
+  filePath: string;
+  changeType: 'added' | 'modified' | 'deleted';
+  additions: number;
+  deletions: number;
   diff: string;
 }
 

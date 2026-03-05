@@ -46,6 +46,7 @@ export class NeovateAIService {
     abortSignal?: AbortSignal
   ): Promise<NeovateAIResult> {
     const workDir = customWorkDir || this.workDir;
+    const gitBaseline = await this.captureGitBaseline(workDir);
     const displayWorkDir = require('path').resolve(workDir);
     console.log(`[AI-EXEC] 开始流式执行 Neovate SDK (dir: ${displayWorkDir})`);
 
@@ -114,7 +115,7 @@ export class NeovateAIService {
         console.log(`[NeovateAIService] 已保存会话 ID: ${neovateSessionId}，路径: ${displaySavedPath}`);
       }
 
-      const changes = await this.parseOutput(output, workDir);
+      const changes = await this.parseOutput(output, workDir, gitBaseline);
 
       return {
         success: true,
@@ -145,6 +146,7 @@ export class NeovateAIService {
     abortSignal?: AbortSignal
   ): Promise<NeovateAIResult> {
     const workDir = customWorkDir || this.workDir;
+    const gitBaseline = await this.captureGitBaseline(workDir);
     const displayWorkDir = require('path').resolve(workDir);
     console.log(`[AI-EXEC] 开始执行 Neovate SDK (dir: ${displayWorkDir})`);
 
@@ -202,7 +204,7 @@ export class NeovateAIService {
         console.log(`[NeovateAIService] 已保存会话 ID: ${neovateSessionId}，路径: ${displaySavedPath}`);
       }
 
-      const changes = await this.parseOutput(cleanOutput, workDir);
+      const changes = await this.parseOutput(cleanOutput, workDir, gitBaseline);
 
       return {
         success: true,
@@ -252,7 +254,11 @@ export class NeovateAIService {
   /**
    * 解析 Neovate 输出
    */
-  private async parseOutput(rawOutput: string, workDir?: string): Promise<CodeChange[]> {
+  private async parseOutput(
+    rawOutput: string,
+    workDir?: string,
+    gitBaseline?: { headSha: string | null }
+  ): Promise<CodeChange[]> {
     const changes: CodeChange[] = [];
 
     try {
@@ -299,9 +305,64 @@ export class NeovateAIService {
         }
       }
 
+      // 兜底：当 stream-json/当前工作区 diff 都无法提取时，回退到执行前后 Git 基线对比。
+      if (changes.length === 0 && gitBaseline) {
+        const baselineChanges = await this.collectChangesFromGitBaseline(gitBaseline, workDir);
+        changes.push(...baselineChanges);
+      }
+
       return changes;
     } catch (error) {
       return changes;
+    }
+  }
+
+  private async captureGitBaseline(workDir?: string): Promise<{ headSha: string | null }> {
+    try {
+      const targetWorkDir = workDir || this.workDir;
+      const result = await this.executor.executeCommand('git rev-parse HEAD', targetWorkDir);
+      const headSha = (result.stdout || '').trim();
+      return { headSha: headSha || null };
+    } catch (_error) {
+      return { headSha: null };
+    }
+  }
+
+  private async collectChangesFromGitBaseline(
+    baseline: { headSha: string | null },
+    workDir?: string
+  ): Promise<CodeChange[]> {
+    try {
+      const targetWorkDir = workDir || this.workDir;
+      const currentHeadResult = await this.executor.executeCommand('git rev-parse HEAD', targetWorkDir);
+      const currentHead = (currentHeadResult.stdout || '').trim() || null;
+      let combinedDiff = '';
+
+      if (baseline.headSha && currentHead && baseline.headSha !== currentHead) {
+        const commitDiffResult = await this.executor.executeCommand(
+          `git diff ${baseline.headSha}..${currentHead}`,
+          targetWorkDir
+        );
+        combinedDiff += commitDiffResult.stdout || '';
+      }
+
+      const worktreeDiff = await this.getAllDiff(targetWorkDir);
+      if (worktreeDiff) {
+        combinedDiff = combinedDiff ? `${combinedDiff}\n${worktreeDiff}` : worktreeDiff;
+      }
+
+      if (!combinedDiff.trim()) {
+        return [];
+      }
+
+      const parsed = this.parseDiffOutput(combinedDiff);
+      const byPath = new Map<string, CodeChange>();
+      for (const item of parsed) {
+        byPath.set(item.filePath, item);
+      }
+      return Array.from(byPath.values());
+    } catch (_error) {
+      return [];
     }
   }
 

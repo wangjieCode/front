@@ -370,6 +370,172 @@ export function createConversationRoutes(
   });
 
   /**
+   * GET /api/conversations/:sessionId/review/sidebar
+   * 获取 review 侧边栏摘要（只读）
+   */
+  router.get('/:sessionId/review/sidebar', requireAuth, async (req: AuthRequest, res: Response) => {
+    try {
+      const { sessionId } = req.params;
+      const session = await conversationManager.getSessionAccessInfo(sessionId);
+      if (!session) {
+        return res.status(404).json({
+          success: false,
+          error: '会话不存在',
+        });
+      }
+
+      if (!canReadSession(session, req.userId)) {
+        return res.status(403).json({
+          success: false,
+          error: '无权访问该会话',
+        });
+      }
+
+      const data = await conversationManager.getReviewSidebar(sessionId);
+      return res.json({
+        success: true,
+        data,
+      });
+    } catch (error) {
+      return res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : '获取 review 侧边栏失败',
+      });
+    }
+  });
+
+  /**
+   * GET /api/conversations/:sessionId/review/files
+   * 获取 review 文件列表（只读）
+   */
+  router.get('/:sessionId/review/files', requireAuth, async (req: AuthRequest, res: Response) => {
+    try {
+      const { sessionId } = req.params;
+      const session = await conversationManager.getSessionAccessInfo(sessionId);
+      if (!session) {
+        return res.status(404).json({
+          success: false,
+          error: '会话不存在',
+        });
+      }
+
+      if (!canReadSession(session, req.userId)) {
+        return res.status(403).json({
+          success: false,
+          error: '无权访问该会话',
+        });
+      }
+
+      const data = await conversationManager.getReviewFiles(sessionId);
+      return res.json({
+        success: true,
+        data,
+      });
+    } catch (error) {
+      return res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : '获取 review 文件列表失败',
+      });
+    }
+  });
+
+  /**
+   * GET /api/conversations/:sessionId/review/diff
+   * 按文件获取 review diff（只读）
+   */
+  router.get('/:sessionId/review/diff', requireAuth, async (req: AuthRequest, res: Response) => {
+    try {
+      const { sessionId } = req.params;
+      const filePath = typeof req.query.filePath === 'string' ? req.query.filePath.trim() : '';
+      const roundId = typeof req.query.roundId === 'string' ? req.query.roundId.trim() : undefined;
+
+      if (!filePath) {
+        return res.status(400).json({
+          success: false,
+          error: '缺少必需参数: filePath',
+        });
+      }
+
+      const session = await conversationManager.getSessionAccessInfo(sessionId);
+      if (!session) {
+        return res.status(404).json({
+          success: false,
+          error: '会话不存在',
+        });
+      }
+
+      if (!canReadSession(session, req.userId)) {
+        return res.status(403).json({
+          success: false,
+          error: '无权访问该会话',
+        });
+      }
+
+      const data = await conversationManager.getReviewDiff(sessionId, filePath, roundId || undefined);
+      return res.json({
+        success: true,
+        data,
+      });
+    } catch (error) {
+      return res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : '获取 review diff 失败',
+      });
+    }
+  });
+
+  /**
+   * GET /api/conversations/:sessionId/review/updates?since=
+   * 增量获取 review 更新（只读）
+   */
+  router.get('/:sessionId/review/updates', requireAuth, async (req: AuthRequest, res: Response) => {
+    try {
+      const { sessionId } = req.params;
+      const since = typeof req.query.since === 'string' ? req.query.since.trim() : '';
+      if (!since) {
+        return res.status(400).json({
+          success: false,
+          error: '缺少必需参数: since',
+        });
+      }
+
+      const sinceDate = new Date(since);
+      if (Number.isNaN(sinceDate.getTime())) {
+        return res.status(400).json({
+          success: false,
+          error: '无效的 since 参数，需为可解析时间',
+        });
+      }
+
+      const session = await conversationManager.getSessionAccessInfo(sessionId);
+      if (!session) {
+        return res.status(404).json({
+          success: false,
+          error: '会话不存在',
+        });
+      }
+
+      if (!canReadSession(session, req.userId)) {
+        return res.status(403).json({
+          success: false,
+          error: '无权访问该会话',
+        });
+      }
+
+      const data = await conversationManager.getReviewUpdates(sessionId, sinceDate.toISOString());
+      return res.json({
+        success: true,
+        data,
+      });
+    } catch (error) {
+      return res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : '获取 review 增量更新失败',
+      });
+    }
+  });
+
+  /**
    * POST /api/conversations/:sessionId/messages
    * 发送用户消息（SSE 流式响应）
    */

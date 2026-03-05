@@ -260,6 +260,312 @@ body {
   color: var(--primary-color) !important;
 }
 
+/* Review Sidebar */
+.conversation-chat-layout {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+}
+
+.conversation-chat-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.review-sidebar {
+  width: clamp(420px, 42vw, 840px);
+  border-left: 1px solid #f0f0f0;
+  background: #fafafa;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.conversation-chat-layout.review-focus .conversation-chat-main {
+  display: none;
+}
+
+.conversation-chat-layout.review-focus .review-sidebar {
+  width: 100%;
+  border-left: none;
+}
+
+.review-sidebar-header {
+  min-height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-bottom: 1px solid #f0f0f0;
+  background: #fff;
+}
+
+.review-sidebar-title-wrap {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.review-sidebar-subtitle {
+  font-size: 12px;
+}
+
+.review-sidebar-tip {
+  font-size: 11px;
+}
+
+.review-sidebar-toolbar {
+  padding: 8px 12px;
+  border-bottom: 1px solid #f0f0f0;
+  background: #fff;
+}
+
+.review-sidebar-alert {
+  margin: 8px 12px 0;
+}
+
+.review-sidebar-file-list {
+  border-bottom: 1px solid #f0f0f0;
+  max-height: 42%;
+  overflow-y: auto;
+}
+
+.review-file-item {
+  width: 100%;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid #f3f3f3;
+  text-align: left;
+  padding: 10px 12px;
+  cursor: pointer;
+}
+
+.review-file-item:hover {
+  background: #f3f6ff;
+}
+
+.review-file-item.active {
+  background: #eaf0ff;
+}
+
+.review-file-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.review-file-index {
+  min-width: 20px;
+  text-align: center;
+}
+
+.review-file-path {
+  flex: 1;
+  min-width: 0;
+}
+
+.review-file-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.review-sidebar-diff {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.review-sidebar-loading,
+.review-sidebar-empty {
+  min-height: 100px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+}
+
+.review-diff-content {
+  margin: 12px;
+  padding: 12px;
+  background: #111827;
+  color: #f9fafb;
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.5;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.review-diff-meta {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border-bottom: 1px solid #eef0f3;
+  background: #fff;
+}
+
+.review-diff-meta-main {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.review-diff-meta-path {
+  max-width: 240px;
+}
+
+.review-diff-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.review-diff-viewer {
+  padding: 12px;
+  background: #efefef;
+}
+
+.review-diff-file {
+  border: 1px solid #d7d7d7;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #f7f7f7;
+}
+
+.review-diff-file-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 12px 14px;
+  border-bottom: 1px solid #d9d9d9;
+  background: #ebebeb;
+}
+
+.review-diff-file-header-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.review-diff-file-rename {
+  font-size: 12px;
+}
+
+.review-diff-file-path {
+  font-family: 'SFMono-Regular', Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+  font-size: 16px;
+  font-weight: 500;
+}
+
+.review-diff-file-header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.review-diff-file-plus,
+.review-diff-file-minus {
+  font-weight: 600;
+}
+
+.review-diff-collapse-btn {
+  color: #666;
+}
+
+.review-diff-viewer .diff {
+  font-family: 'SFMono-Regular', Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+  font-size: 12px;
+  line-height: 1.45;
+  background: #f7f7f7;
+}
+
+.review-diff-viewer.font-middle .diff {
+  font-size: 13px;
+}
+
+.review-diff-viewer .diff-gutter {
+  background: #ececec;
+  color: #808080;
+}
+
+.review-diff-viewer .diff-code {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.review-diff-viewer.wrap-off .diff-code {
+  white-space: pre;
+  word-break: normal;
+}
+
+@media (max-width: 1280px) {
+  .review-sidebar {
+    width: clamp(360px, 46vw, 720px);
+  }
+}
+
+@media (max-width: 900px) {
+  .conversation-chat-layout {
+    flex-direction: column;
+  }
+
+  .conversation-chat-main {
+    min-height: 45vh;
+  }
+
+  .review-sidebar {
+    width: 100%;
+    min-height: 45vh;
+    border-left: none;
+    border-top: 1px solid #f0f0f0;
+  }
+}
+
+.review-diff-viewer .diff-line-add .diff-code {
+  background: #dff1e4;
+}
+
+.review-diff-viewer .diff-line-delete .diff-code {
+  background: #f3dede;
+}
+
+.review-diff-viewer .diff-hunk .diff-code {
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.review-linked-message {
+  animation: reviewMessagePulse 1.2s ease;
+}
+
+@keyframes reviewMessagePulse {
+  0% {
+    background-color: rgba(124, 92, 255, 0.2);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
 .mode-tag.active {
   background: rgba(124, 92, 255, 0.1) !important;
   border-color: var(--primary-color) !important;
@@ -883,6 +1189,136 @@ body {
   object-fit: cover;
 }
 
+.code-change-card {
+  margin-top: 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #ffffff;
+  overflow: hidden;
+}
+
+.code-change-summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: #f8fafc;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.code-change-summary-title {
+  display: inline-flex;
+  align-items: center;
+  color: #334155;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.code-change-summary-stats {
+  color: #475569;
+  font-size: 12px;
+}
+
+.code-change-toggle-btn {
+  margin-left: auto;
+  border: none;
+  background: transparent;
+  color: #5b4ee6;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0;
+}
+
+.code-change-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+}
+
+.code-change-item {
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #f8fafc;
+  padding: 10px;
+}
+
+.code-change-item-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.code-change-item-left {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.code-change-file-btn {
+  border: none;
+  background: transparent;
+  color: #334155;
+  font-size: 12px;
+  cursor: pointer;
+  padding: 0;
+  text-align: left;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.code-change-file-btn:disabled {
+  color: #475569;
+  cursor: default;
+}
+
+.code-change-item-stats {
+  color: #64748b;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.code-change-diff {
+  margin: 0;
+  border: 1px solid #dbe3ef;
+  border-radius: 8px;
+  background: #0f172a;
+  color: #dbeafe;
+  padding: 10px;
+  font-size: 12px;
+  line-height: 1.5;
+  overflow: auto;
+  max-height: 280px;
+}
+
+.code-change-truncate-hint {
+  margin-top: 8px;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.code-change-jump-btn {
+  border: none;
+  background: transparent;
+  color: #5b4ee6;
+  cursor: pointer;
+  font-size: 12px;
+  padding: 0;
+  margin-left: 6px;
+}
+
+.code-change-jump-btn:disabled {
+  color: #94a3b8;
+  cursor: default;
+}
+
 .tool-trace-container {
   margin-top: 4px;
   margin-bottom: 8px;
@@ -1000,6 +1436,23 @@ body {
 }
 
 @media (max-width: 768px) {
+  .code-change-summary {
+    flex-wrap: wrap;
+  }
+
+  .code-change-toggle-btn {
+    margin-left: 0;
+  }
+
+  .code-change-item-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .code-change-item-stats {
+    white-space: normal;
+  }
+
   .tool-trace-summary {
     flex-direction: column;
     align-items: flex-start;

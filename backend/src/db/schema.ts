@@ -1,4 +1,4 @@
-import { pgTable, uuid, varchar, text, boolean, timestamp, jsonb, index, uniqueIndex } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, varchar, text, boolean, timestamp, jsonb, index, uniqueIndex, integer } from 'drizzle-orm/pg-core';
 
 /**
  * users 表
@@ -143,6 +143,77 @@ export const messageMetadata = pgTable(
   })
 );
 
+/**
+ * review_rounds 表
+ * 存储只读 review 的轮次投影
+ */
+export const reviewRounds = pgTable(
+  'review_rounds',
+  {
+    id: uuid('id').primaryKey(),
+    conversationId: uuid('conversation_id').notNull(),
+    sourceMessageId: uuid('source_message_id').notNull(),
+    roundNumber: integer('round_number').notNull(),
+    status: varchar('status', { length: 32 }).notNull().default('completed'),
+    summary: text('summary'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    conversationRoundUnique: uniqueIndex('unique_review_rounds_conversation_round').on(table.conversationId, table.roundNumber),
+    sourceMessageIdUnique: uniqueIndex('unique_review_rounds_source_message_id').on(table.sourceMessageId),
+    conversationCreatedAtIdx: index('idx_review_rounds_conversation_created_at').on(table.conversationId, table.createdAt),
+  })
+);
+
+/**
+ * review_file_changes 表
+ * 存储每个 review 轮次的文件变更投影
+ */
+export const reviewFileChanges = pgTable(
+  'review_file_changes',
+  {
+    id: uuid('id').primaryKey(),
+    conversationId: uuid('conversation_id').notNull(),
+    reviewRoundId: uuid('review_round_id').notNull(),
+    messageId: uuid('message_id'),
+    filePath: text('file_path').notNull(),
+    changeType: varchar('change_type', { length: 32 }).notNull().default('modified'),
+    status: varchar('status', { length: 32 }).notNull().default('modified'),
+    oldPath: text('old_path'),
+    diffBlobId: uuid('diff_blob_id').notNull(),
+    additions: integer('additions').notNull().default(0),
+    deletions: integer('deletions').notNull().default(0),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    reviewRoundIdIdx: index('idx_review_file_changes_review_round_id').on(table.reviewRoundId),
+    conversationRoundIdx: index('idx_review_file_changes_conversation_round').on(table.conversationId, table.reviewRoundId),
+    messageIdIdx: index('idx_review_file_changes_message_id').on(table.messageId),
+    diffBlobIdIdx: index('idx_review_file_changes_diff_blob_id').on(table.diffBlobId),
+  })
+);
+
+/**
+ * review_diff_blobs 表
+ * 存储压缩后的 diff 文本，通过 hash 去重，降低存储压力
+ */
+export const reviewDiffBlobs = pgTable(
+  'review_diff_blobs',
+  {
+    id: uuid('id').primaryKey(),
+    diffHash: varchar('diff_hash', { length: 64 }).notNull(),
+    diffGzipBase64: text('diff_gzip_base64').notNull(),
+    rawSize: integer('raw_size').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    lastAccessedAt: timestamp('last_accessed_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    diffHashUnique: uniqueIndex('unique_review_diff_blobs_diff_hash').on(table.diffHash),
+  })
+);
+
 // 导出类型
 export type Conversation = typeof conversations.$inferSelect;
 export type NewConversation = typeof conversations.$inferInsert;
@@ -155,6 +226,14 @@ export type NewMessage = typeof messages.$inferInsert;
 
 export type MessageMetadata = typeof messageMetadata.$inferSelect;
 export type NewMessageMetadata = typeof messageMetadata.$inferInsert;
+
+export type ReviewRound = typeof reviewRounds.$inferSelect;
+export type NewReviewRound = typeof reviewRounds.$inferInsert;
+
+export type ReviewFileChange = typeof reviewFileChanges.$inferSelect;
+export type NewReviewFileChange = typeof reviewFileChanges.$inferInsert;
+export type ReviewDiffBlob = typeof reviewDiffBlobs.$inferSelect;
+export type NewReviewDiffBlob = typeof reviewDiffBlobs.$inferInsert;
 
 export type NeovateSession = typeof neovateSessions.$inferSelect;
 export type NewNeovateSession = typeof neovateSessions.$inferInsert;
