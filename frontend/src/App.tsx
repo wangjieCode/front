@@ -28,8 +28,6 @@ const AppContent: React.FC = () => {
     activeSessionId,
     conversations,
     isConversationsLoading,
-    mode,
-    setMode,
     showLoginModal,
     setShowLoginModal,
     showAccountSettingsModal,
@@ -244,16 +242,12 @@ const AppContent: React.FC = () => {
             <Route path="/chat/:sessionId" element={
               <ChatRoute
                 onNewConversation={handleSubmit}
-                mode={mode}
-                onModeChange={setMode}
                 onVisibilityChange={handleVisibilityChange}
               />
             } />
             <Route path="/" element={
               <ChatRoute
                 onNewConversation={handleSubmit}
-                mode={mode}
-                onModeChange={setMode}
                 onVisibilityChange={handleVisibilityChange}
               />
             } />

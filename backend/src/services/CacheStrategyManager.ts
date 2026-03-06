@@ -1,4 +1,4 @@
-import { LruCacheService } from './LruCacheService';
+import type { CacheClient } from './RedisCacheService';
 
 interface StaleCacheEnvelope<T> {
   value: T;
@@ -28,7 +28,7 @@ function isStaleEnvelope<T>(input: unknown): input is StaleCacheEnvelope<T> {
 export class CacheStrategyManager {
   private refreshInFlight = new Map<string, Promise<void>>();
 
-  constructor(private cache: LruCacheService) {}
+  constructor(private cache: CacheClient) {}
 
   async get<T>(key: string): Promise<T | null> {
     return this.cache.getJson<T>(key);

@@ -14,8 +14,8 @@ import path from 'path';
 import { resolveStoredPath, convertToStoredPath, BasePathType } from '../utils/PathUtils';
 import { getGitWorkDir } from '../utils/config';
 import { resolve } from 'path';
-import { LruCacheService } from './LruCacheService';
 import { CacheStrategyManager } from './CacheStrategyManager';
+import { RedisCacheService } from './RedisCacheService';
 
 // 从schema导出类型
 type Project = typeof projects.$inferSelect;
@@ -80,7 +80,7 @@ export interface ProjectListResult extends OperationResult {
 export class ProjectService {
   private db = DatabaseManager.getDb();
   private repositoryService: RepositoryService;
-  private cache = new LruCacheService();
+  private cache = new RedisCacheService();
   private cacheStrategyManager = new CacheStrategyManager(this.cache);
   private listCacheTtlSeconds = 0;
   private detailCacheTtlSeconds = 0;
@@ -104,7 +104,7 @@ export class ProjectService {
   }
 
   constructor(
-    private executor: ICommandExecutor
+    readonly executor: ICommandExecutor
   ) {
     this.repositoryService = new RepositoryService(executor);
   }

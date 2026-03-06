@@ -9,7 +9,6 @@ import {
   ConversationMessage,
   ConversationContext,
   ConversationStatus,
-  ConversationMode,
   MessageRole,
 } from '../types';
 
@@ -29,6 +28,73 @@ export interface IConversationStorage {
   loadContext(sessionId: string): Promise<ConversationContext | null>;
   deleteSession(sessionId: string): Promise<void>;
   getInactiveSessions(olderThanXDays: number, status?: string): Promise<{ id: string }[]>;
+  getReviewSidebar(sessionId: string): Promise<ReviewSidebarData>;
+  getReviewFiles(sessionId: string): Promise<ReviewFilesData>;
+  getReviewDiff(sessionId: string, filePath: string, roundId?: string): Promise<ReviewDiffData>;
+  getReviewUpdates(sessionId: string, since: string): Promise<ReviewUpdatesData>;
+}
+
+export interface ReviewSidebarItem {
+  roundId: string;
+  status: string | null;
+  summary: string | null;
+  fileCount: number;
+  createdAt: Date | null;
+  updatedAt: Date | null;
+}
+
+export interface ReviewSidebarData {
+  sessionId: string;
+  totalRounds: number;
+  rounds: ReviewSidebarItem[];
+}
+
+export interface ReviewDiffItem {
+  changeId: string;
+  roundId: string;
+  filePath: string;
+  oldPath: string | null;
+  status: string | null;
+  patch: string | null;
+  additions: number;
+  deletions: number;
+  createdAt: Date | null;
+  updatedAt: Date | null;
+}
+
+export interface ReviewDiffData {
+  sessionId: string;
+  filePath: string;
+  roundId: string | null;
+  items: ReviewDiffItem[];
+}
+
+export interface ReviewFileItem {
+  filePath: string;
+  changeType: string | null;
+  additions: number;
+  deletions: number;
+}
+
+export interface ReviewFilesData {
+  sessionId: string;
+  files: ReviewFileItem[];
+}
+
+export interface ReviewUpdateItem {
+  kind: 'round' | 'file';
+  itemId: string;
+  roundId: string;
+  filePath: string | null;
+  status: string | null;
+  summary: string | null;
+  updatedAt: Date | null;
+}
+
+export interface ReviewUpdatesData {
+  sessionId: string;
+  since: string;
+  items: ReviewUpdateItem[];
 }
 
 /**
@@ -71,7 +137,7 @@ export class ConversationStorageAdapter implements IConversationStorage {
       relevantFiles: session.context.projectInfo.relevantFiles || [],
       taskDescription: session.context.taskDescription,
       variables: session.context.variables,
-      mode: session.context.mode || 'edit',
+      mode: 'edit',
       contextGitBranch: session.context.gitBranch || null,
       mrUrl: session.context.mrUrl || null,
       previewInfo: session.context.previewInfo || null,
@@ -148,7 +214,6 @@ export class ConversationStorageAdapter implements IConversationStorage {
       taskDescription: dbContext.taskDescription,
       messageHistory: [],
       variables: dbContext.variables || {},
-      mode: (dbContext.mode as ConversationMode) || ConversationMode.EDIT,
       gitBranch: dbContext.contextGitBranch || undefined,
       mrUrl: dbContext.mrUrl || undefined,
       previewInfo: dbContext.previewInfo || undefined,
@@ -194,7 +259,6 @@ export class ConversationStorageAdapter implements IConversationStorage {
             gitRepositoryUrl: '',
           },
           taskDescription: (dbSession as any).context?.taskDescription || dbSession.summary || '',
-          mode: (dbSession as any).context?.mode || ConversationMode.EDIT,
           messageHistory: [],
           variables: (dbSession as any).context?.variables || {},
         } as ConversationContext,
@@ -212,9 +276,10 @@ export class ConversationStorageAdapter implements IConversationStorage {
   }
 
   /**
-   * 保存消息
+   * 保存消息（D1：元数据随消息一起单次 INSERT，不再分两步）
    */
   async saveMessage(message: ConversationMessage): Promise<void> {
+    const meta = message.metadata;
     await this.storage.saveMessage({
       id: message.id,
       conversationId: message.sessionId,
@@ -222,25 +287,19 @@ export class ConversationStorageAdapter implements IConversationStorage {
       content: message.content,
       timestamp: message.timestamp,
       parentMessageId: message.parentMessageId || null,
-      isComplete: true,
+      toolCalls: meta?.toolCalls ?? null,
+      codeChanges: meta?.codeChanges ?? null,
+      thinking: meta?.thinking ?? null,
+      isQuestion: meta?.isQuestion ?? false,
+      questionOptions: meta?.questionOptions ?? null,
+      requiresResponse: meta?.requiresResponse ?? false,
+      messageReferences: meta?.references ?? null,
+      isInvalid: meta?.isInvalid ?? false,
+      gitBranch: meta?.gitBranch ?? null,
+      mrUrl: meta?.mrUrl ?? null,
+      images: meta?.images ?? null,
+      operationDenied: meta?.operationDenied ?? null,
     });
-
-    if (message.metadata) {
-      await this.storage.saveMessageMetadata(message.id, {
-        toolCalls: message.metadata.toolCalls || null,
-        codeChanges: message.metadata.codeChanges || null,
-        thinking: message.metadata.thinking || null,
-        isQuestion: message.metadata.isQuestion || null,
-        questionOptions: message.metadata.questionOptions || null,
-        requiresResponse: message.metadata.requiresResponse || null,
-        messageReferences: message.metadata.references || null,
-        isInvalid: message.metadata.isInvalid || null,
-        gitBranch: message.metadata.gitBranch || null,
-        mrUrl: message.metadata.mrUrl || null,
-        images: message.metadata.images || null,
-        operationDenied: message.metadata.operationDenied || null,
-      });
-    }
   }
 
   /**
@@ -265,11 +324,11 @@ export class ConversationStorageAdapter implements IConversationStorage {
           toolCalls: dbMetadata.toolCalls || undefined,
           codeChanges: dbMetadata.codeChanges || undefined,
           thinking: dbMetadata.thinking || undefined,
-          isQuestion: dbMetadata.isQuestion || undefined,
+          isQuestion: dbMetadata.isQuestion ?? undefined,
           questionOptions: dbMetadata.questionOptions || undefined,
-          requiresResponse: dbMetadata.requiresResponse || undefined,
+          requiresResponse: dbMetadata.requiresResponse ?? undefined,
           references: dbMetadata.messageReferences || undefined,
-          isInvalid: dbMetadata.isInvalid || undefined,
+          isInvalid: dbMetadata.isInvalid ?? undefined,
           gitBranch: dbMetadata.gitBranch || undefined,
           mrUrl: dbMetadata.mrUrl || undefined,
           images: dbMetadata.images || undefined,
@@ -285,16 +344,28 @@ export class ConversationStorageAdapter implements IConversationStorage {
     return this.storage.getMessageHistoryVersion(sessionId);
   }
 
+  async getReviewSidebar(sessionId: string): Promise<ReviewSidebarData> {
+    return this.storage.getReviewSidebar(sessionId);
+  }
+
+  async getReviewFiles(sessionId: string): Promise<ReviewFilesData> {
+    return this.storage.getReviewFiles(sessionId);
+  }
+
+  async getReviewDiff(sessionId: string, filePath: string, roundId?: string): Promise<ReviewDiffData> {
+    return this.storage.getReviewDiff(sessionId, filePath, roundId);
+  }
+
+  async getReviewUpdates(sessionId: string, since: string): Promise<ReviewUpdatesData> {
+    return this.storage.getReviewUpdates(sessionId, since);
+  }
+
   /**
-   * 加载单条消息
+   * 加载单条消息（D1：元数据直接从 messages 列读取，无需单独查 message_metadata）
    */
   async loadMessage(sessionId: string, messageId: string): Promise<ConversationMessage | null> {
     const dbMsg = await this.storage.loadMessage(sessionId, messageId);
-    if (!dbMsg) {
-      return null;
-    }
-
-    const dbMetadata = await this.storage.loadMessageMetadata(dbMsg.id);
+    if (!dbMsg) return null;
 
     const message: ConversationMessage = {
       id: dbMsg.id,
@@ -305,20 +376,26 @@ export class ConversationStorageAdapter implements IConversationStorage {
       parentMessageId: dbMsg.parentMessageId || undefined,
     };
 
-    if (dbMetadata) {
+    const hasMetadata = !!(
+      dbMsg.toolCalls || dbMsg.codeChanges || dbMsg.thinking ||
+      dbMsg.isQuestion || dbMsg.requiresResponse || dbMsg.isInvalid ||
+      dbMsg.gitBranch || dbMsg.mrUrl || dbMsg.images || dbMsg.operationDenied ||
+      dbMsg.messageReferences || dbMsg.questionOptions
+    );
+    if (hasMetadata) {
       message.metadata = {
-        toolCalls: dbMetadata.toolCalls || undefined,
-        codeChanges: dbMetadata.codeChanges || undefined,
-        thinking: dbMetadata.thinking || undefined,
-        isQuestion: dbMetadata.isQuestion || undefined,
-        questionOptions: dbMetadata.questionOptions || undefined,
-        requiresResponse: dbMetadata.requiresResponse || undefined,
-        references: dbMetadata.messageReferences || undefined,
-        isInvalid: dbMetadata.isInvalid || undefined,
-        gitBranch: dbMetadata.gitBranch || undefined,
-        mrUrl: dbMetadata.mrUrl || undefined,
-        images: dbMetadata.images || undefined,
-        operationDenied: dbMetadata.operationDenied || undefined,
+        toolCalls: (dbMsg.toolCalls as any) || undefined,
+        codeChanges: (dbMsg.codeChanges as any) || undefined,
+        thinking: dbMsg.thinking || undefined,
+        isQuestion: dbMsg.isQuestion ?? undefined,
+        questionOptions: (dbMsg.questionOptions as any) || undefined,
+        requiresResponse: dbMsg.requiresResponse ?? undefined,
+        references: (dbMsg.messageReferences as any) || undefined,
+        isInvalid: dbMsg.isInvalid ?? undefined,
+        gitBranch: dbMsg.gitBranch || undefined,
+        mrUrl: dbMsg.mrUrl || undefined,
+        images: (dbMsg.images as any) || undefined,
+        operationDenied: (dbMsg.operationDenied as any) || undefined,
       };
     }
 
@@ -335,7 +412,7 @@ export class ConversationStorageAdapter implements IConversationStorage {
       relevantFiles: context.projectInfo.relevantFiles || [],
       taskDescription: context.taskDescription,
       variables: context.variables,
-      mode: context.mode || 'edit',
+      mode: 'edit',
       contextGitBranch: context.gitBranch || null,
       mrUrl: context.mrUrl || null,
       previewInfo: context.previewInfo || null,
@@ -368,7 +445,6 @@ export class ConversationStorageAdapter implements IConversationStorage {
       taskDescription: dbContext.taskDescription,
       messageHistory: [],
       variables: dbContext.variables || {},
-      mode: (dbContext.mode as ConversationMode) || ConversationMode.EDIT,
       gitBranch: dbContext.contextGitBranch || undefined,
       mrUrl: dbContext.mrUrl || undefined,
       previewInfo: dbContext.previewInfo || undefined,

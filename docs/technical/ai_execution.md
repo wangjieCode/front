@@ -3,7 +3,7 @@
 ## 输入
 
 - 用户消息
-- 会话上下文（workDir、gitBranch、mode）
+- 会话上下文（workDir、gitBranch）
 
 ## 执行
 
@@ -17,6 +17,5 @@
 
 ## 自动提交
 
-- 仅在 EDIT 模式生效
 - 触发条件：变更文件数量 > 0
 - 使用 GitService 执行 add/commit/push

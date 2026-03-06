@@ -1,5 +1,4 @@
 import { ConversationManager } from '../services/ConversationManager';
-import { ConversationMode } from '../types';
 
 jest.mock('../utils/id', () => ({
   newId: () => 'session-1',
@@ -53,7 +52,7 @@ describe('ConversationManager.createSession', () => {
       executor: {},
     } as any;
 
-    const manager = new ConversationManager(storage as any, projectService, undefined, {} as any);
+    const manager = new ConversationManager(storage as any, projectService, undefined);
 
     const session = await manager.createSession(
       'prompt',
@@ -65,7 +64,6 @@ describe('ConversationManager.createSession', () => {
         gitBranch: 'main',
         relevantFiles: [],
       },
-      ConversationMode.EDIT,
       'user-1'
     );
 
@@ -87,48 +85,6 @@ describe('ConversationManager.createSession', () => {
     );
   });
 
-  it('keeps project workDir and skips worktree creation for readonly mode', async () => {
-    createConversationWorktreeMock.mockResolvedValue({
-      branchName: 'feature/session-1',
-      worktreePath: '/worktrees/user-1/conversation-session-1',
-    });
-
-    const storage = createStorage();
-    const projectService = {
-      getProject: jest.fn().mockResolvedValue({
-        success: true,
-        project: {
-          id: 'project-1',
-          name: 'Demo',
-          gitRepositoryUrl: 'git@example.com/demo.git',
-          workDirectory: '/repo',
-          repoDir: '/repo',
-          gitBranch: 'main',
-        },
-      }),
-      executor: {},
-    } as any;
-
-    const manager = new ConversationManager(storage as any, projectService, undefined, {} as any);
-
-    const session = await manager.createSession(
-      'prompt',
-      {
-        projectId: 'project-1',
-        projectName: 'Demo',
-        gitRepositoryUrl: 'git@example.com/demo.git',
-        workDir: '/repo',
-        gitBranch: 'main',
-        relevantFiles: [],
-      },
-      ConversationMode.READONLY,
-      'user-1'
-    );
-
-    expect(createConversationWorktreeMock).not.toHaveBeenCalled();
-    expect(session.context.projectInfo.workDir).toBe('/repo');
-    expect(session.context.gitBranch).toBe('main');
-  });
 });
 
 describe('ConversationManager.listSessions', () => {

@@ -2,13 +2,11 @@ import React from 'react';
 import { Button, List, Popconfirm, Spin } from 'antd';
 import {
   DeleteOutlined,
-  EditOutlined,
   FolderOpenOutlined,
   GlobalOutlined,
   LockOutlined,
-  ReadOutlined,
 } from '@ant-design/icons';
-import { ConversationMode, ConversationSession, ConversationVisibility } from '../types/conversation';
+import { ConversationSession, ConversationVisibility } from '../types/conversation';
 
 type ConversationListProps = {
   conversations: ConversationSession[];
@@ -42,7 +40,6 @@ const MobileConversationList: React.FC<ConversationListProps> = ({
       className="mobile-conversation-list"
       dataSource={conversations}
       renderItem={(conv: ConversationSession) => {
-        const mode = conv?.context?.mode || ConversationMode.EDIT;
         const projectName = conv.context?.projectInfo?.projectName
           || conv.context?.projectInfo?.name
           || conv.context?.projectInfo?.workDir?.split('/').pop();
@@ -79,10 +76,6 @@ const MobileConversationList: React.FC<ConversationListProps> = ({
             </div>
 
             <div className="mobile-conversation-actions" onClick={(e) => e.stopPropagation()}>
-              <div className={`mobile-mode-pill ${mode === ConversationMode.EDIT ? 'edit' : ''}`}>
-                {mode === ConversationMode.EDIT ? <EditOutlined /> : <ReadOutlined />}
-                <span>{mode === ConversationMode.EDIT ? '编辑' : '只读'}</span>
-              </div>
               <Popconfirm
                 title="确认删除"
                 description="确定要删除这个对话吗？"

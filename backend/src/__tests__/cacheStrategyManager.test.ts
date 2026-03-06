@@ -1,12 +1,45 @@
-import { LruCacheService } from '../services/LruCacheService';
 import { CacheStrategyManager } from '../services/CacheStrategyManager';
+import { CacheClient } from '../services/RedisCacheService';
+
+class InMemoryCacheClient implements CacheClient {
+  private cache = new Map<string, unknown>();
+
+  async getJson<T>(key: string): Promise<T | null> {
+    return this.cache.has(key) ? (this.cache.get(key) as T) : null;
+  }
+
+  async setJson(key: string, value: unknown, _ttlSeconds: number): Promise<void> {
+    this.cache.set(key, value);
+  }
+
+  async del(...keys: string[]): Promise<void> {
+    for (const key of keys) {
+      this.cache.delete(key);
+    }
+  }
+
+  async delByPattern(pattern: string): Promise<number> {
+    const regex = new RegExp(
+      '^' +
+      pattern
+        .replace(/[.+?^${}()|[\]\\]/g, '\\$&')
+        .replace(/\*/g, '.*') +
+      '$'
+    );
+    let deleted = 0;
+    for (const key of Array.from(this.cache.keys())) {
+      if (regex.test(key)) {
+        this.cache.delete(key);
+        deleted++;
+      }
+    }
+    return deleted;
+  }
+}
 
 describe('CacheStrategyManager stale-while-revalidate', () => {
   it('returns stale value first and refreshes in background after refresh window', async () => {
-    delete process.env.LRU_CACHE_PERSIST_PATH;
-    delete process.env.LRU_CACHE_PERSIST_INTERVAL_MS;
-
-    const cache = new LruCacheService();
+    const cache = new InMemoryCacheClient();
     const manager = new CacheStrategyManager(cache);
 
     const loader = jest

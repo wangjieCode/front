@@ -3,7 +3,7 @@ import { message } from 'antd';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { conversationService, setLoginModalCallback } from '../services/conversationService';
 import { setLoginModalCallback as setProjectLoginModalCallback } from '../services/projectService';
-import { ConversationMode, ConversationSession, ConversationVisibility, ImageAttachment } from '../types/conversation';
+import { ConversationSession, ConversationVisibility, ImageAttachment } from '../types/conversation';
 import { authUtils } from '../utils/auth';
 
 enum PageType {
@@ -29,7 +29,6 @@ export const useAppLogic = () => {
   const navigate = useNavigate();
   const [conversations, setConversations] = useState<ConversationSession[]>([]);
   const [isConversationsLoading, setIsConversationsLoading] = useState(true);
-  const [mode, setMode] = useState<ConversationMode>(ConversationMode.READONLY);
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [showAccountSettingsModal, setShowAccountSettingsModal] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -83,7 +82,6 @@ export const useAppLogic = () => {
 
   const handleSubmit = async (
     promptText: string,
-    conversationMode: ConversationMode,
     projectId?: string,
     baseBranch?: string,
     model?: string,
@@ -109,7 +107,6 @@ export const useAppLogic = () => {
         initialPrompt: promptText,
         projectId,
         baseBranch,
-        mode: conversationMode,
         model,
       });
 
@@ -133,12 +130,10 @@ export const useAppLogic = () => {
   };
 
   const handleConversationClick = (conversation: ConversationSession) => {
-    setMode(conversation.context?.mode || ConversationMode.EDIT);
     navigate(`/chat/${conversation.id}`, { state: { session: conversation } });
   };
 
   const handleNewConversation = () => {
-    setMode(ConversationMode.READONLY);
     navigate('/');
   };
 
@@ -217,8 +212,6 @@ export const useAppLogic = () => {
     activeSessionId,
     conversations,
     isConversationsLoading,
-    mode,
-    setMode,
     showLoginModal,
     setShowLoginModal,
     showAccountSettingsModal,
