@@ -1,9 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Button, Input, Select, Typography, message } from 'antd';
 import { SendOutlined, PictureOutlined, CloseOutlined } from '@ant-design/icons';
-import MobileModeSelector from './MobileModeSelector';
 import MobileProjectSelector from './MobileProjectSelector';
-import { ConversationMode, ImageAttachment } from '../types/conversation';
+import { ImageAttachment } from '../types/conversation';
 import { Project } from '../types/project';
 import { conversationService } from '../services/conversationService';
 import { DEFAULT_NEOVATE_MODEL } from '@front/shared';
@@ -14,11 +13,8 @@ const { Text, Title } = Typography;
 const { TextArea } = Input;
 
 type MobileCreateConversationProps = {
-  mode: ConversationMode;
-  onModeChange: (mode: ConversationMode) => void;
   onNewConversation: (
     prompt: string,
-    mode: ConversationMode,
     projectId: string,
     baseBranch?: string,
     model?: string,
@@ -27,8 +23,6 @@ type MobileCreateConversationProps = {
 };
 
 const MobileCreateConversation: React.FC<MobileCreateConversationProps> = ({
-  mode,
-  onModeChange,
   onNewConversation,
 }) => {
   const [prompt, setPrompt] = useState('');
@@ -110,7 +104,7 @@ const MobileCreateConversation: React.FC<MobileCreateConversationProps> = ({
     }
     setSubmitting(true);
     try {
-      await onNewConversation(prompt, mode, selectedProjectId, baseBranch, selectedModel, attachments);
+      await onNewConversation(prompt, selectedProjectId, baseBranch, selectedModel, attachments);
     } finally {
       setSubmitting(false);
     }
@@ -179,11 +173,6 @@ const MobileCreateConversation: React.FC<MobileCreateConversationProps> = ({
             }}
             options={branchOptions.map(branch => ({ value: branch, label: branch }))}
           />
-        </div>
-
-        <div className="mobile-create-field">
-          <Text type="secondary">对话模式</Text>
-          <MobileModeSelector value={mode} onChange={onModeChange} />
         </div>
 
         <div className="mobile-create-field">

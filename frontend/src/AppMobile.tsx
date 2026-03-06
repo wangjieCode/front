@@ -28,8 +28,6 @@ const MobileContent: React.FC = () => {
     activeSessionId,
     conversations,
     isConversationsLoading,
-    mode,
-    setMode,
     showLoginModal,
     setShowLoginModal,
     showAccountSettingsModal,
@@ -145,8 +143,6 @@ const MobileContent: React.FC = () => {
               element={
                 <MobileChatRoute
                   onNewConversation={handleSubmit}
-                  mode={mode}
-                  onModeChange={setMode}
                   onVisibilityChange={handleVisibilityChange}
                 />
               }
@@ -156,8 +152,6 @@ const MobileContent: React.FC = () => {
               element={
                 <MobileCreateConversation
                   onNewConversation={handleSubmit}
-                  mode={mode}
-                  onModeChange={setMode}
                 />
               }
             />

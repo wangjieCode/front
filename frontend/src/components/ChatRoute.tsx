@@ -1,21 +1,18 @@
 import React from 'react';
 import { useLocation, useParams } from 'react-router-dom';
 import ConversationView from './ConversationView';
-import { ConversationMode, ConversationVisibility, ImageAttachment } from '../types/conversation';
+import { ConversationVisibility, ImageAttachment } from '../types/conversation';
 
 const ChatRoute: React.FC<{
   onNewConversation: (
     prompt: string,
-    mode: ConversationMode,
     projectId: string,
     baseBranch?: string,
     model?: string,
     initialImages?: ImageAttachment[]
   ) => Promise<void>;
-  mode: ConversationMode;
-  onModeChange: (mode: ConversationMode) => void;
   onVisibilityChange: (sessionId: string, visibility: ConversationVisibility) => void;
-}> = ({ onNewConversation, mode, onModeChange, onVisibilityChange }) => {
+}> = ({ onNewConversation, onVisibilityChange }) => {
   const { sessionId } = useParams();
   const { state } = useLocation();
 
@@ -30,8 +27,6 @@ const ChatRoute: React.FC<{
       initialImages={state?.initialImages}
       onNewConversation={onNewConversation}
       onVisibilityChange={onVisibilityChange}
-      mode={mode}
-      onModeChange={onModeChange}
     />
   );
 };

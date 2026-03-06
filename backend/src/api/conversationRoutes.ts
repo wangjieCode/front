@@ -108,11 +108,10 @@ export function createConversationRoutes(
    */
   router.post('/', requireAuth, async (req: AuthRequest, res: Response) => {
     try {
-      const { initialPrompt, mode, projectId, baseBranch, model } = req.body;
+      const { initialPrompt, projectId, baseBranch, model } = req.body;
 
       console.log('[API] 创建对话请求参数:', {
         initialPrompt: initialPrompt?.substring(0, 50) + '...',
-        mode,
         projectId,
         model,
       });
@@ -160,20 +159,11 @@ export function createConversationRoutes(
         relevantFiles: [],
       };
 
-      // 验证 mode 参数
-      if (mode && mode !== 'edit' && mode !== 'readonly') {
-        return res.status(400).json({
-          success: false,
-          error: '无效的 mode 参数，必须是 "edit" 或 "readonly"',
-        });
-      }
-
       const resolvedModel = resolveModel(model);
 
       const session = await conversationManager.createSession(
         initialPrompt,
         projectInfo,
-        mode,
         req.userId!,
         resolvedModel
       );

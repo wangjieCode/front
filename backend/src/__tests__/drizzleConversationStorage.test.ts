@@ -108,14 +108,12 @@ describe('DrizzleConversationStorage', () => {
     const contextRows = [
       {
         conversationId: 'session-own',
-        mode: 'edit',
         taskDescription: 'own task',
         workDir: '/tmp/own',
         environment: 'local',
       },
       {
         conversationId: 'session-public',
-        mode: 'readonly',
         taskDescription: 'public task',
         workDir: '/tmp/public',
         environment: 'local',

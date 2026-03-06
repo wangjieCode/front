@@ -63,7 +63,7 @@ export async function initializeAllServices() {
   const modelAvailabilityService = new ModelAvailabilityService();
   await modelAvailabilityService.initialize(workDir);
   
-  const conversationManager = new ConversationManager(storageAdapter, projectService, gitlabService, worktreeManager);
+  const conversationManager = new ConversationManager(storageAdapter, projectService, gitlabService);
   const branchCacheService = new BranchCacheService(gitlabService, projectService);
   const databaseUrl = process.env.DATABASE_URL || '';
   const neovateAIService = new NeovateAIService(executor, workDir, databaseUrl);

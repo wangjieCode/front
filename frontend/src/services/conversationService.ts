@@ -168,7 +168,6 @@ class ConversationService {
     initialPrompt: string;
     projectId: string;
     baseBranch?: string;
-    mode?: string;
     model?: string;
   }): Promise<{ success: boolean; data: ConversationSession }> {
     const response = await fetchWithAuth(`${this.baseUrl}/api/conversations`, {
