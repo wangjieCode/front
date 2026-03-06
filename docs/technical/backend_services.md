@@ -28,19 +28,20 @@
 
 - QueueManager：注册 BullMQ 可重复任务（归档、清理）。
 - Worker：消费队列任务并执行归档/清理逻辑；Redis 不可达时不再退出进程，按 `WORKER_RETRY_DELAY_MS` 周期重试连接。
-- Dashboard 轮询间隔：`86400000ms`（1 天）。
-- Worker 空闲轮询间隔（drainDelay）：`86400s`（1 天）。
+- Dashboard 轮询间隔：`604800000ms`（1 周）。
+- Worker 空闲轮询间隔（drainDelay）：`604800s`（1 周）。
 
 ## 业务缓存
 
-- LruCacheService：统一封装进程内 LRU 缓存读写、按模式批量清理，进程级缓存上限 `50MB`；业务键默认按“无 TTL（永不过期）”写入，通过显式删键失效；支持按配置周期落盘缓存快照，并在服务启动后自动恢复（启用条件：`LRU_CACHE_PERSIST_PATH`）。
+- RedisCacheService：统一封装业务 Redis 缓存读写（JSON）与按模式批量清理；业务键默认按“无 TTL（永不过期）”写入，通过显式删键失效。
 - CacheStrategyManager：统一封装缓存策略（当前提供 stale-while-revalidate），负责刷新窗口判断、异步回源刷新、同 key 刷新去重，供业务服务复用。
 - ConversationManager：缓存会话详情、会话列表、GitLab 分支列表。
 - ConversationManager：`gitlab:branches:*` 采用“无 TTL + 软刷新窗口”策略（默认 120 秒），窗口内命中缓存；超时命中时先返回旧值并异步回源刷新（stale-while-revalidate）。
 - ProjectService：缓存项目列表与项目详情，写操作后清理对应键；缓存调用统一通过 `CacheStrategyManager`。
 - WorktreeManager：worktree 信息（分支、路径）通过实时 Git 探测获取，不再维护独立缓存层。
 - DrizzleConversationStorage：缓存会话上下文、消息列表、消息元数据；缓存调用统一通过 `CacheStrategyManager`。
-- 缓存异常降级：缓存访问失败时直接回退无缓存路径（数据库直读/实时探测）；业务缓存不依赖 Redis。
+- 缓存异常降级：缓存访问失败时直接回退无缓存路径（数据库直读/实时探测）。
+- Redis 隔离：Task 队列使用 `TASK_REDIS_URL/TASK_REDIS_PREFIX`，业务缓存使用 `BIZ_REDIS_URL/BIZ_REDIS_PREFIX`，两者独立配置。
 
 ## 接口观测
 

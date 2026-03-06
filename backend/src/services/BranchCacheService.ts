@@ -1,7 +1,7 @@
 import { GitLabMCPService } from './GitLabMCPService';
 import { ProjectService } from './ProjectService';
 import { CacheStrategyManager } from './CacheStrategyManager';
-import { LruCacheService } from './LruCacheService';
+import { CacheClient, RedisCacheService } from './RedisCacheService';
 
 export interface BranchesResult {
   branches: string[];
@@ -19,10 +19,10 @@ export class BranchCacheService {
   constructor(
     private gitlabService: GitLabMCPService,
     private projectService: ProjectService,
-    cache?: LruCacheService
+    cache?: CacheClient
   ) {
-    const lru = cache ?? new LruCacheService();
-    this.cacheStrategyManager = new CacheStrategyManager(lru);
+    const redisCache = cache ?? new RedisCacheService();
+    this.cacheStrategyManager = new CacheStrategyManager(redisCache);
     const parsed = Number(process.env.GITLAB_BRANCHES_REFRESH_INTERVAL_MS || 120_000);
     this.refreshIntervalMs = Number.isFinite(parsed) && parsed >= 1 ? parsed : 120_000;
   }

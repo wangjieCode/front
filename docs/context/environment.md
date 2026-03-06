@@ -8,8 +8,6 @@
 - `APP_ENV`：应用环境（用于会话过滤）
 - `API_SLOW_LOG_MS`：接口慢请求阈值（毫秒，默认 1000）
 - `WORKER_RETRY_DELAY_MS`：Worker 启动失败后的重试间隔（毫秒，默认 30000）
-- `LRU_CACHE_PERSIST_PATH`：LRU 缓存快照文件路径（配置后启用定时持久化）
-- `LRU_CACHE_PERSIST_INTERVAL_MS`：LRU 缓存定时持久化间隔（毫秒，默认 60000）
 - `GITLAB_BRANCHES_REFRESH_INTERVAL_MS`：GitLab 分支缓存软刷新窗口（毫秒，默认 120000；超时后回源刷新）
 
 ## 数据库
@@ -21,8 +19,10 @@
 
 ## Redis
 
-- `REDIS_URL`：Redis 连接串（队列）
-- `REDIS_PREFIX`：Redis Key 前缀
+- `TASK_REDIS_URL`：Task 队列 Redis 连接串（BullMQ/Worker）
+- `TASK_REDIS_PREFIX`：Task 队列 Redis Key 前缀
+- `BIZ_REDIS_URL`：业务缓存 Redis 连接串（会话/项目/分支缓存）
+- `BIZ_REDIS_PREFIX`：业务缓存 Redis Key 前缀
 
 ## Git / Worktree
 
