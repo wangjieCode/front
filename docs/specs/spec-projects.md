@@ -48,6 +48,8 @@
 - N5：项目相关接口响应日志需记录方法、路径、状态码与耗时。
 - N6：项目链路业务缓存统一使用业务 Redis（`BIZ_REDIS_URL`），不得使用进程内 LRU。
 - N7：项目链路缓存读写与失效策略必须通过统一缓存策略管理器执行，禁止业务服务直接拼装缓存策略逻辑。
+- N8：Git 网络命令认证必须统一复用 `GITLAB_TOKEN`，并以 `Authorization: Bearer <token>` 方式通过环境变量注入；禁止将 token 写入 remote URL。
+- N9：`LOCAL_GIT_WORK_DIR` 运行域需使用独立 Git 配置文件（`$LOCAL_GIT_WORK_DIR/.gitconfig.workspace`），不得修改全局 `~/.gitconfig`。
 
 ## 用户体验
 
@@ -82,3 +84,4 @@
 - 2026-03-04：项目列表与详情缓存改为默认永不过期（`ttlSeconds=0`），依赖写后失效保证数据一致性。
 - 2026-03-04：项目链路缓存调用统一收敛到 `CacheStrategyManager`，便于后续策略复用与治理。
 - 2026-03-06：移除项目链路 `LruCacheService`，统一切换为业务 Redis 缓存，并遵循 task/biz Redis 隔离配置。
+- 2026-03-06：Git 网络命令改为执行器注入 Bearer 认证，移除 URL 内嵌 token 逻辑，并新增 `LOCAL_GIT_WORK_DIR` 专属 Git 配置要求。

@@ -3,6 +3,7 @@ import {
   ConversationMessage,
   ConversationVisibility,
   ModelConfigResponse,
+  SlashCommandMeta,
   PreviewResult,
   PreviewStatusResponse,
   ReviewFileDiff,
@@ -95,6 +96,7 @@ const fetchWithAuth = async (url: string, options: RequestInit = {}): Promise<Re
 class ConversationService {
   private baseUrl: string;
   private modelConfigCache: ModelConfigResponse | null = null;
+  private slashCommandsCache: SlashCommandMeta[] | null = null;
 
   constructor(baseUrl: string = API_BASE_URL) {
     this.baseUrl = baseUrl;
@@ -224,6 +226,32 @@ class ConversationService {
         })),
       };
       this.modelConfigCache = fallback;
+      return fallback;
+    }
+  }
+
+  async getSlashCommands(forceRefresh: boolean = false): Promise<SlashCommandMeta[]> {
+    if (!forceRefresh && this.slashCommandsCache) {
+      return this.slashCommandsCache;
+    }
+
+    try {
+      const response = await fetch(`${this.baseUrl}/api/conversations/commands`);
+      if (!response.ok) {
+        throw new Error('获取命令配置失败');
+      }
+      const result = await response.json();
+      const data = result?.data;
+      if (!Array.isArray(data)) {
+        throw new Error('命令配置格式不正确');
+      }
+      this.slashCommandsCache = data as SlashCommandMeta[];
+      return this.slashCommandsCache;
+    } catch (error) {
+      const fallback: SlashCommandMeta[] = [
+        { name: 'help', description: '查看可用斜杠命令与说明', source: 'system' },
+      ];
+      this.slashCommandsCache = fallback;
       return fallback;
     }
   }

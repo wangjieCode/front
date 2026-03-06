@@ -1,3 +1,5 @@
+import fs from 'fs';
+import path from 'path';
 import {
   ConversationContext,
   AIResponse,
@@ -26,6 +28,24 @@ export class ConversationAIService {
 
   private hasVisionModelConfig(): boolean {
     return !!process.env.MIDSCENE_MODEL_BASE_URL?.trim() && !!process.env.MIDSCENE_MODEL_API_KEY?.trim();
+  }
+
+  private resolveSkills(): string[] {
+    const raw = process.env.NEOVATE_DEFAULT_SKILLS?.trim();
+    const defaultSkillNames = raw
+      ? raw.split(',').map(skill => skill.trim()).filter(Boolean)
+      : ['zadig-workflow-deploy'];
+    const skillsRoot = process.env.NEOVATE_SKILLS_ROOT?.trim()
+      || path.join(process.env.HOME || '', '.neovate', 'skills');
+
+    try {
+      if (!fs.existsSync(skillsRoot)) return [];
+      return defaultSkillNames
+        .map(name => path.join(skillsRoot, name))
+        .filter(skillPath => fs.existsSync(skillPath) && fs.statSync(skillPath).isDirectory());
+    } catch {
+      return [];
+    }
   }
 
   private async buildPromptWithVisionInsights(
@@ -112,6 +132,7 @@ export class ConversationAIService {
       }
 
       const projectWorkDir = context.projectInfo.worktreePath ?? context.projectInfo.workDir;
+      const skills = this.resolveSkills();
       const selectedModel = modelOverride
         || (typeof context.variables?.model === 'string' ? context.variables.model : DEFAULT_NEOVATE_MODEL);
       
@@ -123,7 +144,8 @@ export class ConversationAIService {
         projectWorkDir,
         onChunk,
         selectedModel,
-        abortController.signal
+        abortController.signal,
+        skills
       );
       this.activeAbortControllers.delete(sessionId);
 
@@ -221,6 +243,7 @@ export class ConversationAIService {
 
       // 调用 AI 服务处理消息（传递 Neovate 会话 ID 和正确的工作目录）
       const projectWorkDir = context.projectInfo.worktreePath ?? context.projectInfo.workDir;
+      const skills = this.resolveSkills();
       const selectedModel = modelOverride
         || (typeof context.variables?.model === 'string' ? context.variables.model : DEFAULT_NEOVATE_MODEL);
       // console.log(`[ConversationAIService] 调用 NeovateAIService - conversationId: ${sessionId}, neovateSessionId: ${neovateSessionId || '无'}`);
@@ -232,7 +255,9 @@ export class ConversationAIService {
         sessionId,
         neovateSessionId,
         projectWorkDir,
-        selectedModel
+        selectedModel,
+        undefined,
+        skills
       );
 
       // 编辑模式：异步提交变更（不阻塞响应）

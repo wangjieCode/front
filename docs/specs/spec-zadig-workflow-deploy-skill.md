@@ -5,7 +5,7 @@
 - 名称：Zadig Workflow Deploy Skill
 - 负责人：
 - 创建日期：2026-03-03
-- 最近更新：2026-03-03
+- 最近更新：2026-03-06
 
 ## 背景
 
@@ -26,8 +26,8 @@
 
 ## 范围
 
-- In：`skills/zadig-workflow-deploy/` 下的 skill 描述、执行脚本、接口参考。
-- Out：Zadig UI 页面改造、后端服务端代码修改。
+- In：用户级目录 `~/.neovate/skills/zadig-workflow-deploy/` 下的 skill 描述与执行脚本（`deploy.js`）。
+- Out：仓库内置 Skill 文件、Zadig UI 页面改造、后端服务端代码修改。
 
 ## 业务规则
 
@@ -83,3 +83,4 @@
 ## 迭代记录
 
 - 2026-03-03：新增 `zadig-workflow-deploy` skill 与发布脚本。
+- 2026-03-06：脚本入口统一为 `~/.neovate/skills/zadig-workflow-deploy/deploy.js`，用于全局 Skill 自动加载链路。

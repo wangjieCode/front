@@ -40,9 +40,10 @@ export class NeovateAIService {
     customWorkDir: string | undefined,
     onData: (data: string) => void,
     model?: string,
-    abortSignal?: AbortSignal
+    abortSignal?: AbortSignal,
+    skills?: string[]
   ): Promise<NeovateAIResult> {
-    return this.execute(prompt, conversationId, existingSessionId, customWorkDir, model, abortSignal, onData);
+    return this.execute(prompt, conversationId, existingSessionId, customWorkDir, model, abortSignal, onData, skills);
   }
 
   async modifyCode(
@@ -51,9 +52,10 @@ export class NeovateAIService {
     existingSessionId?: string,
     customWorkDir?: string,
     model?: string,
-    abortSignal?: AbortSignal
+    abortSignal?: AbortSignal,
+    skills?: string[]
   ): Promise<NeovateAIResult> {
-    return this.execute(prompt, conversationId, existingSessionId, customWorkDir, model, abortSignal);
+    return this.execute(prompt, conversationId, existingSessionId, customWorkDir, model, abortSignal, undefined, skills);
   }
 
   private async execute(
@@ -63,7 +65,8 @@ export class NeovateAIService {
     customWorkDir: string | undefined,
     model: string | undefined,
     abortSignal: AbortSignal | undefined,
-    onChunk?: (chunk: string) => void
+    onChunk?: (chunk: string) => void,
+    skills?: string[]
   ): Promise<NeovateAIResult> {
     const workDir = customWorkDir || this.workDir;
     const gitBaseline = await this.captureGitBaseline(workDir);
@@ -71,7 +74,7 @@ export class NeovateAIService {
 
     try {
       const { output, neovateSessionId, durationMs } = await this.runWithRetry(
-        prompt, workDir, existingSessionId, model, abortSignal, onChunk
+        prompt, workDir, existingSessionId, model, abortSignal, onChunk, skills
       );
 
       if (neovateSessionId && conversationId) {
@@ -107,7 +110,8 @@ export class NeovateAIService {
     existingSessionId: string | undefined,
     model: string | undefined,
     abortSignal: AbortSignal | undefined,
-    onChunk?: (chunk: string) => void
+    onChunk?: (chunk: string) => void,
+    skills?: string[]
   ): Promise<RunResult> {
     let { output, durationMs, error, sessionId } = await runNeovateSdk({
       prompt,
@@ -116,13 +120,14 @@ export class NeovateAIService {
       model,
       abortSignal,
       onChunk,
+      skills,
     });
 
     if (existingSessionId && error) {
       console.warn(
         `[AI-EXEC] 恢复会话失败，回退为新建会话重试。sessionId=${existingSessionId}, error=${error?.message}`
       );
-      const retry = await runNeovateSdk({ prompt, workDir, model, abortSignal, onChunk });
+      const retry = await runNeovateSdk({ prompt, workDir, model, abortSignal, onChunk, skills });
       output = retry.output;
       durationMs += retry.durationMs;
       error = retry.error;

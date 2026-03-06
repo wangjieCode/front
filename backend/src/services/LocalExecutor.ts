@@ -3,6 +3,75 @@ import { promisify } from 'util';
 import { CommandResult } from '../types';
 
 const execAsync = promisify(exec);
+const GIT_NETWORK_SUBCOMMANDS = new Set(['fetch', 'pull', 'push', 'clone', 'ls-remote']);
+const GIT_GLOBAL_OPTIONS_WITH_VALUE = new Set(['-C', '--git-dir', '--work-tree', '-c', '--namespace', '--exec-path', '--config-env']);
+
+export function isGitNetworkCommand(command: string): boolean {
+  if (!command?.trim()) {
+    return false;
+  }
+
+  const tokens = command.trim().split(/\s+/).filter(Boolean);
+  let index = 0;
+
+  // 跳过前置环境变量：FOO=bar git fetch
+  while (index < tokens.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[index])) {
+    index += 1;
+  }
+
+  if (index >= tokens.length) {
+    return false;
+  }
+
+  const gitToken = tokens[index];
+  if (gitToken !== 'git' && !gitToken.endsWith('/git')) {
+    return false;
+  }
+  index += 1;
+
+  while (index < tokens.length) {
+    const token = tokens[index];
+    if (!token.startsWith('-')) {
+      break;
+    }
+    index += 1;
+    if (GIT_GLOBAL_OPTIONS_WITH_VALUE.has(token) && index < tokens.length) {
+      index += 1;
+    }
+  }
+
+  const subCommand = tokens[index];
+  if (!subCommand) {
+    return false;
+  }
+
+  if (GIT_NETWORK_SUBCOMMANDS.has(subCommand)) {
+    return true;
+  }
+
+  if (subCommand === 'remote') {
+    let remoteIndex = index + 1;
+    while (remoteIndex < tokens.length && tokens[remoteIndex].startsWith('-')) {
+      remoteIndex += 1;
+    }
+    return tokens[remoteIndex] === 'update';
+  }
+
+  return false;
+}
+
+export function buildGitAuthEnv(command: string, env?: Record<string, string>): Record<string, string> | undefined {
+  const token = process.env.GITLAB_TOKEN?.trim();
+  const mergedEnv = {
+    ...env,
+  };
+
+  if (token && isGitNetworkCommand(command)) {
+    mergedEnv.GIT_HTTP_EXTRAHEADER = `Authorization: Bearer ${token}`;
+  }
+
+  return Object.keys(mergedEnv).length > 0 ? mergedEnv : undefined;
+}
 
 /**
  * 本地命令执行器
@@ -49,13 +118,14 @@ export class LocalExecutor {
     // console.log('[LocalExecutor] 工作目录:', workDir || '(当前目录)');
 
     try {
+      const runtimeEnv = buildGitAuthEnv(command, env);
       const options = {
         cwd: workDir,
         maxBuffer: 100 * 1024 * 1024, // 100MB
         timeout: timeout,
         env: {
           ...process.env,
-          ...env,
+          ...runtimeEnv,
         }
       };
 
@@ -113,12 +183,13 @@ export class LocalExecutor {
 
     try {
       const { spawn } = require('child_process');
+      const runtimeEnv = buildGitAuthEnv(command, env);
       const options = {
         cwd: workDir,
         timeout: timeout,
         env: {
           ...process.env,
-          ...env,
+          ...runtimeEnv,
         }
       };
 

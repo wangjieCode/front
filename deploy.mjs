@@ -20,6 +20,15 @@ const config = {
   appName: process.env.APP_NAME || 'front-intern-backend',
   localNeovateConfig:
     process.env.NEOVATE_CONFIG_PATH || path.join(process.env.HOME || '', '.neovate', 'config.json'),
+  localSkillsRoot:
+    process.env.NEOVATE_SKILLS_ROOT || path.join(process.env.HOME || '', '.neovate', 'skills'),
+  remoteSkillsRoot:
+    process.env.REMOTE_NEOVATE_SKILLS_ROOT
+    || `/Users/${process.env.DEPLOY_USER || 'admin'}/.neovate/skills`,
+  defaultSkills: (process.env.NEOVATE_DEFAULT_SKILLS || 'zadig-workflow-deploy')
+    .split(',')
+    .map((name) => name.trim())
+    .filter(Boolean),
   apiInstances: process.env.API_INSTANCES || '2',
 };
 config.remoteNeovateConfig = `${config.neovateDir}/config.json`;
@@ -314,6 +323,7 @@ function collectArchiveItems() {
     'backend/dist',
     'backend/src',
     'backend/package.json',
+    'backend/.gitconfig.workspace',
     'packages/shared/dist',
     'packages/shared/package.json',
   ];
@@ -356,10 +366,38 @@ async function syncNeovateConfig() {
   ok('Neovate 配置同步完成');
 }
 
+// ─── Sync Neovate skills ──────────────────────────────────────────────────────
+async function syncNeovateSkills() {
+  step(`同步 Neovate Skills: ${config.localSkillsRoot} -> ${config.host}:${config.remoteSkillsRoot}`);
+  if (!existsSync(config.localSkillsRoot)) {
+    warn(`本地 Skills 根目录不存在，跳过同步: ${config.localSkillsRoot}`);
+    return;
+  }
+
+  await ssh(`mkdir -p ${config.remoteSkillsRoot}`);
+  for (const skillName of config.defaultSkills) {
+    const localSkillPath = path.join(config.localSkillsRoot, skillName);
+    if (!existsSync(localSkillPath)) {
+      warn(`本地 Skill 不存在，跳过: ${localSkillPath}`);
+      continue;
+    }
+
+    const ts = Date.now();
+    const localTar = `/tmp/${skillName}-${ts}.tar.gz`;
+    const remoteTar = `/tmp/${skillName}-${ts}.tar.gz`;
+    await $`tar -czf ${localTar} -C ${config.localSkillsRoot} ${skillName}`;
+    await scp(localTar, `${target}:${remoteTar}`);
+    await ssh(`rm -rf ${config.remoteSkillsRoot}/${skillName} && tar -xzf ${remoteTar} -C ${config.remoteSkillsRoot} && rm -f ${remoteTar}`);
+    rmSync(localTar, { force: true });
+    ok(`Skill 已同步: ${skillName}`);
+  }
+}
+
 // ─── Generate remote deploy script ───────────────────────────────────────────
 function generateRemoteScript() {
   const D = config.deployDir;
   const INST = config.apiInstances;
+  const workspaceGitConfigPath = `${D}/.gitconfig.workspace`;
 
   return `#!/usr/bin/env bash
 set -euo pipefail
@@ -400,6 +438,26 @@ if [ -f "backend/.env.production" ]; then
   cp backend/.env.production backend/.env
   echo "✅ 生产环境配置已应用"
 fi
+if [ ! -f "backend/.gitconfig.workspace" ]; then
+  echo "❌ 缺少 backend/.gitconfig.workspace，无法初始化工作区 Git 配置"
+  exit 1
+fi
+cp backend/.gitconfig.workspace "${workspaceGitConfigPath}"
+echo "✅ 工作区 Git 配置已同步: ${workspaceGitConfigPath}"
+
+if [ -f "backend/.env" ]; then
+  awk -v value="GIT_CONFIG_GLOBAL=${workspaceGitConfigPath}" '
+    BEGIN { updated = 0 }
+    /^GIT_CONFIG_GLOBAL=/ { print value; updated = 1; next }
+    { print }
+    END { if (updated == 0) print value }
+  ' backend/.env > backend/.env.tmp
+  mv backend/.env.tmp backend/.env
+else
+  echo "GIT_CONFIG_GLOBAL=${workspaceGitConfigPath}" > backend/.env
+fi
+export GIT_CONFIG_GLOBAL="${workspaceGitConfigPath}"
+echo "✅ GIT_CONFIG_GLOBAL=\${GIT_CONFIG_GLOBAL}"
 
 # ── Install production deps ─────────────────────────────────────────────────
 echo "==> 安装生产依赖"
@@ -410,6 +468,15 @@ pnpm install --prod --frozen-lockfile \\
 cd "${D}/backend"
 if [ ! -f "./dist/index.js" ]; then
   echo "❌ 未找到 backend 构建产物 dist/index.js，请先执行本地构建并重新部署"
+  exit 1
+fi
+
+echo "==> 校验工作区 Git 配置"
+if git config --show-origin --list | grep -F "${workspaceGitConfigPath}" >/dev/null; then
+  echo "✅ git config 来源包含 ${workspaceGitConfigPath}"
+else
+  echo "❌ git config 未加载 ${workspaceGitConfigPath}"
+  git config --show-origin --list || true
   exit 1
 fi
 
@@ -561,6 +628,7 @@ try {
   ok('上传完成');
 
   await syncNeovateConfig();
+  await syncNeovateSkills();
 
   step('生成远程部署脚本...');
   const remoteScript = generateRemoteScript();

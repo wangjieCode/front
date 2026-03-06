@@ -43,6 +43,9 @@
 - F6：当消息包含图片附件时，后端必须先调用视觉模型提炼图片关键信息，再将“原始文本 + 图片关键信息”汇总后交由主 AI 执行。
 - F7：视觉模型提炼阶段只允许传入图片内容（`image_url`），不得传入用户提示词文本；用户提示词仅用于后续主 AI 汇总执行阶段。
 - F8：会话创建不再支持模式选择，统一按编辑流程创建独立 worktree。
+- F9：AI 执行链路必须从用户全局目录 `~/.neovate/skills/<skill-name>/` 解析默认 Skill，并将绝对路径透传给 Neovate SDK（`createSession/resumeSession`）。
+- F10：前端输入框必须支持斜杠命令交互：输入 `/` 后展示命令候选，支持键盘上下选择与回车插入。
+- F11：斜杠命令来源必须由后端接口统一下发，前端不得硬编码命令列表。
 
 ### 非功能需求
 
@@ -93,8 +96,10 @@
 - conversations / conversation_contexts / messages / message_metadata。
 - `message_metadata` 必须包含 `images`（jsonb）字段，用于持久化图片附件元数据。
 - API：/api/conversations 及子路由（含 /:sessionId/interrupt）。
+- `GET /api/conversations/commands`：返回统一命令元数据（`name/description/argumentHint/source/permissions`）。
 - `GET /api/conversations/:sessionId/messages` 支持 `since` 查询参数；无 `since` 返回全量历史，有 `since` 仅返回该时间点之后的消息。
 - 会话链路接口（创建/列表/详情）返回的 `projectInfo` 不包含 `gitRepositoryUrl` 字段。
+- Skill 约定：默认从 `NEOVATE_SKILLS_ROOT`（未配置时为 `~/.neovate/skills`）读取 `NEOVATE_DEFAULT_SKILLS`（默认 `zadig-workflow-deploy`）并注入 AI 执行上下文；缺失时使用空数组，不改变原有执行行为。
 
 ## 验收标准
 
@@ -154,3 +159,5 @@
 - 2026-03-04：新增 `CacheStrategyManager` 统一缓存策略实现，GitLab 分支缓存改为复用统一管理器，便于后续业务扩展与治理。
 - 2026-03-05：移除会话创建模式选择（EDIT/READONLY），会话创建统一走编辑链路并创建独立 worktree；前后端不再维护 mode 分支逻辑。
 - 2026-03-06：移除会话链路 `LruCacheService`，统一切换为业务 Redis 缓存；并新增 task Redis 与业务 Redis 的双实例隔离约束。
+- 2026-03-06：新增全局 Skills 自动解析与透传能力，Neovate SDK 会话创建/恢复可加载 `~/.neovate/skills` 下默认 Skill。
+- 2026-03-06：新增 `/api/conversations/commands` 命令元数据接口；桌面与移动输入框接入动态斜杠命令面板。

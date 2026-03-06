@@ -487,8 +487,6 @@ export class ProjectService {
         return { success: true, message: '重新克隆成功' };
       }
 
-      const authUrl = this.repositoryService.getAuthUrl(resolvedProject.gitRepositoryUrl);
-      await this.executor.executeCommand(`git remote set-url origin "${authUrl}"`, resolvedProject.workDirectory);
       await this.executor.executeCommand(`git fetch origin ${resolvedProject.gitBranch}`, resolvedProject.workDirectory);
       const mergeResult = await this.executor.executeCommand(`git merge origin/${resolvedProject.gitBranch} --no-edit`, resolvedProject.workDirectory);
 

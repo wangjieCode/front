@@ -149,6 +149,14 @@ export interface ModelConfigResponse {
   options: ModelOption[];
 }
 
+export interface SlashCommandMeta {
+  name: string;
+  description: string;
+  argumentHint?: string;
+  source: 'system' | 'skill';
+  permissions?: string[];
+}
+
 export interface ConversationSession {
   id: string;
   userId: string;

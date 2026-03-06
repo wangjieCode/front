@@ -101,6 +101,23 @@ describe('GET /api/conversations performance', () => {
     expect(end - start).toBeLessThanOrEqual(maxResponseTime);
     expect(end - start).toBeGreaterThanOrEqual(responseDelay);
   });
+
+  it('commands 接口返回统一命令元数据', async () => {
+    const listSessions = jest.fn().mockResolvedValue([]);
+    const app = createApp(listSessions);
+
+    const response = await request(app).get('/api/conversations/commands');
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
+    expect(Array.isArray(response.body.data)).toBe(true);
+    expect(response.body.data.length).toBeGreaterThan(0);
+    expect(response.body.data[0]).toEqual(expect.objectContaining({
+      name: expect.any(String),
+      description: expect.any(String),
+      source: expect.any(String),
+    }));
+  });
 });
 
 describe('GET /api/conversations/:sessionId/review/*', () => {

@@ -10,6 +10,7 @@ import {
   ConversationVisibility,
   ImageAttachment,
   PreviewStatus,
+  SlashCommandMeta,
 } from '../types/conversation';
 import { Project } from '../types/project';
 import MobileMessageInput from './MobileMessageInput';
@@ -86,6 +87,7 @@ const MobileConversationView: React.FC<ConversationViewProps> = ({
   const [previewStatus, setPreviewStatus] = useState<PreviewStatus | null>(null);
   const [deploymentInfo, setDeploymentInfo] = useState<any>(null);
   const [showDeploymentModal, setShowDeploymentModal] = useState(false);
+  const [slashCommands, setSlashCommands] = useState<SlashCommandMeta[]>([]);
 
   const lastSentMessageRef = useRef('');
   const streamAbortRef = useRef<AbortController | null>(null);
@@ -158,6 +160,24 @@ const MobileConversationView: React.FC<ConversationViewProps> = ({
       setChatModel(defaultModel);
     }
   }, [modelOptions, defaultModel, selectedModel, chatModel]);
+
+  useEffect(() => {
+    let canceled = false;
+    conversationService.getSlashCommands()
+      .then((commands) => {
+        if (!canceled) {
+          setSlashCommands(commands);
+        }
+      })
+      .catch(() => {
+        if (!canceled) {
+          setSlashCommands([]);
+        }
+      });
+    return () => {
+      canceled = true;
+    };
+  }, []);
 
   // 加载会话数据
   useEffect(() => {
@@ -333,11 +353,76 @@ const MobileConversationView: React.FC<ConversationViewProps> = ({
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
+  const executeLocalSlashCommand = (content: string): boolean => {
+    const trimmed = content.trim();
+    if (!trimmed.startsWith('/')) return false;
+
+    if (trimmed === '/clear') {
+      setDraftMessage('');
+      return true;
+    }
+    if (trimmed === '/new') {
+      navigate('/');
+      return true;
+    }
+    if (trimmed === '/help') {
+      const commandText = slashCommands.map(item => `/${item.name}`).join('、');
+      message.info(commandText ? `可用命令：${commandText}` : '暂无可用命令');
+      setDraftMessage('');
+      return true;
+    }
+    if (trimmed.startsWith('/model ')) {
+      const rawTarget = trimmed.slice('/model '.length).trim().toLowerCase();
+      if (!rawTarget) {
+        message.warning('请在 /model 后输入模型 ID');
+        return true;
+      }
+      const match = modelOptions.find(
+        option => option.enabled !== false && option.value.toLowerCase() === rawTarget
+      );
+      if (!match) {
+        message.error(`模型不可用: ${rawTarget}`);
+        return true;
+      }
+      setChatModel(match.value);
+      setDraftMessage('');
+      message.success(`已切换模型：${match.value}`);
+      return true;
+    }
+    return false;
+  };
+
+  const handleSlashCommand = (
+    command: SlashCommandMeta,
+    context: { currentValue: string; setValue: (nextValue: string) => void }
+  ): boolean => {
+    if (command.name === 'clear') {
+      context.setValue('');
+      return true;
+    }
+    if (command.name === 'new') {
+      navigate('/');
+      return true;
+    }
+    if (command.name === 'help') {
+      const commandText = slashCommands.map(item => `/${item.name}`).join('、');
+      message.info(commandText ? `可用命令：${commandText}` : '暂无可用命令');
+      context.setValue('/help');
+      return true;
+    }
+    if (command.name === 'model') {
+      context.setValue('/model ');
+      return true;
+    }
+    return false;
+  };
+
   const handleSendMessage = async (
     content: string,
     options?: { images?: ImageAttachment[]; modelOverride?: string }
   ) => {
     if (!sessionId) return;
+    if (executeLocalSlashCommand(content)) return;
     const images = options?.images || [];
     
     // 检查是否已归档
@@ -1041,6 +1126,8 @@ const MobileConversationView: React.FC<ConversationViewProps> = ({
             onSend={handleSendMessage}
             value={draftMessage}
             onChange={setDraftMessage}
+            slashCommands={slashCommands}
+            onSlashCommand={handleSlashCommand}
             placeholder={isArchived ? '已归档的对话不能发送消息' : undefined}
             actions={
               <>

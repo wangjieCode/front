@@ -18,6 +18,13 @@
 - 推送使用当前 worktree 分支（以 `git branch --show-current` 为准）
 - 推送失败时尝试 `git push --set-upstream`
 
+## 认证与配置
+
+- Git 认证统一复用 `GITLAB_TOKEN`，仅对网络类命令注入 `GIT_HTTP_EXTRAHEADER=Authorization: Bearer <token>`。
+- 本地类命令（如 `status`、`diff`、`log`）不注入认证头。
+- 禁止将 token 写入仓库 URL（不允许 `oauth2:<token>@...` 形式），避免泄露到 `.git/config` 与日志。
+- Git 运行配置通过 `GIT_CONFIG_GLOBAL` 指向 `$LOCAL_GIT_WORK_DIR/.gitconfig.workspace`，仅在工作区生效，不污染全局 `~/.gitconfig`。
+
 ## 清理
 
 - 删除 Worktree 时同时删除分支

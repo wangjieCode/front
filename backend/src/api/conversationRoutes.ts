@@ -8,6 +8,14 @@ import dayjs from 'dayjs';
 import { DEFAULT_NEOVATE_MODEL, isNeovateModelSupported, NEOVATE_MODEL_OPTIONS } from '@front/shared';
 import { ModelAvailabilityService } from '../services/ModelAvailabilityService';
 
+interface SlashCommandMeta {
+  name: string;
+  description: string;
+  argumentHint?: string;
+  source: 'system' | 'skill';
+  permissions?: string[];
+}
+
 export function createConversationRoutes(
   conversationManager: ConversationManager,
   aiService: ConversationAIService,
@@ -60,6 +68,34 @@ export function createConversationRoutes(
         defaultModel,
         options,
       },
+    });
+  });
+
+  router.get('/commands', async (_req, res: Response) => {
+    const systemCommands: SlashCommandMeta[] = [
+      { name: 'help', description: '查看可用斜杠命令与说明', source: 'system' },
+      { name: 'clear', description: '清空当前输入框内容', source: 'system' },
+      { name: 'new', description: '返回新建对话页', source: 'system' },
+      { name: 'model', description: '切换当前会话模型', argumentHint: '<model-id>', source: 'system' },
+      { name: 'review', description: '进入代码审查意图（输入后发送）', argumentHint: '<scope>', source: 'system' },
+      { name: 'deploy', description: '进入发布意图（输入后发送）', argumentHint: '<target>', source: 'system' },
+    ];
+
+    const skillNames = (process.env.NEOVATE_DEFAULT_SKILLS || 'zadig-workflow-deploy')
+      .split(',')
+      .map(name => name.trim())
+      .filter(Boolean);
+    const skillCommands: SlashCommandMeta[] = skillNames.map(skillName => ({
+      name: `skill:${skillName}`,
+      description: `调用全局 Skill：${skillName}`,
+      argumentHint: '[args]',
+      source: 'skill',
+      permissions: ['skill:execute'],
+    }));
+
+    res.json({
+      success: true,
+      data: [...systemCommands, ...skillCommands],
     });
   });
   const canReadSession = (session: any, userId?: string) => {

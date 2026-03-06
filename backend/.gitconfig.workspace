@@ -1,0 +1,13 @@
+[pull]
+	rebase = false
+[fetch]
+	prune = true
+[push]
+	default = simple
+[merge]
+	conflictstyle = zdiff3
+[rebase]
+	autoStash = true
+[core]
+	autocrlf = input
+	fileMode = false

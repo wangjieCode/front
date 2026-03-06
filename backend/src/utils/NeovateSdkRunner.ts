@@ -8,6 +8,7 @@ export interface NeovateSdkRunOptions {
   timeoutMs?: number;
   onChunk?: (chunk: string) => void;
   abortSignal?: AbortSignal;
+  skills?: string[];
 }
 
 export interface NeovateSdkRunResult {
@@ -38,6 +39,7 @@ export async function runNeovateSdk(options: NeovateSdkRunOptions): Promise<Neov
     timeoutMs,
     hasAbortSignal: !!options.abortSignal,
     hasOnChunk: !!options.onChunk,
+    skillsCount: options.skills?.length || 0,
     promptLength: options.prompt?.length || 0,
   };
   console.log(`[NeovateSdkRunner] 准备调用 SDK: ${JSON.stringify(logPayload)}`);
@@ -78,6 +80,7 @@ export async function runNeovateSdk(options: NeovateSdkRunOptions): Promise<Neov
       session = await resumeSession(options.sessionId, {
         model,
         cwd: options.workDir,
+        ...(options.skills?.length ? { skills: options.skills } : {}),
       });
     } else {
       console.log(
@@ -89,6 +92,7 @@ export async function runNeovateSdk(options: NeovateSdkRunOptions): Promise<Neov
       session = await createSession({
         model,
         cwd: options.workDir,
+        ...(options.skills?.length ? { skills: options.skills } : {}),
       });
     }
 
