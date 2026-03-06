@@ -316,25 +316,6 @@
   min-width: 44px;
 }
 
-.mobile-mode-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  height: 28px;
-  padding: 0 10px;
-  border-radius: 999px;
-  background: #f3f4f6;
-  color: #6b7280;
-  font-size: 12px;
-  font-weight: 600;
-  line-height: 1;
-}
-
-.mobile-mode-pill.edit {
-  color: #4f46e5;
-  background: #eef2ff;
-}
-
 .mobile-delete-btn {
   width: 26px;
   height: 26px;

@@ -275,7 +275,6 @@ export class DrizzleConversationStorage {
           taskDescription: rawContext.taskDescription,
           messageHistory: [],
           variables: rawContext.variables || {},
-          mode: rawContext.mode || 'edit',
           gitBranch: rawContext.contextGitBranch,
           mrUrl: rawContext.mrUrl,
           previewInfo: rawContext.previewInfo,
@@ -545,7 +544,7 @@ export class DrizzleConversationStorage {
         SELECT
           c.id, c.user_id, c.visibility, c.status, c.title,
           c.project_id, c.project_name, c.created_at, c.updated_at,
-          cc.mode, cc.task_description, cc.work_dir,
+          cc.task_description, cc.work_dir,
           cc.variables ->> 'environment' AS environment,
           lr.id AS review_round_id, lr.round_number,
           lr.summary AS round_summary, lr.created_at AS round_created_at,
@@ -570,7 +569,6 @@ export class DrizzleConversationStorage {
         createdAt: this.toDateOrNull(row.created_at) || new Date(),
         updatedAt: this.toDateOrNull(row.updated_at) || new Date(),
         context: {
-          mode: row.mode || 'edit',
           taskDescription: row.task_description || '',
           variables: { environment: row.environment || null },
           projectInfo: {
@@ -810,7 +808,7 @@ export class DrizzleConversationStorage {
       relevantFiles: context.projectInfo?.relevantFiles || context.relevantFiles,
       taskDescription: context.taskDescription,
       variables: context.variables || {},
-      mode: context.mode || 'edit',
+      mode: 'edit',
       contextGitBranch: context.gitBranch,
       mrUrl: context.mrUrl,
       previewInfo: context.previewInfo,
@@ -846,7 +844,6 @@ export class DrizzleConversationStorage {
       taskDescription: rawContext.taskDescription,
       messageHistory: [],
       variables: rawContext.variables || {},
-      mode: rawContext.mode || 'edit',
       gitBranch: rawContext.contextGitBranch,
       mrUrl: rawContext.mrUrl,
       previewInfo: rawContext.previewInfo,

@@ -1,5 +1,4 @@
 import { ConversationAIService } from '../services/ConversationAIService';
-import { ConversationMode } from '../types';
 import { DEFAULT_NEOVATE_MODEL } from '@front/shared';
 
 jest.mock('../services/NeovateSessionManagerDB', () => ({
@@ -54,7 +53,6 @@ describe('ConversationAIService.generateResponseStream', () => {
       projectInfo: {
         workDir: '/worktrees/user-1/conversation-session-1',
       },
-      mode: ConversationMode.EDIT,
     } as any;
 
     const onChunk = jest.fn();
@@ -118,7 +116,6 @@ describe('ConversationAIService.generateResponseStream', () => {
       projectInfo: {
         workDir: '/worktrees/user-1/conversation-session-1',
       },
-      mode: ConversationMode.EDIT,
     } as any;
 
     const onChunk = jest.fn();

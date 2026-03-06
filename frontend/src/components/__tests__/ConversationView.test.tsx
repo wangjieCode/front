@@ -3,7 +3,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import ConversationView from '../ConversationView';
-import { ConversationMode, ConversationStatus } from '../../types/conversation';
+import { ConversationStatus } from '../../types/conversation';
 import { conversationService } from '../../services/conversationService';
 import { authUtils } from '../../utils/auth';
 
@@ -71,7 +71,6 @@ const makeSession = () => ({
   status: ConversationStatus.ACTIVE,
   visibility: 'private',
   context: {
-    mode: ConversationMode.EDIT,
     gitBranch: 'main',
     taskDescription: 'test',
     messageHistory: [],

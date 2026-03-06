@@ -174,18 +174,9 @@ export interface CodeToolConfigData {
  */
 export interface CreateConversationRequest {
   initialPrompt: string;      // 初始提示词
-  mode?: ConversationMode;     // 对话模式（可选）
   projectId: string;           // 项目ID（必填）
   baseBranch?: string;         // 基线分支（可选）
   model?: string;              // 模型名称（可选）
-}
-
-/**
- * 对话模式枚举
- */
-export enum ConversationMode {
-  EDIT = 'edit',              // 编辑模式：允许修改代码，创建分支和 MR
-  READONLY = 'readonly'       // 只读模式：只能查询代码，不能修改
 }
 
 /**
@@ -337,7 +328,6 @@ export interface ConversationContext {
   taskDescription: string;    // 任务描述
   messageHistory: string[];   // 消息历史 ID 列表
   variables: Record<string, any>; // 上下文变量
-  mode: ConversationMode;     // 对话模式
   gitBranch?: string;         // 编辑模式下创建的 Git 分支
   mrUrl?: string;             // 编辑模式下创建的 MR URL
   previewInfo?: PreviewInfo;  // 预览信息
@@ -366,14 +356,6 @@ export interface AIResponse {
   content: string;            // 响应内容
   metadata?: MessageMetadata; // 元数据
   shouldPause?: boolean;      // 是否应该暂停等待用户输入
-}
-
-/**
- * 操作验证结果接口
- */
-export interface ValidationResult {
-  allowed: boolean;           // 是否允许
-  reason?: string;            // 拒绝原因
 }
 
 /**

@@ -3,8 +3,7 @@
 ## 创建
 
 - 录入任务描述
-- 设置模式（EDIT / READONLY）
-- EDIT 模式会创建独立 Worktree
+- 会话创建统一走编辑流程并创建独立 Worktree
 
 ## 活跃状态（ACTIVE）
 

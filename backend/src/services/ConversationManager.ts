@@ -7,9 +7,6 @@ import {
   MessageRole,
   MessageMetadata,
   ProjectInfo,
-  ConversationMode,
-  OperationType,
-  ValidationResult,
 } from "../types";
 import { IConversationStorage } from "../storage/ConversationStorageAdapter";
 import type {
@@ -19,7 +16,6 @@ import type {
   ReviewUpdatesData,
 } from "../storage/ConversationStorageAdapter";
 import type { MessageHistoryVersion, SessionAccessInfo } from "../storage/DrizzleConversationStorage";
-import { ModeValidator } from "./ModeValidator";
 import { GitLabMCPService } from "./GitLabMCPService";
 import { WorktreeManager } from "./WorktreeManager";
 import { ProjectService } from "./ProjectService";
@@ -35,9 +31,7 @@ export class ConversationManager {
   // B1: Promise 队列锁，替换轮询锁
   private lockQueues = new Map<string, Promise<void>>();
   private inFlightSessionLoads = new Map<string, Promise<ConversationSession | null>>();
-  private modeValidator: ModeValidator;
   private gitlabService?: GitLabMCPService;
-  private worktreeManager?: WorktreeManager;
   readonly projectService: ProjectService;
   private cache: LruCacheService;
   private cacheStrategyManager: CacheStrategyManager;
@@ -47,14 +41,11 @@ export class ConversationManager {
   constructor(
     storage: IConversationStorage,
     projectService: ProjectService,
-    gitlabService?: GitLabMCPService,
-    worktreeManager?: WorktreeManager
+    gitlabService?: GitLabMCPService
   ) {
     this.storage = storage;
     this.projectService = projectService;
-    this.modeValidator = new ModeValidator();
     this.gitlabService = gitlabService;
-    this.worktreeManager = worktreeManager;
     this.cache = new LruCacheService();
     this.cacheStrategyManager = new CacheStrategyManager(this.cache);
   }
@@ -117,7 +108,6 @@ export class ConversationManager {
   async createSession(
     initialPrompt: string,
     projectInfo: ProjectInfo,
-    mode: ConversationMode = ConversationMode.EDIT,
     userId: string,
     model?: string
   ): Promise<ConversationSession> {
@@ -159,7 +149,6 @@ export class ConversationManager {
         environment: process.env.APP_ENV || 'local',
         model: resolvedModel,
       },
-      mode,
     };
 
     const session: ConversationSession = {
@@ -172,22 +161,15 @@ export class ConversationManager {
       updatedAt: now,
     };
 
-    if (mode === ConversationMode.EDIT) {
-      if (!this.worktreeManager) throw new Error('编辑模式需要 Worktree 管理器，但服务未初始化');
-      if (!userId) throw new Error('编辑模式需要用户 ID');
+    if (!userId) throw new Error("创建会话需要用户 ID");
 
-      // B2: 直接传入已查好的 project，无需在 handleEditModeSetup 内再查
-      const gitResult = await this.handleEditModeSetup(sessionId, userId, project, completeProjectInfo.gitBranch);
-      if (!gitResult.success) throw new Error(`Git 操作失败: ${gitResult.error}`);
+    // B2: 直接传入已查好的 project，无需在 handleEditModeSetup 内再查
+    const gitResult = await this.handleEditModeSetup(sessionId, userId, project, completeProjectInfo.gitBranch);
+    if (!gitResult.success) throw new Error(`Git 操作失败: ${gitResult.error}`);
 
-      context.gitBranch = gitResult.branchName;
-      if (gitResult.worktreePath) {
-        context.projectInfo = { ...context.projectInfo, workDir: gitResult.worktreePath, worktreePath: gitResult.worktreePath };
-      }
-    } else if (mode === ConversationMode.READONLY) {
-      if (!userId) throw new Error('只读模式需要用户 ID');
-      console.log(`[ConversationManager] 只读模式：直接使用项目主目录 ${completeProjectInfo.workDir}`);
-      context.gitBranch = completeProjectInfo.gitBranch;
+    context.gitBranch = gitResult.branchName;
+    if (gitResult.worktreePath) {
+      context.projectInfo = { ...context.projectInfo, workDir: gitResult.worktreePath, worktreePath: gitResult.worktreePath };
     }
 
     session.context = context;
@@ -202,8 +184,6 @@ export class ConversationManager {
     project: { id: string; workDirectory?: string | null; repoDir?: string | null; gitBranch?: string | null },
     defaultBranch: string
   ): Promise<{ success: boolean; branchName?: string; worktreePath?: string; error?: string }> {
-    if (!this.worktreeManager) return { success: false, error: "Worktree 管理器未初始化" };
-
     try {
       const workDir = project.workDirectory || project.repoDir || '';
       const worktreeBaseDir = getWorktreeBaseDir(workDir);
@@ -284,12 +264,6 @@ export class ConversationManager {
     const sessions = rawSessions.map((s: any) => ({ ...s, visibility: s.visibility ?? 'private' }));
     await this.cacheStrategyManager.set(cacheKey, sessions, this.sessionListCacheTtlSeconds);
     return sessions as ConversationSession[];
-  }
-
-  async validateOperation(sessionId: string, operation: OperationType): Promise<ValidationResult> {
-    const session = await this.getSession(sessionId);
-    if (!session) return { allowed: false, reason: `会话不存在: ${sessionId}` };
-    return this.modeValidator.validateOperation(session.context.mode, operation);
   }
 
   async addMessage(
@@ -504,7 +478,6 @@ export class ConversationManager {
   > {
     const session = await this.getSession(sessionId);
     if (!session) return { error: "会话不存在" };
-    if (session.context.mode !== ConversationMode.EDIT) return { error: "只有编辑模式才能创建 MR" };
     if (!session.context.gitBranch) return { error: "会话没有关联的 Git 分支" };
 
     const targetBranch = session.context.projectInfo.gitBranch;
@@ -532,7 +505,6 @@ export class ConversationManager {
         project.id
       );
     }
-    if (!projectWorktreeManager) projectWorktreeManager = this.worktreeManager;
 
     return { session, gitBranch: session.context.gitBranch, targetBranch, projectId, gitlabProjectId, projectWorktreeManager };
   }

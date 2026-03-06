@@ -2,12 +2,10 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Spin, Typography, Button, Input, message, Modal, Descriptions, Tag, Tooltip, Select, Dropdown } from 'antd';
 import { ThunderboltOutlined, SendOutlined, RocketOutlined, CheckOutlined, WarningOutlined, StopOutlined, GitlabOutlined, ClockCircleOutlined, LinkOutlined, LockOutlined, InboxOutlined, GlobalOutlined, EllipsisOutlined, PictureOutlined, CloseOutlined } from '@ant-design/icons';
-import ModeSelector from './ModeSelector';
 import ProjectSelector from './ProjectSelector';
 import {
   ConversationSession,
   ConversationMessage,
-  ConversationMode,
   ConversationStatus,
   ConversationVisibility,
   ImageAttachment,
@@ -31,15 +29,12 @@ interface ConversationViewProps {
   initialImages?: ImageAttachment[];
   onNewConversation?: (
     prompt: string,
-    mode: ConversationMode,
     projectId: string,
     baseBranch?: string,
     model?: string,
     initialImages?: ImageAttachment[]
   ) => Promise<void>;
   onVisibilityChange?: (sessionId: string, visibility: ConversationVisibility) => void;
-  mode?: ConversationMode;
-  onModeChange?: (mode: ConversationMode) => void;
   autoSend?: boolean;
   initialContent?: string;
 }
@@ -57,8 +52,6 @@ const ConversationView: React.FC<ConversationViewProps> = ({
   initialSession,
   onNewConversation,
   onVisibilityChange,
-  mode = ConversationMode.READONLY,
-  onModeChange,
   autoSend,
   initialContent,
   initialImages = [],
@@ -390,7 +383,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
     }
     setSending(true);
     try {
-      await onNewConversation(prompt, mode, selectedProjectId, baseBranch, selectedModel, createAttachments);
+      await onNewConversation(prompt, selectedProjectId, baseBranch, selectedModel, createAttachments);
     } finally {
       setSending(false);
     }
@@ -1004,13 +997,6 @@ const ConversationView: React.FC<ConversationViewProps> = ({
             />
           </div>
 
-          {/* 模式选择器 */}
-          <div className="create-field create-field-mode">
-            <Text type="secondary" className="create-field-label">
-              对话模式
-            </Text>
-            <ModeSelector value={mode} onChange={onModeChange || (() => { })} />
-          </div>
         </div>
 
         <div className="create-input-wrapper">
@@ -1278,7 +1264,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
                 {/* 模型展示已移动到输入区 */}
 
                 {/* 当前分支（仅编辑模式展示） */}
-                {session.context?.mode === 'edit' && session.context?.projectInfo?.workDir && (
+                {session.context?.projectInfo?.worktreePath && session.context?.projectInfo?.workDir && (
                   <Tooltip title={`当前分支: ${session.context.projectInfo.workDir.split('/').pop() || session.context.projectInfo.workDir}`}>
                     <div style={{
                       display: 'flex',
@@ -1337,7 +1323,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
                 )}
 
                 {/* 开发工具组（仅在编辑模式显示） */}
-                {session.context?.mode === 'edit' && (
+                {session.context?.projectInfo?.worktreePath && (
                   <>
                     {/* MR 链接或创建按钮 */}
                     {session.context.mrUrl ? (

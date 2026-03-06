@@ -38,7 +38,7 @@
 - ConversationManager：缓存会话详情、会话列表、GitLab 分支列表。
 - ConversationManager：`gitlab:branches:*` 采用“无 TTL + 软刷新窗口”策略（默认 120 秒），窗口内命中缓存；超时命中时先返回旧值并异步回源刷新（stale-while-revalidate）。
 - ProjectService：缓存项目列表与项目详情，写操作后清理对应键；缓存调用统一通过 `CacheStrategyManager`。
-- WorktreeManager：缓存 worktree 信息（分支、路径）；缓存调用统一通过 `CacheStrategyManager`。
+- WorktreeManager：worktree 信息（分支、路径）通过实时 Git 探测获取，不再维护独立缓存层。
 - DrizzleConversationStorage：缓存会话上下文、消息列表、消息元数据；缓存调用统一通过 `CacheStrategyManager`。
 - 缓存异常降级：缓存访问失败时直接回退无缓存路径（数据库直读/实时探测）；业务缓存不依赖 Redis。
 
