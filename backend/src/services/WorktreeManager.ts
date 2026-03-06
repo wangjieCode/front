@@ -2,8 +2,6 @@ import path from 'path';
 import dayjs from 'dayjs';
 import { ICommandExecutor } from '../types';
 import { resolveStoredPath, BasePathType } from '../utils/PathUtils';
-import { LruCacheService } from './LruCacheService';
-import { CacheStrategyManager } from './CacheStrategyManager';
 
 /**
  * Worktree 信息接口
@@ -33,9 +31,6 @@ export interface WorktreeInfo {
  * @param worktreeBaseDir worktree 基础目录（存放所有用户 worktree）
  */
 export class WorktreeManager {
-  private cache = new LruCacheService();
-  private cacheStrategyManager = new CacheStrategyManager(this.cache);
-  private worktreeInfoCacheTtlSeconds = 0;
   private baseRepoPath: string;
   private worktreeBaseDir: string;
   
@@ -59,10 +54,6 @@ export class WorktreeManager {
    */
   private getConversationWorktreePath(userId: string, sessionId: string): string {
     return path.join(this.worktreeBaseDir, `project-${this.projectId}`, `user-${userId}`, `conversation-${sessionId}`);
-  }
-
-  private getWorktreeCacheKey(userId: string, sessionId: string): string {
-    return `worktree:info:${this.projectId}:${userId}:${sessionId}`;
   }
 
   /**
@@ -146,8 +137,6 @@ export class WorktreeManager {
         lastUsedAt: now,
       };
 
-      await this.cacheStrategyManager.set(this.getWorktreeCacheKey(userId, sessionId), worktreeInfo, this.worktreeInfoCacheTtlSeconds);
-
       console.log(`[WorktreeManager] ✅ 对话 worktree 创建成功`);
       console.log(`[WorktreeManager]    路径: ${worktreePath}`);
       console.log(`[WorktreeManager]    分支: ${branchName}`);
@@ -211,17 +200,6 @@ export class WorktreeManager {
    * 获取对话的 worktree 信息
    */
   async getWorktreeInfo(userId: string, sessionId: string): Promise<WorktreeInfo> {
-    const cacheKey = this.getWorktreeCacheKey(userId, sessionId);
-    const cached = await this.cacheStrategyManager.get<WorktreeInfo>(cacheKey);
-    if (cached) {
-      const refreshed: WorktreeInfo = {
-        ...cached,
-        lastUsedAt: dayjs().toDate(),
-      };
-      await this.cacheStrategyManager.set(cacheKey, refreshed, this.worktreeInfoCacheTtlSeconds);
-      return refreshed;
-    }
-
     const worktreePath = this.getConversationWorktreePath(userId, sessionId);
     const exists = await this.conversationWorktreeExists(userId, sessionId);
 
@@ -244,8 +222,6 @@ export class WorktreeManager {
       createdAt: now,
       lastUsedAt: now,
     };
-
-    await this.cacheStrategyManager.set(cacheKey, worktreeInfo, this.worktreeInfoCacheTtlSeconds);
     return worktreeInfo;
   }
 
@@ -586,8 +562,6 @@ export class WorktreeManager {
         await this.executor.executeCommand(`rm -rf "${worktreePath}"`, this.baseRepoPath);
         console.log(`[WorktreeManager] ✅ 物理删除成功`);
       }
-
-      await this.cacheStrategyManager.del(this.getWorktreeCacheKey(userId, sessionId));
     } catch (error) {
       throw new Error(
         `删除对话 worktree 失败: ${error instanceof Error ? error.message : String(error)}`

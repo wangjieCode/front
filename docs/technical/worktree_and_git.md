@@ -14,7 +14,7 @@
 
 ## 提交与推送
 
-- 编辑模式下 AI 修改后自动提交
+- AI 修改后自动提交
 - 推送使用当前 worktree 分支（以 `git branch --show-current` 为准）
 - 推送失败时尝试 `git push --set-upstream`
 

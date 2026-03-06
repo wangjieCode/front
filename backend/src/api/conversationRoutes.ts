@@ -1,24 +1,19 @@
 import { Router, Response } from 'express';
 import { ConversationManager } from '../services/ConversationManager';
-import { MessageRouter } from '../services/MessageRouter';
 import { ConversationAIService } from '../services/ConversationAIService';
-import { ConversationStatus, ConversationVisibility } from '../types';
+import { BranchCacheService } from '../services/BranchCacheService';
+import { ConversationStatus, ConversationVisibility, MessageRole } from '../types';
 import { requireAuth, AuthRequest } from './authMiddleware';
 import dayjs from 'dayjs';
 import { DEFAULT_NEOVATE_MODEL, isNeovateModelSupported, NEOVATE_MODEL_OPTIONS } from '@front/shared';
 import { ModelAvailabilityService } from '../services/ModelAvailabilityService';
 
-/**
- * 创建对话路由
- */
 export function createConversationRoutes(
   conversationManager: ConversationManager,
-  messageRouter: MessageRouter,
   aiService: ConversationAIService,
+  branchCacheService: BranchCacheService,
   modelAvailabilityService?: ModelAvailabilityService
 ): Router {
-  // 获取 ConversationManager 中的 ProjectService 实例
-  const projectService = (conversationManager as any).projectService;
   const router = Router();
   const isCreator = (session: any, userId?: string) => {
     if (!userId) return false;
@@ -88,7 +83,7 @@ export function createConversationRoutes(
 
       console.log(`[API] 获取 GitLab 分支: projectId=${projectId}, userId=${req.userId}`);
 
-      const result = await conversationManager.getGitLabBranches(projectId, req.userId!);
+      const result = await branchCacheService.getBranches(projectId, req.userId!);
       console.log(
         `[API] 获取 GitLab 分支完成: projectId=${projectId}, userId=${req.userId}, branchesCount=${result.branches.length}, defaultBranch=${result.defaultBranch || 'N/A'}`
       );
@@ -113,11 +108,10 @@ export function createConversationRoutes(
    */
   router.post('/', requireAuth, async (req: AuthRequest, res: Response) => {
     try {
-      const { initialPrompt, mode, projectId, baseBranch, model } = req.body;
+      const { initialPrompt, projectId, baseBranch, model } = req.body;
 
       console.log('[API] 创建对话请求参数:', {
         initialPrompt: initialPrompt?.substring(0, 50) + '...',
-        mode,
         projectId,
         model,
       });
@@ -139,7 +133,7 @@ export function createConversationRoutes(
       let project;
       // 验证项目是否存在
       try {
-        const projectResult = await projectService.getProject(projectId, req.userId!);
+        const projectResult = await conversationManager.projectService.getProject(projectId, req.userId!);
         if (!projectResult.success || !projectResult.project) {
           return res.status(404).json({
             success: false,
@@ -165,20 +159,11 @@ export function createConversationRoutes(
         relevantFiles: [],
       };
 
-      // 验证 mode 参数
-      if (mode && mode !== 'edit' && mode !== 'readonly') {
-        return res.status(400).json({
-          success: false,
-          error: '无效的 mode 参数，必须是 "edit" 或 "readonly"',
-        });
-      }
-
       const resolvedModel = resolveModel(model);
 
       const session = await conversationManager.createSession(
         initialPrompt,
         projectInfo,
-        mode,
         req.userId!,
         resolvedModel
       );
@@ -370,6 +355,172 @@ export function createConversationRoutes(
   });
 
   /**
+   * GET /api/conversations/:sessionId/review/sidebar
+   * 获取 review 侧边栏摘要（只读）
+   */
+  router.get('/:sessionId/review/sidebar', requireAuth, async (req: AuthRequest, res: Response) => {
+    try {
+      const { sessionId } = req.params;
+      const session = await conversationManager.getSessionAccessInfo(sessionId);
+      if (!session) {
+        return res.status(404).json({
+          success: false,
+          error: '会话不存在',
+        });
+      }
+
+      if (!canReadSession(session, req.userId)) {
+        return res.status(403).json({
+          success: false,
+          error: '无权访问该会话',
+        });
+      }
+
+      const data = await conversationManager.getReviewSidebar(sessionId);
+      return res.json({
+        success: true,
+        data,
+      });
+    } catch (error) {
+      return res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : '获取 review 侧边栏失败',
+      });
+    }
+  });
+
+  /**
+   * GET /api/conversations/:sessionId/review/files
+   * 获取 review 文件列表（只读）
+   */
+  router.get('/:sessionId/review/files', requireAuth, async (req: AuthRequest, res: Response) => {
+    try {
+      const { sessionId } = req.params;
+      const session = await conversationManager.getSessionAccessInfo(sessionId);
+      if (!session) {
+        return res.status(404).json({
+          success: false,
+          error: '会话不存在',
+        });
+      }
+
+      if (!canReadSession(session, req.userId)) {
+        return res.status(403).json({
+          success: false,
+          error: '无权访问该会话',
+        });
+      }
+
+      const data = await conversationManager.getReviewFiles(sessionId);
+      return res.json({
+        success: true,
+        data,
+      });
+    } catch (error) {
+      return res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : '获取 review 文件列表失败',
+      });
+    }
+  });
+
+  /**
+   * GET /api/conversations/:sessionId/review/diff
+   * 按文件获取 review diff（只读）
+   */
+  router.get('/:sessionId/review/diff', requireAuth, async (req: AuthRequest, res: Response) => {
+    try {
+      const { sessionId } = req.params;
+      const filePath = typeof req.query.filePath === 'string' ? req.query.filePath.trim() : '';
+      const roundId = typeof req.query.roundId === 'string' ? req.query.roundId.trim() : undefined;
+
+      if (!filePath) {
+        return res.status(400).json({
+          success: false,
+          error: '缺少必需参数: filePath',
+        });
+      }
+
+      const session = await conversationManager.getSessionAccessInfo(sessionId);
+      if (!session) {
+        return res.status(404).json({
+          success: false,
+          error: '会话不存在',
+        });
+      }
+
+      if (!canReadSession(session, req.userId)) {
+        return res.status(403).json({
+          success: false,
+          error: '无权访问该会话',
+        });
+      }
+
+      const data = await conversationManager.getReviewDiff(sessionId, filePath, roundId || undefined);
+      return res.json({
+        success: true,
+        data,
+      });
+    } catch (error) {
+      return res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : '获取 review diff 失败',
+      });
+    }
+  });
+
+  /**
+   * GET /api/conversations/:sessionId/review/updates?since=
+   * 增量获取 review 更新（只读）
+   */
+  router.get('/:sessionId/review/updates', requireAuth, async (req: AuthRequest, res: Response) => {
+    try {
+      const { sessionId } = req.params;
+      const since = typeof req.query.since === 'string' ? req.query.since.trim() : '';
+      if (!since) {
+        return res.status(400).json({
+          success: false,
+          error: '缺少必需参数: since',
+        });
+      }
+
+      const sinceDate = new Date(since);
+      if (Number.isNaN(sinceDate.getTime())) {
+        return res.status(400).json({
+          success: false,
+          error: '无效的 since 参数，需为可解析时间',
+        });
+      }
+
+      const session = await conversationManager.getSessionAccessInfo(sessionId);
+      if (!session) {
+        return res.status(404).json({
+          success: false,
+          error: '会话不存在',
+        });
+      }
+
+      if (!canReadSession(session, req.userId)) {
+        return res.status(403).json({
+          success: false,
+          error: '无权访问该会话',
+        });
+      }
+
+      const data = await conversationManager.getReviewUpdates(sessionId, sinceDate.toISOString());
+      return res.json({
+        success: true,
+        data,
+      });
+    } catch (error) {
+      return res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : '获取 review 增量更新失败',
+      });
+    }
+  });
+
+  /**
    * POST /api/conversations/:sessionId/messages
    * 发送用户消息（SSE 流式响应）
    */
@@ -447,8 +598,9 @@ export function createConversationRoutes(
       (async () => {
         try {
           const step3aStart = dayjs().valueOf();
-          messageRouter.handleUserMessage(
+          conversationManager.addMessage(
             sessionId,
+            MessageRole.USER,
             trimmedContent,
             normalizedImages.length > 0 ? { images: normalizedImages } : undefined,
             session,
@@ -484,7 +636,13 @@ export function createConversationRoutes(
             content: fullContent || aiResponse.content
           };
 
-          messageRouter.handleAIResponse(sessionId, parsedAiResponse, session).catch(error => {
+          conversationManager.addMessage(
+            sessionId,
+            MessageRole.ASSISTANT,
+            parsedAiResponse.content,
+            parsedAiResponse.metadata,
+            session
+          ).catch(error => {
             console.error(`[conversationRoutes] 保存 AI 响应失败:`, error);
           });
 

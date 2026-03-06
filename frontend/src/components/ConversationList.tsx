@@ -2,14 +2,12 @@ import React from 'react';
 import { Button, List, Popconfirm, Spin } from 'antd';
 import {
   DeleteOutlined,
-  EditOutlined,
   FolderOpenOutlined,
   GlobalOutlined,
   LockOutlined,
   MessageOutlined,
-  ReadOutlined,
 } from '@ant-design/icons';
-import { ConversationMode, ConversationSession, ConversationVisibility } from '../types/conversation';
+import { ConversationSession, ConversationVisibility } from '../types/conversation';
 
 type ConversationListProps = {
   conversations: ConversationSession[];
@@ -38,7 +36,6 @@ const ConversationList: React.FC<ConversationListProps> = ({
     <List
       dataSource={conversations}
       renderItem={(conv: ConversationSession) => {
-        const mode = conv?.context?.mode || ConversationMode.EDIT;
         const projectName = conv.context?.projectInfo?.projectName
           || conv.context?.projectInfo?.name
           || conv.context?.projectInfo?.workDir?.split('/').pop();
@@ -87,10 +84,6 @@ const ConversationList: React.FC<ConversationListProps> = ({
             </div>
 
             <div className="conversation-actions" onClick={(e) => e.stopPropagation()}>
-              <div className={`mode-pill ${mode === ConversationMode.EDIT ? 'edit' : ''}`}>
-                {mode === ConversationMode.EDIT ? <EditOutlined style={{ fontSize: 10 }} /> : <ReadOutlined style={{ fontSize: 10 }} />}
-                <span>{mode === ConversationMode.EDIT ? '编辑' : '只读'}</span>
-              </div>
               <Popconfirm
                 title="确认删除"
                 description="确定要删除这个对话吗？"

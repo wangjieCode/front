@@ -1,5 +1,13 @@
 import { DatabaseManager } from '../db/DatabaseManager';
-import { conversationContexts, conversations, messageMetadata, messages, neovateSessions } from '../db/schema';
+import {
+  conversationContexts,
+  conversations,
+  messageMetadata,
+  messages,
+  neovateSessions,
+  reviewFileChanges,
+  reviewRounds,
+} from '../db/schema';
 import { DrizzleConversationStorage } from '../storage/DrizzleConversationStorage';
 
 const createSelectChain = (rows: any[]) => ({
@@ -7,6 +15,12 @@ const createSelectChain = (rows: any[]) => ({
     where: jest.fn().mockReturnValue({
       limit: jest.fn().mockResolvedValue(rows),
     }),
+  }),
+});
+
+const createSelectWhereChain = (rows: any[]) => ({
+  from: jest.fn().mockReturnValue({
+    where: jest.fn().mockResolvedValue(rows),
   }),
 });
 
@@ -56,6 +70,8 @@ describe('DrizzleConversationStorage', () => {
     expect(deleteMock).toHaveBeenCalledWith(messages);
     expect(deleteMock).toHaveBeenCalledWith(conversationContexts);
     expect(deleteMock).toHaveBeenCalledWith(neovateSessions);
+    expect(deleteMock).toHaveBeenCalledWith(reviewFileChanges);
+    expect(deleteMock).toHaveBeenCalledWith(reviewRounds);
     expect(deleteMock).toHaveBeenCalledWith(conversations);
     expect(clearCacheSpy).toHaveBeenCalledTimes(1);
   });
@@ -92,14 +108,12 @@ describe('DrizzleConversationStorage', () => {
     const contextRows = [
       {
         conversationId: 'session-own',
-        mode: 'edit',
         taskDescription: 'own task',
         workDir: '/tmp/own',
         environment: 'local',
       },
       {
         conversationId: 'session-public',
-        mode: 'readonly',
         taskDescription: 'public task',
         workDir: '/tmp/public',
         environment: 'local',
@@ -128,9 +142,27 @@ describe('DrizzleConversationStorage', () => {
             }),
           };
         }
+        if (selectCall === 3) {
+          return {
+            from: jest.fn().mockReturnValue({
+              where: jest.fn().mockResolvedValue(contextRows),
+            }),
+          };
+        }
+        if (selectCall === 4) {
+          return {
+            from: jest.fn().mockReturnValue({
+              where: jest.fn().mockReturnValue({
+                orderBy: jest.fn().mockResolvedValue([]),
+              }),
+            }),
+          };
+        }
         return {
           from: jest.fn().mockReturnValue({
-            where: jest.fn().mockResolvedValue(contextRows),
+            where: jest.fn().mockReturnValue({
+              groupBy: jest.fn().mockResolvedValue([]),
+            }),
           }),
         };
       }),
@@ -141,7 +173,78 @@ describe('DrizzleConversationStorage', () => {
     const storage = new DrizzleConversationStorage();
     const sessions = await storage.listSessions({ userId: 'user-1', environment: 'local' });
 
-    expect(db.select).toHaveBeenCalledTimes(3);
+    expect(db.select).toHaveBeenCalledTimes(4);
     expect(sessions.map(item => item.id)).toEqual(['session-public', 'session-own']);
+  });
+
+  it('creates review projection rows when message metadata contains code changes', async () => {
+    const insertValuesMock = jest.fn().mockResolvedValue(undefined);
+    const db = {
+      select: jest
+        .fn()
+        .mockImplementationOnce(() => createSelectChain([{ conversationId: 'conversation-1' }]))
+        .mockImplementationOnce(() => createSelectChain([]))
+        .mockImplementationOnce(() => createSelectChain([]))
+        .mockImplementationOnce(() => createSelectWhereChain([{ maxRound: 2 }])),
+      insert: jest.fn().mockReturnValue({
+        values: insertValuesMock,
+      }),
+      update: jest.fn().mockReturnValue({
+        set: jest.fn().mockReturnValue({
+          where: jest.fn().mockResolvedValue(undefined),
+        }),
+      }),
+      delete: jest.fn().mockReturnValue({
+        where: jest.fn().mockResolvedValue(undefined),
+      }),
+    } as any;
+
+    jest.spyOn(DatabaseManager, 'getDb').mockReturnValue(db);
+
+    const storage = new DrizzleConversationStorage();
+    await storage.saveMessageMetadata('message-1', {
+      codeChanges: [
+        { filePath: 'src/a.ts', changeType: 'modified', additions: 3, deletions: 1 },
+        { path: 'src/b.ts', type: 'added', additions: 5, deletions: 0 },
+      ],
+    });
+
+    expect(db.insert).toHaveBeenCalledWith(messageMetadata);
+    expect(db.insert).toHaveBeenCalledWith(reviewRounds);
+    expect(db.insert).toHaveBeenCalledWith(reviewFileChanges);
+    expect(insertValuesMock).toHaveBeenCalledTimes(3);
+  });
+
+  it('updates existing review projection when metadata is overwritten', async () => {
+    const db = {
+      select: jest
+        .fn()
+        .mockImplementationOnce(() => createSelectChain([{ conversationId: 'conversation-1' }]))
+        .mockImplementationOnce(() => createSelectChain([{ id: 'metadata-1' }]))
+        .mockImplementationOnce(() => createSelectChain([{ id: 'round-1' }])),
+      insert: jest.fn().mockReturnValue({
+        values: jest.fn().mockResolvedValue(undefined),
+      }),
+      update: jest.fn().mockReturnValue({
+        set: jest.fn().mockReturnValue({
+          where: jest.fn().mockResolvedValue(undefined),
+        }),
+      }),
+      delete: jest.fn().mockReturnValue({
+        where: jest.fn().mockResolvedValue(undefined),
+      }),
+    } as any;
+
+    jest.spyOn(DatabaseManager, 'getDb').mockReturnValue(db);
+
+    const storage = new DrizzleConversationStorage();
+    await storage.saveMessageMetadata('message-1', {
+      codeChanges: [{ filePath: 'src/a.ts', changeType: 'modified' }],
+    });
+
+    expect(db.update).toHaveBeenCalledWith(messageMetadata);
+    expect(db.update).toHaveBeenCalledWith(reviewRounds);
+    expect(db.delete).toHaveBeenCalledWith(reviewFileChanges);
+    expect(db.insert).toHaveBeenCalledWith(reviewFileChanges);
   });
 });

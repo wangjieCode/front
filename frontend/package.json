@@ -11,10 +11,11 @@
     "test": "jest"
   },
   "dependencies": {
-    "@front/shared": "workspace:*",
     "@ant-design/icons": "^6.1.0",
+    "@front/shared": "workspace:*",
     "antd": "^5.12.2",
     "react": "^18.2.0",
+    "react-diff-view": "^3.3.2",
     "react-diff-viewer": "^3.1.1",
     "react-dom": "^18.2.0",
     "react-markdown": "^10.1.0",

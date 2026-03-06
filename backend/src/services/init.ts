@@ -1,7 +1,7 @@
 import { GitService, CodeToolService, GitLabMCPService, ProjectService, LocalExecutor, NeovateAIService, ModelAvailabilityService } from './index';
 import { WorktreeManager } from './WorktreeManager';
 import { ConversationManager } from './ConversationManager';
-import { MessageRouter } from './MessageRouter';
+import { BranchCacheService } from './BranchCacheService';
 import { ConversationAIService } from './ConversationAIService';
 import { DrizzleConversationStorage } from '../storage/DrizzleConversationStorage';
 import { ConversationStorageAdapter } from '../storage/ConversationStorageAdapter';
@@ -10,7 +10,7 @@ import { getGitWorkDir, getWorktreeBaseDir } from '../utils/config';
 
 let services: {
   conversationManager: any;
-  messageRouter: any;
+  branchCacheService: BranchCacheService;
   conversationAIService: any;
   conversationStorage: DrizzleConversationStorage;
   executor: any;
@@ -63,7 +63,8 @@ export async function initializeAllServices() {
   const modelAvailabilityService = new ModelAvailabilityService();
   await modelAvailabilityService.initialize(workDir);
   
-  const conversationManager = new ConversationManager(storageAdapter, projectService, gitlabService, worktreeManager);
+  const conversationManager = new ConversationManager(storageAdapter, projectService, gitlabService);
+  const branchCacheService = new BranchCacheService(gitlabService, projectService);
   const databaseUrl = process.env.DATABASE_URL || '';
   const neovateAIService = new NeovateAIService(executor, workDir, databaseUrl);
   const conversationAIService = new ConversationAIService(
@@ -71,13 +72,12 @@ export async function initializeAllServices() {
     databaseUrl,
     gitService
   );
-  const messageRouter = new MessageRouter(conversationManager);
 
-  console.log('[INIT] 对话相关服务初始化完成（业务缓存: 进程内 LRU）');
+  console.log('[INIT] 对话相关服务初始化完成（业务缓存: Redis）');
 
   services = {
     conversationManager,
-    messageRouter,
+    branchCacheService,
     conversationAIService,
     conversationStorage,
     executor,

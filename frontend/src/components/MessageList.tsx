@@ -1,5 +1,5 @@
-import React from 'react';
-import { Tag, Card, Collapse, Spin } from 'antd';
+import * as React from 'react';
+import { Tag, Collapse, Spin } from 'antd';
 import {
   CodeOutlined,
   FileAddOutlined,
@@ -16,6 +16,7 @@ import {
   MessageRole,
   CodeChange,
   ParsedContent,
+  CodeChangeFileJumpPayload,
 } from '../types/conversation';
 import { parseNeovateStreamJsonStructured, isStreamJsonFormat } from '../utils/neovateParser';
 import { TypewriterText } from './TypewriterText';
@@ -25,6 +26,7 @@ const { Panel } = Collapse;
 interface MessageListProps {
   messages: ConversationMessage[];
   onMessageClick?: (message: ConversationMessage) => void;
+  onCodeChangeFileClick?: (payload: CodeChangeFileJumpPayload) => void;
 }
 
 /**
@@ -34,6 +36,7 @@ interface MessageListProps {
 const MessageList: React.FC<MessageListProps> = ({
   messages,
   onMessageClick,
+  onCodeChangeFileClick,
 }) => {
   // 添加打字机光标动画样式
   React.useEffect(() => {
@@ -86,50 +89,51 @@ const MessageList: React.FC<MessageListProps> = ({
   /**
    * 渲染代码变更卡片
    */
-  const renderCodeChanges = (codeChanges: CodeChange[]) => {
+  const renderCodeChanges = (message: ConversationMessage, codeChanges: CodeChange[]) => {
     if (!codeChanges || codeChanges.length === 0) {
       return null;
     }
 
     return (
-      <Card
-        size="small"
-        title={
-          <span>
-            <CodeOutlined /> 代码变更 ({codeChanges.length})
+      <div className="code-change-card">
+        <div className="code-change-summary">
+          <span className="code-change-summary-title">
+            <CodeOutlined style={{ marginRight: 6 }} />
+            代码变更
           </span>
-        }
-        style={{ marginTop: 12 }}
-      >
-        <Collapse ghost>
+          <span className="code-change-summary-stats">
+            {codeChanges.length} 文件
+          </span>
+        </div>
+
+        <div className="code-change-list">
           {codeChanges.map((change, index) => (
-            <Panel
-              key={index}
-              header={
-                <span>
-                  {getChangeIcon(change.changeType)}{' '}
-                  <Tag color={getChangeColor(change.changeType)}>
-                    {change.changeType}
-                  </Tag>
-                  {change.filePath}
-                </span>
-              }
-            >
-              <SyntaxHighlighter
-                language="diff"
-                style={vscDarkPlus as any}
-                customStyle={{
-                  margin: 0,
-                  borderRadius: 4,
-                  fontSize: 12,
-                }}
-              >
-                {change.diff}
-              </SyntaxHighlighter>
-            </Panel>
+            <div className="code-change-item" key={`${change.filePath}-${index}`}>
+              <div className="code-change-item-header">
+                <div className="code-change-item-left">
+                  {getChangeIcon(change.changeType)}
+                  <Tag color={getChangeColor(change.changeType)}>{change.changeType}</Tag>
+                  <button
+                    type="button"
+                    className="code-change-file-btn"
+                    disabled={!onCodeChangeFileClick}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onCodeChangeFileClick?.({
+                        messageId: message.id,
+                        filePath: change.filePath,
+                        changeType: change.changeType,
+                      });
+                    }}
+                  >
+                    {change.filePath}
+                  </button>
+                </div>
+              </div>
+            </div>
           ))}
-        </Collapse>
-      </Card>
+        </div>
+      </div>
     );
   };
 
@@ -440,7 +444,7 @@ const MessageList: React.FC<MessageListProps> = ({
 
           {/* 代码变更展示 */}
           {message.metadata?.codeChanges &&
-            renderCodeChanges(message.metadata.codeChanges)}
+            renderCodeChanges(message, message.metadata.codeChanges)}
 
           {/* 图片附件 */}
           {message.metadata?.images && message.metadata.images.length > 0 &&

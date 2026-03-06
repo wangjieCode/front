@@ -1,6 +1,5 @@
 import {
   ConversationContext,
-  ConversationMode,
   AIResponse,
   MessageMetadata,
   ToolCall,
@@ -112,9 +111,7 @@ export class ConversationAIService {
         console.error('[ConversationAIService] 查询会话 ID 失败:', error);
       }
 
-      const projectWorkDir = context.mode === ConversationMode.EDIT && context.projectInfo.worktreePath
-        ? context.projectInfo.worktreePath
-        : context.projectInfo.workDir;
+      const projectWorkDir = context.projectInfo.worktreePath ?? context.projectInfo.workDir;
       const selectedModel = modelOverride
         || (typeof context.variables?.model === 'string' ? context.variables.model : DEFAULT_NEOVATE_MODEL);
       
@@ -132,7 +129,7 @@ export class ConversationAIService {
 
 
       // 编辑模式：异步提交变更（不阻塞响应）
-      if (context.mode === ConversationMode.EDIT && result.success && result.changes.length > 0) {
+      if (result.success && result.changes.length > 0) {
         this.commitChanges(context, userMessage).catch(error => {
           console.error(`[ConversationAIService] 异步提交变更失败:`, error);
         });
@@ -187,7 +184,6 @@ export class ConversationAIService {
   ): Promise<AIResponse> {
     try {
       console.log(`[ConversationAIService] 生成响应 - sessionId: ${sessionId}`);
-      // console.log(`[ConversationAIService] 模式: ${context.mode}`);
       // console.log(`[ConversationAIService] 用户消息: ${userMessage.substring(0, 100)}`);
 
       // 检查是否需要询问用户（现阶段总是返回 false）
@@ -224,9 +220,7 @@ export class ConversationAIService {
       }
 
       // 调用 AI 服务处理消息（传递 Neovate 会话 ID 和正确的工作目录）
-      const projectWorkDir = context.mode === ConversationMode.EDIT && context.projectInfo.worktreePath
-        ? context.projectInfo.worktreePath
-        : context.projectInfo.workDir;
+      const projectWorkDir = context.projectInfo.worktreePath ?? context.projectInfo.workDir;
       const selectedModel = modelOverride
         || (typeof context.variables?.model === 'string' ? context.variables.model : DEFAULT_NEOVATE_MODEL);
       // console.log(`[ConversationAIService] 调用 NeovateAIService - conversationId: ${sessionId}, neovateSessionId: ${neovateSessionId || '无'}`);
@@ -242,7 +236,7 @@ export class ConversationAIService {
       );
 
       // 编辑模式：异步提交变更（不阻塞响应）
-      if (context.mode === ConversationMode.EDIT && result.success && result.changes.length > 0) {
+      if (result.success && result.changes.length > 0) {
         this.commitChanges(context, userMessage).catch(error => {
           console.error(`[ConversationAIService] 异步提交变更失败:`, error);
         });
@@ -295,9 +289,7 @@ export class ConversationAIService {
     userMessage: string
   ): Promise<void> {
     try {
-      const workDir = context.mode === ConversationMode.EDIT && context.projectInfo.worktreePath
-        ? context.projectInfo.worktreePath
-        : context.projectInfo.workDir;
+      const workDir = context.projectInfo.worktreePath ?? context.projectInfo.workDir;
 
       // 添加所有变更
       await this.gitService.addAll(workDir);

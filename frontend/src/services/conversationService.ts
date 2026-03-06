@@ -5,6 +5,8 @@ import {
   ModelConfigResponse,
   PreviewResult,
   PreviewStatusResponse,
+  ReviewFileDiff,
+  ReviewFileItem,
 } from '../types/conversation';
 import { DEFAULT_NEOVATE_MODEL, NEOVATE_MODEL_OPTIONS } from '@front/shared';
 import { authUtils } from '../utils/auth';
@@ -13,6 +15,39 @@ const API_BASE_URL = import.meta.env.VITE_API_URL || '';
 
 // 全局登录状态管理
 let showLoginModalCallback: (() => void) | null = null;
+
+const normalizeChangeType = (value: unknown): ReviewFileItem['changeType'] => {
+  const normalized = typeof value === 'string' ? value.toLowerCase() : '';
+  if (normalized === 'added' || normalized === 'new' || normalized === 'create') return 'added';
+  if (normalized === 'deleted' || normalized === 'remove' || normalized === 'delete') return 'deleted';
+  return 'modified';
+};
+
+const toSafeNumber = (value: unknown): number => {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : 0;
+};
+
+const normalizeReviewFileItem = (raw: any): ReviewFileItem => {
+  const filePath = raw?.filePath || raw?.path || raw?.file || raw?.newPath || raw?.oldPath || '';
+  return {
+    filePath,
+    changeType: normalizeChangeType(raw?.changeType || raw?.type || raw?.status),
+    additions: toSafeNumber(raw?.additions ?? raw?.addedLines ?? raw?.stats?.additions ?? raw?.insertions),
+    deletions: toSafeNumber(raw?.deletions ?? raw?.deletedLines ?? raw?.stats?.deletions ?? raw?.deletionsCount),
+  };
+};
+
+const normalizeReviewFileDiff = (raw: any): ReviewFileDiff => {
+  const filePath = raw?.filePath || raw?.path || raw?.file || raw?.newPath || raw?.oldPath || '';
+  return {
+    filePath,
+    changeType: normalizeChangeType(raw?.changeType || raw?.type || raw?.status),
+    additions: toSafeNumber(raw?.additions ?? raw?.addedLines ?? raw?.stats?.additions ?? raw?.insertions),
+    deletions: toSafeNumber(raw?.deletions ?? raw?.deletedLines ?? raw?.stats?.deletions ?? raw?.deletionsCount),
+    diff: raw?.diff || raw?.patch || raw?.content || '',
+  };
+};
 
 /**
  * 设置登录模态框回调
@@ -133,7 +168,6 @@ class ConversationService {
     initialPrompt: string;
     projectId: string;
     baseBranch?: string;
-    mode?: string;
     model?: string;
   }): Promise<{ success: boolean; data: ConversationSession }> {
     const response = await fetchWithAuth(`${this.baseUrl}/api/conversations`, {
@@ -238,6 +272,40 @@ class ConversationService {
 
     const result = await response.json();
     return result.data || [];
+  }
+
+  async getReviewFiles(sessionId: string): Promise<ReviewFileItem[]> {
+    const response = await fetchWithAuth(`${this.baseUrl}/api/conversations/${sessionId}/review/files`);
+    if (!response.ok) {
+      throw new Error('获取 Review 文件列表失败');
+    }
+    const result = await response.json();
+    const rawList = result?.data?.files || result?.data?.items || result?.data || [];
+    if (!Array.isArray(rawList)) {
+      return [];
+    }
+    return rawList
+      .map(normalizeReviewFileItem)
+      .filter(item => item.filePath);
+  }
+
+  async getReviewFileDiff(sessionId: string, filePath: string): Promise<ReviewFileDiff> {
+    const query = new URLSearchParams({ filePath });
+    const response = await fetchWithAuth(
+      `${this.baseUrl}/api/conversations/${sessionId}/review/diff?${query.toString()}`
+    );
+    if (!response.ok) {
+      throw new Error('获取 Review 文件 diff 失败');
+    }
+    const result = await response.json();
+    const data = result?.data || {};
+    const firstItem = Array.isArray(data?.items) ? data.items[0] : null;
+    const source = firstItem || data;
+    return normalizeReviewFileDiff({
+      ...source,
+      filePath: source?.filePath || data?.filePath || filePath,
+      changeType: source?.changeType || source?.status || data?.changeType,
+    });
   }
 
   /**

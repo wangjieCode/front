@@ -9,7 +9,6 @@
 ## 主要组件
 
 - ProjectSelector：选择项目
-- ModeSelector：选择编辑/只读模式
 - MessageList：消息与流式内容
 - LoginModal：登录对话框
 - AccountSettingsModal：账号信息（用户名/密码）维护

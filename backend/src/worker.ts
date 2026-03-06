@@ -11,8 +11,8 @@ import { QueueManager, TaskType, MAIN_QUEUE_NAME, getBullOptions } from './queue
 // 加载环境变量
 dotenv.config();
 
-const ONE_DAY_MS = 24 * 60 * 60 * 1000;
-const ONE_DAY_SECONDS = 24 * 60 * 60;
+const ONE_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+const ONE_WEEK_SECONDS = 7 * 24 * 60 * 60;
 const WORKER_RETRY_DELAY_MS = Number(process.env.WORKER_RETRY_DELAY_MS || 30_000);
 
 let retryTimer: NodeJS.Timeout | null = null;
@@ -44,10 +44,10 @@ async function startDashboard(app: express.Application) {
     options: {
       uiConfig: {
         boardTitle: '任务监控后台',
-        // 将 Dashboard 轮询间隔设置为 1 天，降低 Redis 空转请求
+        // 将 Dashboard 轮询间隔设置为 1 周，降低 Redis 空转请求
         pollingInterval: {
           showSetting: false,
-          forceInterval: ONE_DAY_MS,
+          forceInterval: ONE_WEEK_MS,
         },
       },
     },
@@ -115,8 +115,8 @@ async function startWorker() {
       {
         ...getBullOptions(),
         concurrency: 1, // 顺序执行，避免冲突
-        // Worker 空闲轮询间隔设置为 1 天，降低 Redis 空转请求
-        drainDelay: ONE_DAY_SECONDS,
+        // Worker 空闲轮询间隔设置为 1 周，降低 Redis 空转请求
+        drainDelay: ONE_WEEK_SECONDS,
       }
     );
 
@@ -132,7 +132,7 @@ async function startWorker() {
       console.error('[Worker] ❌ Worker 运行异常:', err);
     });
 
-    console.log('⏰ BullMQ 任务监听中 (Archive: 00:00, Cleanup: 02:00)');
+    console.log('⏰ BullMQ 任务监听中 (每周日 Archive: 00:00, Cleanup: 02:00)');
 
     // 4. 在同一个进程启动管理界面
     const app = express();

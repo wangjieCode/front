@@ -1,20 +1,21 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Spin, Typography, Button, Input, message, Modal, Descriptions, Tag, Tooltip, Select, Dropdown } from 'antd';
 import { ThunderboltOutlined, SendOutlined, RocketOutlined, CheckOutlined, WarningOutlined, StopOutlined, GitlabOutlined, ClockCircleOutlined, LinkOutlined, LockOutlined, InboxOutlined, GlobalOutlined, EllipsisOutlined, PictureOutlined, CloseOutlined } from '@ant-design/icons';
-import ModeSelector from './ModeSelector';
 import ProjectSelector from './ProjectSelector';
 import {
   ConversationSession,
   ConversationMessage,
-  ConversationMode,
   ConversationStatus,
   ConversationVisibility,
   ImageAttachment,
   PreviewStatus,
+  ReviewFileDiff,
+  ReviewFileItem,
 } from '../types/conversation';
 import MessageInput from './MessageInput';
 import MessageList from './MessageList';
+import ReviewSidebar from './ReviewSidebar';
 import { conversationService } from '../services/conversationService';
 import { normalizeNeovateErrorMessage, parseNeovateChunkStructured, ParsedContent } from '../utils/neovateParser';
 import { authUtils } from '../utils/auth';
@@ -28,15 +29,12 @@ interface ConversationViewProps {
   initialImages?: ImageAttachment[];
   onNewConversation?: (
     prompt: string,
-    mode: ConversationMode,
     projectId: string,
     baseBranch?: string,
     model?: string,
     initialImages?: ImageAttachment[]
   ) => Promise<void>;
   onVisibilityChange?: (sessionId: string, visibility: ConversationVisibility) => void;
-  mode?: ConversationMode;
-  onModeChange?: (mode: ConversationMode) => void;
   autoSend?: boolean;
   initialContent?: string;
 }
@@ -54,8 +52,6 @@ const ConversationView: React.FC<ConversationViewProps> = ({
   initialSession,
   onNewConversation,
   onVisibilityChange,
-  mode = ConversationMode.READONLY,
-  onModeChange,
   autoSend,
   initialContent,
   initialImages = [],
@@ -92,6 +88,13 @@ const ConversationView: React.FC<ConversationViewProps> = ({
   const [previewStatus, setPreviewStatus] = useState<PreviewStatus | null>(null);
   const [deploymentInfo, setDeploymentInfo] = useState<any>(null);
   const [showDeploymentModal, setShowDeploymentModal] = useState(false);
+  const [reviewFiles, setReviewFiles] = useState<ReviewFileItem[]>([]);
+  const [selectedReviewFilePath, setSelectedReviewFilePath] = useState<string>('');
+  const [selectedReviewDiff, setSelectedReviewDiff] = useState<ReviewFileDiff | null>(null);
+  const [loadingReviewFiles, setLoadingReviewFiles] = useState(false);
+  const [loadingReviewDiff, setLoadingReviewDiff] = useState(false);
+  const [reviewFilesError, setReviewFilesError] = useState<string | null>(null);
+  const [reviewDiffError, setReviewDiffError] = useState<string | null>(null);
 
   const lastSentMessageRef = useRef('');
   const streamAbortRef = useRef<AbortController | null>(null);
@@ -105,6 +108,8 @@ const ConversationView: React.FC<ConversationViewProps> = ({
     '看一下页面的功能',
     '看一下某接口调用使用了哪些返回值',
   ];
+
+  const reviewFileList = reviewFiles;
 
   const readFileAsDataUrl = (file: File): Promise<string> => new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -229,6 +234,11 @@ const ConversationView: React.FC<ConversationViewProps> = ({
       lastLoadedMessageTsRef.current = null;
       setSending(false);
       setLoadingMessages(true);
+      setReviewFiles([]);
+      setSelectedReviewFilePath('');
+      setSelectedReviewDiff(null);
+      setReviewFilesError(null);
+      setReviewDiffError(null);
 
       if (initialSession && initialSession.id === sessionId) {
         setSession(initialSession);
@@ -265,6 +275,11 @@ const ConversationView: React.FC<ConversationViewProps> = ({
       setPrompt('');
       setCreateAttachments([]);
       setSending(false);
+      setReviewFiles([]);
+      setSelectedReviewFilePath('');
+      setSelectedReviewDiff(null);
+      setReviewFilesError(null);
+      setReviewDiffError(null);
     }
   }, [sessionId, initialSession, autoSend]);
 
@@ -368,7 +383,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
     }
     setSending(true);
     try {
-      await onNewConversation(prompt, mode, selectedProjectId, baseBranch, selectedModel, createAttachments);
+      await onNewConversation(prompt, selectedProjectId, baseBranch, selectedModel, createAttachments);
     } finally {
       setSending(false);
     }
@@ -417,6 +432,62 @@ const ConversationView: React.FC<ConversationViewProps> = ({
       console.error('加载消息失败:', error);
     }
   };
+
+  const loadReviewFiles = async () => {
+    if (!sessionId) return;
+    setLoadingReviewFiles(true);
+    setReviewFilesError(null);
+    try {
+      const files = await conversationService.getReviewFiles(sessionId);
+      setReviewFiles(files || []);
+    } catch (error) {
+      setReviewFiles([]);
+      setReviewFilesError(error instanceof Error ? error.message : '获取 Review 文件列表失败');
+    } finally {
+      setLoadingReviewFiles(false);
+    }
+  };
+
+  const loadReviewFileDiff = async (file: ReviewFileItem) => {
+    if (!sessionId) return;
+    setSelectedReviewFilePath(file.filePath);
+    setLoadingReviewDiff(true);
+    setReviewDiffError(null);
+    try {
+      const diff = await conversationService.getReviewFileDiff(sessionId, file.filePath);
+      const normalized = {
+        ...diff,
+        additions: diff.additions ?? file.additions,
+        deletions: diff.deletions ?? file.deletions,
+        changeType: diff.changeType ?? file.changeType,
+      };
+      setSelectedReviewDiff(normalized);
+    } catch (error) {
+      setSelectedReviewDiff(null);
+      setReviewDiffError(error instanceof Error ? error.message : '获取 Review 文件 diff 失败');
+    } finally {
+      setLoadingReviewDiff(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!sessionId) return;
+    void loadReviewFiles();
+  }, [sessionId]);
+
+  useEffect(() => {
+    if (!selectedReviewFilePath) return;
+    const exists = reviewFileList.some(item => item.filePath === selectedReviewFilePath);
+    if (exists) return;
+    setSelectedReviewFilePath('');
+    setSelectedReviewDiff(null);
+  }, [reviewFileList, selectedReviewFilePath]);
+
+  useEffect(() => {
+    if (selectedReviewFilePath) return;
+    if (reviewFileList.length === 0) return;
+    void loadReviewFileDiff(reviewFileList[0]);
+  }, [reviewFileList, selectedReviewFilePath]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -664,13 +735,6 @@ const ConversationView: React.FC<ConversationViewProps> = ({
       suppressInitialLoadRef.current = false;
       setSending(false);
     }
-  };
-
-
-
-  const handleMessageClick = (message: ConversationMessage) => {
-    console.log('Message clicked:', message);
-    // 可以在这里添加消息点击处理逻辑
   };
 
   /**
@@ -933,13 +997,6 @@ const ConversationView: React.FC<ConversationViewProps> = ({
             />
           </div>
 
-          {/* 模式选择器 */}
-          <div className="create-field create-field-mode">
-            <Text type="secondary" className="create-field-label">
-              对话模式
-            </Text>
-            <ModeSelector value={mode} onChange={onModeChange || (() => { })} />
-          </div>
         </div>
 
         <div className="create-input-wrapper">
@@ -1042,95 +1099,108 @@ const ConversationView: React.FC<ConversationViewProps> = ({
   );
 
   const renderChatContent = () => (
-    <div style={{
-      display: 'flex',
-      flexDirection: 'column',
-      height: '100%'
-    }}>
-      {/* Messages */}
-      <div 
-        ref={chatContainerRef}
-        style={{
-          flex: 1,
-          overflowY: 'auto',
-          padding: '20px 0'
-        }}
-      >
-        {loadingMessages ? (
-          <div style={{ textAlign: 'center', padding: '40px 0' }}>
-            <Spin size="large" tip="加载消息..." />
-          </div>
-        ) : messages.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: '40px 0', color: '#999' }}>
-            暂无消息
-          </div>
-        ) : (
-          <div className="message-list-inner">
-            {/* 状态栏 */}
-            <MessageList messages={messages} onMessageClick={handleMessageClick} />
-            <div ref={messagesEndRef} />
-          </div>
-        )}
-      </div>
+    <div className="conversation-chat-layout">
+      <div className="conversation-chat-main">
+        <div
+          ref={chatContainerRef}
+          style={{
+            flex: 1,
+            overflowY: 'auto',
+            padding: '20px 0'
+          }}
+        >
+          {loadingMessages ? (
+            <div style={{ textAlign: 'center', padding: '40px 0' }}>
+              <Spin size="large" tip="加载消息..." />
+            </div>
+          ) : messages.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '40px 0', color: '#999' }}>
+              暂无消息
+            </div>
+          ) : (
+            <div className="message-list-inner">
+              <MessageList
+                messages={messages}
+              />
+              <div ref={messagesEndRef} />
+            </div>
+          )}
+        </div>
 
-      {/* Input Area */}
-      <div className="chat-input-panel">
-        <div className="chat-input-shell">
-          <MessageInput
-            sessionId={sessionId}
-            disabled={sending || isArchived}
-            onSend={handleSendMessage}
-            value={draftMessage}
-            onChange={setDraftMessage}
-            placeholder={isArchived ? '已归档的对话不能发送消息' : undefined}
-            actions={
-              <>
-                {isStreaming && (
-                  <Button
-                    type="text"
-                    className="chat-more-button"
-                    icon={<StopOutlined />}
-                    onClick={handleInterrupt}
-                  />
-                )}
-                <Dropdown
-                  trigger={['click']}
-                  placement="topRight"
-                  disabled={isArchived}
-                  dropdownRender={() => (
-                    <div className="chat-more-panel">
-                      <div className="chat-more-title">模型</div>
-                      <Select
-                        value={chatModel}
-                        size="small"
-                        disabled={isArchived}
-                        className="chat-model-select"
-                        dropdownStyle={{ minWidth: 240 }}
-                        onChange={(value) => setChatModel(value)}
-                        options={modelOptions.map(option => ({
-                          value: option.value,
-                          disabled: option.enabled === false,
-                          label: option.recommended ? `${option.label} (recommend)` : option.label,
-                        }))}
-                      />
-                      <Text type="secondary" className="chat-input-hint">
-                        Ctrl/Cmd + Enter
-                      </Text>
-                    </div>
+        <div className="chat-input-panel">
+          <div className="chat-input-shell">
+            <MessageInput
+              sessionId={sessionId}
+              disabled={sending || isArchived}
+              onSend={handleSendMessage}
+              value={draftMessage}
+              onChange={setDraftMessage}
+              placeholder={isArchived ? '已归档的对话不能发送消息' : undefined}
+              actions={
+                <>
+                  {isStreaming && (
+                    <Button
+                      type="text"
+                      className="chat-more-button"
+                      icon={<StopOutlined />}
+                      onClick={handleInterrupt}
+                    />
                   )}
-                >
-                  <Button
-                    type="text"
-                    className="chat-more-button"
-                    icon={<EllipsisOutlined />}
+                  <Dropdown
+                    trigger={['click']}
+                    placement="topRight"
                     disabled={isArchived}
-                  />
-                </Dropdown>
-              </>
-            }
-          />
+                    dropdownRender={() => (
+                      <div className="chat-more-panel">
+                        <div className="chat-more-title">模型</div>
+                        <Select
+                          value={chatModel}
+                          size="small"
+                          disabled={isArchived}
+                          className="chat-model-select"
+                          dropdownStyle={{ minWidth: 240 }}
+                          onChange={(value) => setChatModel(value)}
+                          options={modelOptions.map(option => ({
+                            value: option.value,
+                            disabled: option.enabled === false,
+                            label: option.recommended ? `${option.label} (recommend)` : option.label,
+                          }))}
+                        />
+                        <Text type="secondary" className="chat-input-hint">
+                          Ctrl/Cmd + Enter
+                        </Text>
+                      </div>
+                    )}
+                  >
+                    <Button
+                      type="text"
+                      className="chat-more-button"
+                      icon={<EllipsisOutlined />}
+                      disabled={isArchived}
+                    />
+                  </Dropdown>
+                </>
+              }
+            />
+          </div>
         </div>
       </div>
+
+      <ReviewSidebar
+        files={reviewFileList}
+        selectedFilePath={selectedReviewFilePath}
+        selectedDiff={selectedReviewDiff}
+        loadingFiles={loadingReviewFiles}
+        loadingDiff={loadingReviewDiff}
+        filesError={reviewFilesError}
+        diffError={reviewDiffError}
+        onSelectFile={(file) => {
+          void loadReviewFileDiff(file);
+        }}
+        onRetryLoadFiles={() => {
+          void loadReviewFiles();
+        }}
+      />
     </div>
   );
 
@@ -1194,7 +1264,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
                 {/* 模型展示已移动到输入区 */}
 
                 {/* 当前分支（仅编辑模式展示） */}
-                {session.context?.mode === 'edit' && session.context?.projectInfo?.workDir && (
+                {session.context?.projectInfo?.worktreePath && session.context?.projectInfo?.workDir && (
                   <Tooltip title={`当前分支: ${session.context.projectInfo.workDir.split('/').pop() || session.context.projectInfo.workDir}`}>
                     <div style={{
                       display: 'flex',
@@ -1253,7 +1323,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
                 )}
 
                 {/* 开发工具组（仅在编辑模式显示） */}
-                {session.context?.mode === 'edit' && (
+                {session.context?.projectInfo?.worktreePath && (
                   <>
                     {/* MR 链接或创建按钮 */}
                     {session.context.mrUrl ? (
