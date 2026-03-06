@@ -23,8 +23,8 @@ import { newId } from "../utils/id";
 import { getWorktreeBaseDir } from "../utils/config";
 import dayjs from "dayjs";
 import { DEFAULT_NEOVATE_MODEL, isNeovateModelSupported } from "@front/shared";
-import { LruCacheService } from "./LruCacheService";
 import { CacheStrategyManager } from "./CacheStrategyManager";
+import { RedisCacheService } from "./RedisCacheService";
 
 export class ConversationManager {
   private storage: IConversationStorage;
@@ -33,7 +33,7 @@ export class ConversationManager {
   private inFlightSessionLoads = new Map<string, Promise<ConversationSession | null>>();
   private gitlabService?: GitLabMCPService;
   readonly projectService: ProjectService;
-  private cache: LruCacheService;
+  private cache: RedisCacheService;
   private cacheStrategyManager: CacheStrategyManager;
   private sessionCacheTtlSeconds = 0;
   private sessionListCacheTtlSeconds = 0;
@@ -46,7 +46,7 @@ export class ConversationManager {
     this.storage = storage;
     this.projectService = projectService;
     this.gitlabService = gitlabService;
-    this.cache = new LruCacheService();
+    this.cache = new RedisCacheService();
     this.cacheStrategyManager = new CacheStrategyManager(this.cache);
   }
 

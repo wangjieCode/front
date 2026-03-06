@@ -73,7 +73,7 @@ export async function initializeAllServices() {
     gitService
   );
 
-  console.log('[INIT] 对话相关服务初始化完成（业务缓存: 进程内 LRU）');
+  console.log('[INIT] 对话相关服务初始化完成（业务缓存: Redis）');
 
   services = {
     conversationManager,

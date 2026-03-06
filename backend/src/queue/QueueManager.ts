@@ -17,16 +17,15 @@ export const MAIN_QUEUE_NAME = 'main-task-queue';
  * 获取 BullMQ 的基础配置，确保环境隔离
  */
 export function getBullOptions() {
-  const redisUrl = process.env.REDIS_URL;
-  if (!redisUrl) throw new Error('REDIS_URL not configured');
+  const redisUrl = process.env.TASK_REDIS_URL;
+  if (!redisUrl) throw new Error('TASK_REDIS_URL not configured');
 
   return {
     connection: {
       url: redisUrl,
       tls: redisUrl.includes('rediss://') || redisUrl.includes('.upstash.io') ? {} : undefined,
     },
-    // 核心隔离：环境前缀 + bull
-    prefix: (process.env.REDIS_PREFIX || '') + 'bull',
+    prefix: (process.env.TASK_REDIS_PREFIX || '') + 'bull',
   };
 }
 
@@ -61,24 +60,24 @@ export class QueueManager {
       await queue.removeRepeatableByKey(job.key);
     }
 
-    // 1. 归档任务 - 每天 00:00
+    // 1. 归档任务 - 每周日 00:00
     await queue.add(
       TaskType.ARCHIVE_CONVERSATIONS,
       { olderThanDays: 1 },
       {
-        repeat: { pattern: '0 0 * * *' },
+        repeat: { pattern: '0 0 * * 0' },
         jobId: TaskType.ARCHIVE_CONVERSATIONS, // 确保唯一性
         attempts: 3, // 失败重试 3 次
         backoff: { type: 'exponential', delay: 1000 * 60 }, // 指数退避，初始 1 分钟
       }
     );
 
-    // 2. 清理任务 - 每天 02:00
+    // 2. 清理任务 - 每周日 02:00
     await queue.add(
       TaskType.CLEANUP_WORKTREES,
       {},
       {
-        repeat: { pattern: '0 2 * * *' },
+        repeat: { pattern: '0 2 * * 0' },
         jobId: TaskType.CLEANUP_WORKTREES,
         attempts: 1, // 清理任务不建议频繁重试，失败可等下次
       }
