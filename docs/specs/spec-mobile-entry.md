@@ -17,6 +17,7 @@
 
 - 桌面入口：`index.html` -> `src/main.tsx` -> `App`。
 - 移动入口：`mobile.html` -> `src/mobile.tsx` -> `AppMobile`。
+- 桌面与移动入口统一使用品牌页签图标：`/src/favicon.svg`。
 - 移动端路由基准为 `/m`，确保所有内部导航一致。
 - 移动入口内置 eruda CDN 调试面板（`https://cdn.jsdelivr.net/npm/eruda`），页面加载即初始化，便于移动端联调。
 
@@ -44,3 +45,7 @@
 ## 验证
 
 - 不要求本地启动验证，按迭代记录说明。
+
+## 迭代记录
+
+- 2026-03-09：桌面与移动入口的浏览器标签页图标从默认 `vite.svg` 统一替换为品牌图标 `src/favicon.svg`。
