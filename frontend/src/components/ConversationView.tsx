@@ -70,6 +70,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
   const hasAutoSentRef = useRef(false);
   const suppressInitialLoadRef = useRef(false);
   const lastLoadedMessageTsRef = useRef<string | null>(null);
+  const initialSessionIdRef = useRef(initialSession?.id);
   const currentUserId = authUtils.getUserId();
 
   // New conversation state
@@ -97,6 +98,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
   const [reviewDiffError, setReviewDiffError] = useState<string | null>(null);
 
   const lastSentMessageRef = useRef('');
+  const sendingLockRef = useRef(false);
   const streamAbortRef = useRef<AbortController | null>(null);
   const createFileInputRef = useRef<HTMLInputElement | null>(null);
   const navigate = useNavigate();
@@ -226,7 +228,15 @@ const ConversationView: React.FC<ConversationViewProps> = ({
     }
   }, [modelOptions, defaultModel, selectedModel, chatModel]);
 
-  // 加载会话数据
+  // 同步 initialSession ref
+  useEffect(() => {
+    initialSessionIdRef.current = initialSession?.id;
+    if (initialSession && initialSession.id === sessionId) {
+      setSession(initialSession);
+    }
+  }, [initialSession, sessionId]);
+
+  // 加载会话数据（仅在 sessionId 或 autoSend 变化时触发）
   useEffect(() => {
     if (sessionId) {
       // 切换会话时清空状态
@@ -240,20 +250,17 @@ const ConversationView: React.FC<ConversationViewProps> = ({
       setReviewFilesError(null);
       setReviewDiffError(null);
 
-      if (initialSession && initialSession.id === sessionId) {
-        setSession(initialSession);
-        // We only set global loading if we don't have a session to show
-        if (!session || session.id !== sessionId) {
-          setLoading(false);
-        }
-      } else {
+      const hasInitialSession = initialSessionIdRef.current === sessionId;
+      if (!hasInitialSession) {
         // 无初始会话时，拉取会话详情
         setLoading(true);
         setSession(null);
+      } else {
+        setLoading(false);
       }
 
       const tasks: Array<Promise<void>> = [];
-      if (!initialSession || initialSession.id !== sessionId) {
+      if (!hasInitialSession) {
         tasks.push(loadSession());
       }
 
@@ -281,7 +288,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
       setReviewFilesError(null);
       setReviewDiffError(null);
     }
-  }, [sessionId, initialSession, autoSend]);
+  }, [sessionId, autoSend]);
 
 
   // 处理自动发送消息
@@ -339,7 +346,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
 
   // 检查对话是否已归档
   const isArchived = session?.status === ConversationStatus.ARCHIVED;
-  const isStreaming = messages.some(msg => (msg as any).isStreaming);
+  const isStreaming = useMemo(() => messages.some(msg => (msg as any).isStreaming), [messages]);
 
   const handleInterrupt = async () => {
     if (!sessionId) return;
@@ -411,7 +418,10 @@ const ConversationView: React.FC<ConversationViewProps> = ({
         }
 
         setMessages(prev => {
-          const messageMap = new Map(prev.map(item => [item.id, item]));
+          // 过滤掉临时消息（temp-user-*, ai-*），用服务端真实消息替代
+          const isTempId = (id: string) => id.startsWith('temp-') || id.startsWith('ai-');
+          const realMessages = prev.filter(m => !isTempId(m.id));
+          const messageMap = new Map(realMessages.map(item => [item.id, item]));
           for (const msg of nextMessages) {
             messageMap.set(msg.id, msg);
           }
@@ -493,19 +503,33 @@ const ConversationView: React.FC<ConversationViewProps> = ({
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
+  // 节流版 scrollToBottom，流式传输时避免高频调用
+  const scrollThrottleRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const throttledScrollToBottom = () => {
+    if (scrollThrottleRef.current) return;
+    scrollThrottleRef.current = setTimeout(() => {
+      scrollThrottleRef.current = null;
+      scrollToBottom();
+    }, 200);
+  };
+
   const handleSendMessage = async (
     content: string,
     options?: { images?: ImageAttachment[]; modelOverride?: string }
   ) => {
     if (!sessionId) return;
+    // 并发发送锁：防止 autoSend 和手动发送竞争
+    if (sendingLockRef.current) return;
+    sendingLockRef.current = true;
     const images = options?.images || [];
-    
+
     // 检查是否已归档
     if (isArchived) {
+      sendingLockRef.current = false;
       message.error('已归档的对话不能发送消息');
       return;
     }
-    
+
     setSending(true);
     lastSentMessageRef.current = content;
 
@@ -574,6 +598,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
       let accumulatedContents: ParsedContent[] = [];
       let fullContent = '';
       let streamCompleted = false;
+      const STREAM_IDLE_TIMEOUT = 120000; // 2分钟无数据超时
 
       const markStreamComplete = () => {
         if (streamCompleted) return;
@@ -585,17 +610,25 @@ const ConversationView: React.FC<ConversationViewProps> = ({
               : msg
           )
         );
-        console.log('[ConversationView] 流式传输完成，将在 2500ms 后加载消息以获取元数据');
+        // 流结束后全量重新加载消息，替换所有临时消息，避免增量合并导致重复
+        console.log('[ConversationView] 流式传输完成，将在 2500ms 后全量加载消息');
         setTimeout(() => {
-          console.log('[ConversationView] 开始加载消息以获取元数据...');
-          loadMessages(true).then(() => {
+          console.log('[ConversationView] 开始全量加载消息...');
+          loadMessages(false).then(() => {
             console.log('[ConversationView] 消息加载完成');
           });
         }, 2500);
       };
 
       while (true) {
-        const { done, value } = await reader.read();
+        // 带超时的 read：如果 2 分钟无任何数据，主动中断
+        const readResult = await Promise.race([
+          reader.read(),
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error('流式响应超时：2 分钟未收到数据')), STREAM_IDLE_TIMEOUT)
+          ),
+        ]);
+        const { done, value } = readResult;
 
         if (done) break;
 
@@ -613,10 +646,26 @@ const ConversationView: React.FC<ConversationViewProps> = ({
               } else if (data.type === 'thinking') {
                 // AI 开始思考，不再显示"正在思考"文本，等待实际内容
               } else if (data.type === 'chunk') {
-                // 处理 SDK result error 事件，直接展示错误信息
+                // 处理 SDK 内部事件
                 if (typeof data.content === 'string' && data.content.trim().startsWith('{')) {
                   try {
                     const event = JSON.parse(data.content.trim());
+
+                    // 会话恢复失败重试：清空之前的残留内容
+                    if (event?.type === 'retry_reset') {
+                      fullContent = '';
+                      accumulatedContents = [];
+                      setMessages(prev =>
+                        prev.map(msg =>
+                          msg.id === aiMessageId
+                            ? { ...msg, content: '', parsedContents: [], isStreaming: true }
+                            : msg
+                        )
+                      );
+                      continue;
+                    }
+
+                    // SDK result error 事件，直接展示错误信息
                     if (event?.type === 'result' && event?.isError) {
                       const errorText = `❌ ${normalizeNeovateErrorMessage(event.content)}`;
                       setMessages(prev =>
@@ -642,43 +691,29 @@ const ConversationView: React.FC<ConversationViewProps> = ({
                 // 累积完整文本内容
                 fullContent += data.content;
 
-                // 解析 chunk 为结构化内容
+                // 解析 chunk 为结构化内容，用 push 避免每次展开整个数组
                 const parsedContents = parseNeovateChunkStructured(data.content);
-                
                 if (parsedContents.length > 0) {
-                  // 累积所有内容
-                  accumulatedContents = [...accumulatedContents, ...parsedContents];
-                  
-                  // 更新消息
-                  setMessages(prev =>
-                    prev.map(msg =>
-                      msg.id === aiMessageId
-                        ? { 
-                            ...msg, 
-                            content: fullContent, // 使用累积的完整内容
-                            parsedContents: accumulatedContents,
-                            isStreaming: true 
-                          }
-                        : msg
-                    )
-                  );
-                  
-                  // 实时滚动到底部
-                  setTimeout(scrollToBottom, 50);
-                } else {
-                    // 即使没有结构化内容解析出来（可能是纯空格等），也要更新 content
-                    setMessages(prev =>
-                        prev.map(msg =>
-                          msg.id === aiMessageId
-                            ? { 
-                                ...msg, 
-                                content: fullContent, // 使用累积的完整内容
-                                isStreaming: true 
-                              }
-                            : msg
-                        )
-                      );
+                  accumulatedContents.push(...parsedContents);
                 }
+
+                // 统一更新消息（合并两个分支，减少重复代码）
+                const snapshotContents = parsedContents.length > 0 ? [...accumulatedContents] : undefined;
+                setMessages(prev =>
+                  prev.map(msg =>
+                    msg.id === aiMessageId
+                      ? {
+                          ...msg,
+                          content: fullContent,
+                          ...(snapshotContents ? { parsedContents: snapshotContents } : {}),
+                          isStreaming: true,
+                        }
+                      : msg
+                  )
+                );
+
+                // 节流滚动到底部
+                throttledScrollToBottom();
               } else if (data.type === 'complete') {
                 markStreamComplete();
               } else if (data.type === 'error') {
@@ -733,6 +768,7 @@ const ConversationView: React.FC<ConversationViewProps> = ({
     } finally {
       streamAbortRef.current = null;
       suppressInitialLoadRef.current = false;
+      sendingLockRef.current = false;
       setSending(false);
     }
   };

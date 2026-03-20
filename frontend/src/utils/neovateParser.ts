@@ -34,15 +34,34 @@ export interface ParsedContent {
   toolCallId?: string;
 }
 
+/**
+ * SDK/模型内部标记正则
+ * 匹配: [NOTE]、[System]、[task:id=1]、[task(name="...")]  等控制消息
+ */
+const SDK_INTERNAL_MARKER_RE = /\[(NOTE|System|task[:\(][^\]]*)\]/gi;
+
+/**
+ * 清理文本中的 SDK 内部标记，返回清理后的文本
+ * 如果整段文本都是标记则返回空字符串
+ */
+function stripSdkInternalMarkers(text: string): string {
+  return text.replace(SDK_INTERNAL_MARKER_RE, '').trim();
+}
+
 function parseEventToContents(event: NeovateMessage): ParsedContent[] {
   const contents: ParsedContent[] = [];
 
   if (event.role === 'assistant' && Array.isArray(event.content)) {
     for (const block of event.content) {
       if (block.type === 'text' && block.text) {
+        // 清理 SDK 内部控制标记（如 [task(name="...")]、[NOTE] 等）
+        const cleanedText = stripSdkInternalMarkers(block.text);
+        if (!cleanedText) {
+          continue;
+        }
         contents.push({
           type: 'text',
-          text: block.text,
+          text: cleanedText,
         });
       } else if (block.type === 'tool_use') {
         contents.push({

@@ -592,24 +592,35 @@ export function createConversationRoutes(
       const step2Time = dayjs().valueOf() - step2Start;
       console.log(`[conversationRoutes] 步骤2: SSE 响应头设置完成，耗时 ${step2Time}ms`);
 
+      // 监听客户端断开连接，及时取消 AI 生成
+      let clientDisconnected = false;
+      req.on('close', () => {
+        if (clientDisconnected) return;
+        clientDisconnected = true;
+        console.log(`[conversationRoutes] 客户端断开连接: sessionId=${sessionId}`);
+        aiService.cancelResponse(sessionId);
+      });
+
       const step3Start = dayjs().valueOf();
       console.log(`[conversationRoutes] 步骤3: 开始异步处理...`);
 
       (async () => {
         try {
           const step3aStart = dayjs().valueOf();
-          conversationManager.addMessage(
-            sessionId,
-            MessageRole.USER,
-            trimmedContent,
-            normalizedImages.length > 0 ? { images: normalizedImages } : undefined,
-            session,
-            true
-          ).catch(error => {
-            console.error(`[conversationRoutes] 异步保存用户消息失败:`, error);
-          });
+          try {
+            await conversationManager.addMessage(
+              sessionId,
+              MessageRole.USER,
+              trimmedContent,
+              normalizedImages.length > 0 ? { images: normalizedImages } : undefined,
+              session
+            );
+          } catch (error) {
+            console.error(`[conversationRoutes] 保存用户消息失败:`, error);
+            // 用户消息保存失败仍继续 AI 生成，但记录错误
+          }
           const step3aTime = dayjs().valueOf() - step3aStart;
-          console.log(`[conversationRoutes] 步骤3a: 用户消息异步保存启动，耗时 ${step3aTime}ms`);
+          console.log(`[conversationRoutes] 步骤3a: 用户消息保存完成，耗时 ${step3aTime}ms`);
 
           const step3bStart = dayjs().valueOf();
           console.log(`[conversationRoutes] 步骤3b: 开始流式生成 AI 响应...`);
@@ -621,8 +632,15 @@ export function createConversationRoutes(
             trimmedContent,
             sessionId,
             (chunk: string) => {
+              if (clientDisconnected) return;
               fullContent += chunk;
-              res.write(`data: ${JSON.stringify({ type: 'chunk', content: chunk })}\n\n`);
+              try {
+                res.write(`data: ${JSON.stringify({ type: 'chunk', content: chunk })}\n\n`);
+              } catch (writeErr) {
+                console.warn(`[conversationRoutes] SSE write 失败，客户端可能已断开:`, writeErr);
+                clientDisconnected = true;
+                aiService.cancelResponse(sessionId);
+              }
             },
             resolvedModel,
             normalizedImages
@@ -636,22 +654,33 @@ export function createConversationRoutes(
             content: fullContent || aiResponse.content
           };
 
-          conversationManager.addMessage(
-            sessionId,
-            MessageRole.ASSISTANT,
-            parsedAiResponse.content,
-            parsedAiResponse.metadata,
-            session
-          ).catch(error => {
+          try {
+            await conversationManager.addMessage(
+              sessionId,
+              MessageRole.ASSISTANT,
+              parsedAiResponse.content,
+              parsedAiResponse.metadata,
+              session
+            );
+          } catch (error) {
             console.error(`[conversationRoutes] 保存 AI 响应失败:`, error);
-          });
+            // AI 响应保存失败仍发送 complete，但记录错误
+          }
 
-          res.write(`data: ${JSON.stringify({ type: 'complete' })}\n\n`);
+          if (!clientDisconnected) {
+            res.write(`data: ${JSON.stringify({ type: 'complete' })}\n\n`);
+          }
         } catch (error) {
           console.error('[conversationRoutes] 异步处理失败:', error);
-          res.write(`data: ${JSON.stringify({ type: 'error', message: '处理失败' })}\n\n`);
+          if (!clientDisconnected) {
+            try {
+              res.write(`data: ${JSON.stringify({ type: 'error', message: '处理失败' })}\n\n`);
+            } catch (_) { /* 连接已断开，忽略 */ }
+          }
         } finally {
-          res.end();
+          if (!clientDisconnected) {
+            res.end();
+          }
           const totalTime = dayjs().valueOf() - startTime;
           console.log(`[conversationRoutes] ========== 消息处理完成，总耗时: ${totalTime}ms ==========`);
         }

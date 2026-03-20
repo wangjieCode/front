@@ -38,21 +38,7 @@ const MessageList: React.FC<MessageListProps> = ({
   onMessageClick,
   onCodeChangeFileClick,
 }) => {
-  // 添加打字机光标动画样式
-  React.useEffect(() => {
-    const style = document.createElement('style');
-    style.textContent = `
-      @keyframes blink {
-        0%, 50% { opacity: 1; }
-        51%, 100% { opacity: 0; }
-      }
-    `;
-    document.head.appendChild(style);
-    
-    return () => {
-      document.head.removeChild(style);
-    };
-  }, []);
+  // @keyframes blink 已移至全局 App.css，无需动态注入
 
   /**
    * 获取代码变更图标
@@ -487,10 +473,14 @@ const MessageList: React.FC<MessageListProps> = ({
     );
   };
 
-  // 按时间排序消息（从旧到新）
-  const sortedMessages = [...messages].sort(
-    (a, b) =>
-      new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+  // 按时间排序消息（从旧到新），用 useMemo 避免每次渲染重排
+  const sortedMessages = React.useMemo(
+    () =>
+      [...messages].sort(
+        (a, b) =>
+          new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+      ),
+    [messages]
   );
 
   return (
@@ -500,4 +490,4 @@ const MessageList: React.FC<MessageListProps> = ({
   );
 };
 
-export default MessageList;
+export default React.memo(MessageList);

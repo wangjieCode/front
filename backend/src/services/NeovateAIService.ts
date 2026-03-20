@@ -122,6 +122,10 @@ export class NeovateAIService {
       console.warn(
         `[AI-EXEC] 恢复会话失败，回退为新建会话重试。sessionId=${existingSessionId}, error=${error?.message}`
       );
+      // 通知前端重置之前的残留内容，避免重试输出与旧输出混在一起
+      if (onChunk) {
+        onChunk(JSON.stringify({ type: 'retry_reset' }) + '\n');
+      }
       const retry = await runNeovateSdk({ prompt, workDir, model, abortSignal, onChunk });
       output = retry.output;
       durationMs += retry.durationMs;

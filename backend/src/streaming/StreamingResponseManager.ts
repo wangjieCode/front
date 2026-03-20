@@ -18,7 +18,7 @@ export class StreamingResponseManager {
     this.heartbeatIntervals = new Map();
     this.config = {
       heartbeatInterval: config?.heartbeatInterval ?? 30000,
-      connectionTimeout: config?.connectionTimeout ?? 60000,
+      connectionTimeout: config?.connectionTimeout ?? 300000, // 5分钟，AI 生成复杂代码可能耗时较长
     };
   }
 

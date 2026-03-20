@@ -35,8 +35,8 @@ export class ConversationManager {
   readonly projectService: ProjectService;
   private cache: RedisCacheService;
   private cacheStrategyManager: CacheStrategyManager;
-  private sessionCacheTtlSeconds = 0;
-  private sessionListCacheTtlSeconds = 0;
+  private sessionCacheTtlSeconds = Number(process.env.SESSION_CACHE_TTL_SECONDS) || 120;
+  private sessionListCacheTtlSeconds = Number(process.env.SESSION_LIST_CACHE_TTL_SECONDS) || 60;
 
   constructor(
     storage: IConversationStorage,
@@ -57,8 +57,18 @@ export class ConversationManager {
     let release!: () => void;
     const lockHeld = new Promise<void>(r => { release = r; });
     const prev = this.lockQueues.get(sessionId) ?? Promise.resolve();
-    this.lockQueues.set(sessionId, prev.then(() => lockHeld));
-    return prev.then(() => release);
+    const next = prev.then(() => lockHeld);
+    this.lockQueues.set(sessionId, next);
+    return prev.then(() => {
+      // 返回包装后的 release：释放锁后清理已完成的队列条目，防止内存泄漏
+      return () => {
+        release();
+        // 只有当队列末尾仍是当前 promise 时才清理（没有后续等待者）
+        if (this.lockQueues.get(sessionId) === next) {
+          this.lockQueues.delete(sessionId);
+        }
+      };
+    });
   }
 
   // ==================== 缓存键 ====================

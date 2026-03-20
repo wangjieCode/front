@@ -1,5 +1,5 @@
 import { drizzle } from 'drizzle-orm/postgres-js';
-import { eq } from 'drizzle-orm';
+import { eq, lt } from 'drizzle-orm';
 import postgres from 'postgres';
 import { neovateSessions } from '../db/schema';
 import { NeovateSessionInfo } from '../types';
@@ -15,7 +15,8 @@ import { convertToStoredPath, resolveStoredPath } from '../utils/PathUtils';
 export class NeovateSessionManagerDB {
   private client: postgres.Sql;
   private db: ReturnType<typeof drizzle>;
-  private locks: Map<string, boolean> = new Map();
+  // Promise 队列锁，替代自旋锁
+  private lockQueues = new Map<string, Promise<void>>();
 
   constructor(databaseUrl: string) {
     this.client = postgres(databaseUrl);
@@ -23,20 +24,23 @@ export class NeovateSessionManagerDB {
   }
 
   /**
-   * 获取锁
+   * 获取 Promise 队列锁（无自旋，无竞态）
    */
-  private async acquireLock(conversationId: string): Promise<void> {
-    while (this.locks.get(conversationId)) {
-      await new Promise(resolve => setTimeout(resolve, 10));
-    }
-    this.locks.set(conversationId, true);
-  }
-
-  /**
-   * 释放锁
-   */
-  private releaseLock(conversationId: string): void {
-    this.locks.delete(conversationId);
+  private acquireLock(conversationId: string): Promise<() => void> {
+    let release!: () => void;
+    const lockHeld = new Promise<void>(r => { release = r; });
+    const prev = this.lockQueues.get(conversationId) ?? Promise.resolve();
+    const next = prev.then(() => lockHeld);
+    this.lockQueues.set(conversationId, next);
+    return prev.then(() => {
+      return () => {
+        release();
+        // 无后续等待者时清理条目，防止内存泄漏
+        if (this.lockQueues.get(conversationId) === next) {
+          this.lockQueues.delete(conversationId);
+        }
+      };
+    });
   }
 
   /**
@@ -79,45 +83,34 @@ export class NeovateSessionManagerDB {
     neovateSessionId: string,
     workDir: string
   ): Promise<void> {
-    await this.acquireLock(conversationId);
+    const release = await this.acquireLock(conversationId);
 
     try {
       console.log(`[NeovateSessionManagerDB] 保存对话 ${conversationId} 的会话 ID: ${neovateSessionId}`);
 
-      // 检查是否已存在
-      const existing = await this.db
-        .select()
-        .from(neovateSessions)
-        .where(eq(neovateSessions.conversationId, conversationId))
-        .limit(1);
-
-      if (existing.length > 0) {
-        await this.db
-          .update(neovateSessions)
-          .set({
-            neovateSessionId,
-            workDir: convertToStoredPath(workDir) || '',
-            lastUsedAt: dayjs().toDate(),
-          })
-          .where(eq(neovateSessions.conversationId, conversationId));
-        console.log(`[NeovateSessionManagerDB] 会话信息已更新`);
-      } else {
-        // 插入新记录
-        await this.db.insert(neovateSessions).values({
-          id: newId(),
-          conversationId,
+      const storedWorkDir = convertToStoredPath(workDir) || '';
+      // 使用 UPSERT 替代 SELECT + INSERT/UPDATE，消除竞态和多余查询
+      await this.db.insert(neovateSessions).values({
+        id: newId(),
+        conversationId,
+        neovateSessionId,
+        workDir: storedWorkDir,
+        lastUsedAt: dayjs().toDate(),
+      }).onConflictDoUpdate({
+        target: neovateSessions.conversationId,
+        set: {
           neovateSessionId,
-          workDir: convertToStoredPath(workDir) || '',
+          workDir: storedWorkDir,
           lastUsedAt: dayjs().toDate(),
-        });
+        },
+      });
 
-        console.log(`[NeovateSessionManagerDB] 会话信息已创建`);
-      }
+      console.log(`[NeovateSessionManagerDB] 会话信息已保存`);
     } catch (error) {
       console.error(`[NeovateSessionManagerDB] 保存会话信息失败:`, error);
       throw error;
     } finally {
-      this.releaseLock(conversationId);
+      release();
     }
   }
 
@@ -126,7 +119,7 @@ export class NeovateSessionManagerDB {
    * @param conversationId 对话 ID
    */
   async deleteSession(conversationId: string): Promise<void> {
-    await this.acquireLock(conversationId);
+    const release = await this.acquireLock(conversationId);
 
     try {
       console.log(`[NeovateSessionManagerDB] 删除对话 ${conversationId} 的会话映射`);
@@ -140,7 +133,7 @@ export class NeovateSessionManagerDB {
       console.error(`[NeovateSessionManagerDB] 删除会话映射失败:`, error);
       throw error;
     } finally {
-      this.releaseLock(conversationId);
+      release();
     }
   }
 
@@ -199,21 +192,21 @@ export class NeovateSessionManagerDB {
     console.log('[NeovateSessionManagerDB] 开始清理过期会话');
 
     try {
-      const expirationTime = 24 * 60 * 60 * 1000; // 24 小时（毫秒）
-      const expirationDate = dayjs().subtract(expirationTime, 'millisecond').toDate();
+      const expirationDate = dayjs().subtract(24, 'hour').toDate();
 
-      // 查询过期会话
+      // 先统计数量，再批量删除（一条 SQL 替代逐条 deleteSession）
       const expiredSessions = await this.db
-        .select()
+        .select({ id: neovateSessions.id })
         .from(neovateSessions)
-        .where(eq(neovateSessions.lastUsedAt, expirationDate));
-
-      // 删除过期会话
-      for (const session of expiredSessions) {
-        await this.deleteSession(session.conversationId);
-      }
+        .where(lt(neovateSessions.lastUsedAt, expirationDate));
 
       const cleanedCount = expiredSessions.length;
+      if (cleanedCount > 0) {
+        await this.db
+          .delete(neovateSessions)
+          .where(lt(neovateSessions.lastUsedAt, expirationDate));
+      }
+
       console.log(`[NeovateSessionManagerDB] 清理完成，共清理 ${cleanedCount} 个会话`);
       return cleanedCount;
     } catch (error) {

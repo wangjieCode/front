@@ -25,7 +25,7 @@ export const NEOVATE_MODEL_OPTIONS: NeovateModelOption[] = [
 
 export const NEOVATE_MODELS = NEOVATE_MODEL_OPTIONS.map(option => option.value);
 
-export const DEFAULT_NEOVATE_MODEL = 'iflow/qwen3-coder-plus';
+export const DEFAULT_NEOVATE_MODEL = 'iflow/deepseek-v3.2';
 
 export const isNeovateModelSupported = (model?: string): boolean => {
   if (!model) return false;

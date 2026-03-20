@@ -67,6 +67,20 @@ export async function runNeovateSdk(options: NeovateSdkRunOptions): Promise<Neov
       options.abortSignal.addEventListener('abort', handleAbort, { once: true });
     }
 
+    // 禁用 subagent（Agent tool），避免模型输出 [task:...] 标记而不实际执行
+    const disableSubagentPlugin = {
+      name: 'disable-subagent',
+      config: () => ({
+        tools: { Agent: false },
+      }),
+    };
+
+    const sessionOpts = {
+      model,
+      cwd: options.workDir,
+      plugins: [disableSubagentPlugin],
+    };
+
     if (options.sessionId) {
       console.log(
         `[NeovateSdkRunner] 调用 resumeSession: ${JSON.stringify({
@@ -75,10 +89,7 @@ export async function runNeovateSdk(options: NeovateSdkRunOptions): Promise<Neov
           cwd: options.workDir,
         })}`
       );
-      session = await resumeSession(options.sessionId, {
-        model,
-        cwd: options.workDir,
-      });
+      session = await resumeSession(options.sessionId, sessionOpts);
     } else {
       console.log(
         `[NeovateSdkRunner] 调用 createSession: ${JSON.stringify({
@@ -86,10 +97,7 @@ export async function runNeovateSdk(options: NeovateSdkRunOptions): Promise<Neov
           cwd: options.workDir,
         })}`
       );
-      session = await createSession({
-        model,
-        cwd: options.workDir,
-      });
+      session = await createSession(sessionOpts);
     }
 
     await session.send(options.prompt);
@@ -105,19 +113,39 @@ export async function runNeovateSdk(options: NeovateSdkRunOptions): Promise<Neov
       if (aborted) {
         break;
       }
+
+      // 过滤纯 SDK 内部控制消息（所有 text 块都只含标记），不推送给客户端
+      // 混合内容（正常文本 + 标记）仍推送，由前端 strip
+      const SDK_MARKER_RE = /^\[(NOTE|System|task[:\(][^\]]*)\]$/i;
+      const isInternalMsg = msg && typeof msg === 'object'
+        && (msg as any).role === 'assistant'
+        && Array.isArray((msg as any).content)
+        && (msg as any).content.length > 0
+        && (msg as any).content.every(
+          (block: any) => block.type === 'text' && typeof block.text === 'string'
+            && SDK_MARKER_RE.test(block.text.trim())
+        );
+
+      if (isInternalMsg) {
+        console.log(`[NeovateSdkRunner] 过滤 SDK 内部消息，不推送客户端: ${JSON.stringify(msg).substring(0, 200)}`);
+      }
+
       const line = `${JSON.stringify(msg)}\n`;
       output += line;
-      if (options.onChunk) {
+      if (options.onChunk && !isInternalMsg) {
         options.onChunk(line);
       }
-      if (
-        msg
-        && typeof msg === 'object'
-        && (msg as any).type === 'result'
-        && ((msg as any).isError || (msg as any).subtype === 'error')
-      ) {
-        error = new Error((msg as any).content || '模型执行失败');
-        break;
+      // 记录 result 事件用于诊断
+      if (msg && typeof msg === 'object' && (msg as any).type === 'result') {
+        console.log(`[NeovateSdkRunner] 收到 result 事件: ${JSON.stringify({
+          subtype: (msg as any).subtype,
+          isError: (msg as any).isError,
+          contentLength: typeof (msg as any).content === 'string' ? (msg as any).content.length : 0,
+        })}`);
+        if ((msg as any).isError || (msg as any).subtype === 'error') {
+          error = new Error((msg as any).content || '模型执行失败');
+          break;
+        }
       }
     }
   } catch (err) {
@@ -146,7 +174,8 @@ export async function runNeovateSdk(options: NeovateSdkRunOptions): Promise<Neov
   }
 
   return {
-    output,
+    // abort 后清空 output，防止部分数据被后续流程当作有效结果处理
+    output: aborted ? '' : output,
     durationMs: Date.now() - start,
     sessionId: session?.sessionId,
     error: aborted ? new Error('aborted') : error,
