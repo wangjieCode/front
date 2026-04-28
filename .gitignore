@@ -10,12 +10,9 @@ dist/
 build/
 *.tsbuildinfo
 
-# 环境变量
-.env
+# 环境变量（本地真实密钥只放在 *.local，仓库里只保留 .env.example）
 .env.local
 .env.*.local
-.env.production
-.env.development
 !.env.example
 
 # 日志

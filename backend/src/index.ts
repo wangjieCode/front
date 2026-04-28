@@ -15,8 +15,11 @@ import {
 } from './api/middleware';
 import type { Request } from 'express';
 
-// 加载环境变量
-dotenv.config();
+// 加载环境变量：.env → .env.local → .env.<env> → .env.<env>.local（后者覆盖前者）
+const NODE_ENV = process.env.NODE_ENV || 'development';
+for (const file of ['.env', '.env.local', `.env.${NODE_ENV}`, `.env.${NODE_ENV}.local`]) {
+  dotenv.config({ path: file, override: true });
+}
 
 const app: Express = express();
 const PORT = process.env.PORT || 3001;

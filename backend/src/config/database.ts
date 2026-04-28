@@ -1,8 +1,11 @@
 import * as dotenv from 'dotenv';
 import { DatabaseConfig } from '../db/DatabaseManager';
 
-// 加载环境变量
-dotenv.config();
+// 加载环境变量：.env → .env.local → .env.<env> → .env.<env>.local（后者覆盖前者）
+const NODE_ENV = process.env.NODE_ENV || 'development';
+for (const file of ['.env', '.env.local', `.env.${NODE_ENV}`, `.env.${NODE_ENV}.local`]) {
+  dotenv.config({ path: file, override: true });
+}
 
 /**
  * 从环境变量加载数据库配置

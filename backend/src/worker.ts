@@ -8,8 +8,11 @@ import { initializeAllServices, getServices } from './services/init';
 import { runArchiveTask, runCleanupTask } from './tasks';
 import { QueueManager, TaskType, MAIN_QUEUE_NAME, getBullOptions } from './queue/QueueManager';
 
-// 加载环境变量
-dotenv.config();
+// 加载环境变量：.env → .env.local → .env.<env> → .env.<env>.local（后者覆盖前者）
+const NODE_ENV = process.env.NODE_ENV || 'development';
+for (const file of ['.env', '.env.local', `.env.${NODE_ENV}`, `.env.${NODE_ENV}.local`]) {
+  dotenv.config({ path: file, override: true });
+}
 
 const ONE_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 const ONE_WEEK_SECONDS = 7 * 24 * 60 * 60;
